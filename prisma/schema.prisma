@@ -1,0 +1,32 @@
+// BloxFi API — Prisma schema
+// Phase 0: minimal schema; models added in feature phases.
+//
+// Connection URL is configured in prisma.config.ts (root). Run Prisma commands from project root.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Placeholder for Phase 0; real models added in Feature 1+
+model SchemaVersion {
+  id String @id @default(uuid())
+}
+
+// Partner/API keys: min 32 chars per spec; store hash only; support sandbox/production and rotation.
+model ApiKey {
+  id        String   @id @default(uuid())
+  keyHash   String   @unique // SHA-256 of the raw key; never store plaintext
+  keyPrefix String   // First 8 chars for display/logging (e.g. "blxfi_ab")
+  partnerId String   // Client/partner identifier
+  environment String // "sandbox" | "production"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([keyHash, isActive])
+}

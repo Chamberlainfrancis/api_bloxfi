@@ -1,0 +1,10 @@
+node_modules/
+dist/
+generated/
+.env
+*.log
+.DS_Store
+generated
+.cursor
+docs/
+CURSOR_RULES.md
