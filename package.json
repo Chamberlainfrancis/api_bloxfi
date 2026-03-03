@@ -2,6 +2,11 @@
   "name": "api-bloxfi",
   "version": "0.1.0",
   "description": "BloxFi aggregation API",
+  "author": {
+    "name": "Chamberlain",
+    "email": "chamberlainfrancis@gmail.com",
+    "url": "https://github.com/Chamberlainfrancis"
+  },
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
