@@ -6,6 +6,7 @@ import { errorMiddleware } from './middleware/error';
 import { authMiddleware } from './middleware/auth';
 import { rateLimitMiddleware } from './middleware/rateLimit';
 import { v1Router } from './api/v1';
+import { webhooksRouter } from './api/v1/webhooks/routes';
 import { pingDb } from './db/repositories/health.repo';
 import { hashApiKey, findActiveApiKeyByKeyHash } from './db/repositories/apiKey.repo';
 import { getRedis } from './services/redis';
@@ -21,6 +22,15 @@ app.use(
     credentials: true,
   })
 );
+
+// Inbound LP webhooks: raw body for signature verification; no API key auth
+app.use(
+  '/api/v1/webhooks',
+  express.raw({ type: 'application/json', limit: '1mb' }),
+  rateLimitMiddleware,
+  webhooksRouter
+);
+
 app.use(express.json({ limit: '10mb' }));
 
 // Validate 32-char API key against DB (hash lookup; supports rotation via isActive).

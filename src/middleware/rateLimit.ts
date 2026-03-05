@@ -10,7 +10,8 @@ const HEADER_REMAINING = 'X-RateLimit-Remaining';
 const HEADER_RESET = 'X-RateLimit-Reset';
 
 /**
- * Redis-backed rate limit. Sets X-RateLimit-* headers; returns standard error when exceeded.
+ * Redis-backed rate limit (fixed window, INCR + EXPIRE). No sorted sets (zset).
+ * Sets X-RateLimit-* headers; returns standard error when exceeded.
  * Key: rateLimit:{identifier} where identifier = userId or apiKeyId or IP.
  */
 export function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -18,21 +19,29 @@ export function rateLimitMiddleware(req: Request, res: Response, next: NextFunct
   const identifier = user?.userId ?? user?.apiKeyId ?? req.ip ?? 'anonymous';
   const key = `rateLimit:${identifier}`;
   const now = Math.floor(Date.now() / 1000);
-  const windowStart = now - WINDOW_SEC;
   const redis = getRedis();
 
   redis
     .multi()
-    .zremrangebyscore(key, 0, windowStart)
-    .zadd(key, now, `${now}-${Math.random()}`)
-    .zcard(key)
-    .expire(key, WINDOW_SEC)
+    .incr(key)
+    .ttl(key)
     .exec()
     .then((results) => {
-      const cardResult = results?.[2];
-      const current = typeof cardResult === 'number' ? cardResult : Number(cardResult?.[1] ?? 0);
+      const err0 = results?.[0]?.[0];
+      const incrVal = results?.[0]?.[1];
+      const ttlVal = results?.[1]?.[1];
+      if (err0 || incrVal == null) {
+        next(new AppError('Service unavailable', 'SERVICE_UNAVAILABLE', 503));
+        return;
+      }
+      const current = Number(incrVal);
+      const ttl = typeof ttlVal === 'number' ? ttlVal : -1;
+      // Set window expiry on first request in window (ttl -1 = no expiry, -2 = key missing)
+      if (ttl === -1 || ttl === -2) {
+        redis.expire(key, WINDOW_SEC).catch(() => {});
+      }
       const remaining = Math.max(0, MAX_REQUESTS - current);
-      const reset = now + WINDOW_SEC;
+      const reset = ttl > 0 ? now + ttl : now + WINDOW_SEC;
 
       res.setHeader(HEADER_LIMIT, String(MAX_REQUESTS));
       res.setHeader(HEADER_REMAINING, String(remaining));

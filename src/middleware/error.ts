@@ -29,7 +29,12 @@ export function errorMiddleware(
   } else if (err instanceof Error) {
     message = err.message;
     const status = (err as Error & { statusCode?: number }).statusCode;
-    if (status && status >= 400 && status < 600) {
+    const multerCode = (err as Error & { code?: string }).code;
+    if (multerCode === 'LIMIT_FILE_SIZE') {
+      statusCode = 400;
+      code = 'INVALID_REQUEST';
+      message = 'File size exceeds maximum allowed (10MB)';
+    } else if (status && status >= 400 && status < 600) {
       statusCode = status;
       if (statusCode === 400) code = 'INVALID_REQUEST';
     }

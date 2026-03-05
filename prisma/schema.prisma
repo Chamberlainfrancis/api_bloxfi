@@ -17,6 +17,270 @@ model SchemaVersion {
   id String @id @default(uuid())
 }
 
+// --- Feature 1: User Creation & KYB (spec §1) ---
+
+enum UserStatus {
+  active
+  inactive
+  suspended
+}
+
+enum KYBStatusEnum {
+  not_started
+  incomplete
+  under_review
+  approved
+  rejected
+  suspended
+}
+
+model User {
+  id                   String    @id @default(uuid())
+  type                 String    @default("business")
+  status               UserStatus @default(active)
+  businessInfo         Json      // BusinessInfo shape
+  registeredAddress    Json      // Address shape
+  legalRepresentative  Json      // LegalRepresentative shape
+  metadata             Json?
+  kybStatus            KYBStatusEnum @default(not_started)
+  approvedRails        String[]  @default([])
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  kybInfo              KybInfo?
+  kybSubmissions       KybSubmission[]
+  kybRailStatuses      KybRailStatus[]
+  kybDocuments         KybDocument[]
+  externalWallets      ExternalWallet[]
+  accounts             Account[]
+  onramps              Onramp[]
+  offramps             Offramp[]
+  highValueRequests    HighValueRequest[]
+
+  @@index([id])
+}
+
+model KybInfo {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessDetails   Json?    // BusinessDetails shape
+  beneficialOwners  Json?    // BeneficialOwner[] shape
+  directors         Json?    // Director[] shape
+  updatedAt         DateTime @updatedAt
+}
+
+model KybSubmission {
+  id                      String    @id @default(uuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rails                   String[]   // e.g. ["USD", "EUR", "GBP"]
+  priority                String?    // e.g. "standard"
+  status                  String     // e.g. "under_review"
+  submittedAt             DateTime   @default(now())
+  estimatedCompletionDate DateTime?
+
+  @@index([userId])
+}
+
+model KybRailStatus {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rail        String    // e.g. "USD", "EUR"
+  status      String    // approved, under_review, etc.
+  approvedAt  DateTime?
+  submittedAt DateTime?
+  capabilities String[] @default([]) // e.g. ["onramp", "offramp"]
+
+  @@unique([userId, rail])
+  @@index([userId])
+}
+
+// --- Feature 2: File Upload & KYB Documents (spec §1.4, §1.5) ---
+
+model File {
+  id         String   @id @default(uuid())
+  filename   String   // original filename
+  size       Int      // bytes
+  mimeType   String   // application/pdf, image/jpeg, image/png
+  storagePath String  // S3 object key (e.g. uploads/uuid_filename.pdf)
+  uploadedAt DateTime @default(now())
+
+  kybDocuments KybDocument[]
+
+  @@index([id])
+}
+
+model KybDocument {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId         String
+  file           File     @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  type           String   // CERTIFICATE_OF_INCORPORATION, DIRECTOR_ID, etc.
+  subType        String?  // e.g. PASSPORT for DIRECTOR_ID
+  status         String   @default("pending_review") // pending_review, approved, rejected
+  metadata       Json?    // issuedCountry, issueDate, expiryDate, documentNumber, ownerName
+  uploadedAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([fileId])
+}
+
+// --- Feature 3: External Wallets (spec §2) ---
+
+enum BlockchainNetwork {
+  POLYGON
+  ETHEREUM
+  BASE
+  SOLANA
+  ARBITRUM
+  OPTIMISM
+  AVALANCHE
+  BNB_CHAIN
+}
+
+model ExternalWallet {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address     String            // blockchain address
+  chain       BlockchainNetwork
+  name        String
+  referenceId String            // client reference for idempotency/correlation
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime?         // null until first update
+
+  @@unique([userId, address, chain])
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+// --- Feature 4: Accounts / Fiat (spec §3) ---
+
+model Account {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  railType        String   // onramp | offramp
+  currency        String
+  paymentRail     String   // ach, wire, pix, spei, etc.
+  accountType     String   // us, brazil, colombia, argentina, mexico, africa
+  accountHolder   Json     // AccountHolder shape
+  regionDetails   Json     // Region-specific details (us/brazil/etc. shape; mask in list)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, railType])
+  @@index([userId, accountType])
+  @@index([userId, currency])
+  @@index([userId, createdAt])
+}
+
+// --- Feature 5: Onramp (spec §4) ---
+
+enum OnrampStatusEnum {
+  CREATED
+  AWAITING_FUNDS
+  FIAT_PENDING
+  FIAT_PROCESSED
+  CRYPTO_INITIATED
+  CRYPTO_PENDING
+  COMPLETED
+  FIAT_FAILED
+  FIAT_RETURNED
+  CRYPTO_FAILED
+  EXPIRED
+}
+
+model Onramp {
+  id                String           @id @default(uuid())
+  requestId         String           @unique // idempotency
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status            OnrampStatusEnum  @default(CREATED)
+  source            Json             // OnrampSource shape
+  destination       Json             // OnrampDestination shape
+  quoteInformation  Json             // QuoteInformation shape
+  depositInfo       Json?             // DepositInfo shape (when CREATED)
+  receipt           Json?             // Receipt shape (when COMPLETED)
+  developerFee      Json?            // { amount, currency }
+  failedReason      String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+// --- Feature 6: Offramp (spec §5) ---
+
+enum OfframpStatusEnum {
+  CREATED
+  AWAITING_CRYPTO
+  CRYPTO_RECEIVED
+  FIAT_PENDING
+  COMPLETED
+  CANCELLED
+  CRYPTO_FAILED
+  FIAT_FAILED
+  EXPIRED
+}
+
+model Offramp {
+  id                   String            @id @default(uuid())
+  requestId            String            @unique // idempotency
+  userId               String
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status               OfframpStatusEnum  @default(CREATED)
+  source               Json              // OfframpSource shape (crypto)
+  destination          Json              // OfframpDestination shape (fiat)
+  rateInformation      Json              // RateInformation shape
+  depositInstructions  Json?             // DepositInstructions (where to send crypto)
+  timeline             Json?             // Timeline shape
+  fees                 Json?             // OfframpFees shape
+  receipt              Json?             // { transactionHash? }
+  refundDetails        Json?             // RefundDetails when cancelled
+  failedReason         String?
+  lpReference          String?           // LP order reference (e.g. Palremit reference)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+// --- Feature 7: Transaction Limits & High-Value Requests (spec §6) ---
+
+enum HighValueRequestStatusEnum {
+  pending
+  under_review
+  approved
+  rejected
+}
+
+model HighValueRequest {
+  id           String                     @id @default(uuid())
+  requestId    String                     @unique // idempotency
+  userId       String
+  user         User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       HighValueRequestStatusEnum @default(pending)
+  currency     String?
+  requestedLimit String?
+  reason       String?
+  reviewedAt   DateTime?
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  @@index([userId])
+  @@index([userId, status])
+}
+
 // Partner/API keys: min 32 chars per spec; store hash only; support sandbox/production and rotation.
 model ApiKey {
   id        String   @id @default(uuid())

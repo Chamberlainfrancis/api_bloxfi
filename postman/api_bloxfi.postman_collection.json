@@ -1,0 +1,839 @@
+{
+  "info": {
+    "name": "BloxFi API",
+    "description": "E2E testing for BloxFi API. Base URL: {{baseUrl}}/api/v1.\n\n**Auth:** Authorization: Bearer {{apiKey}} (32 alphanumeric chars).\n**Idempotent POSTs:** Each request that needs `requestId` has a Pre-request Script that auto-generates a new UUID and sets `requestId` before sending (no need to change it manually).\n\n**E2E flow:** Health → Create User → Get User → Update KYB → Upload File → Attach KYB Documents → Submit KYB → Get KYB Status → Create Account(s) → Add Wallet → Get Onramp Rates → Create Onramp → Get Onramp → Get Offramp Rates → Create Offramp → Get Offramp → Cancel Offramp (optional) → Get Limits → Get User Limits → Create High-Value Request → Get High-Value Request.\n\nRequests with test scripts auto-save response IDs to collection variables (userId, fileId, accountId, walletId, onrampId, offrampId, highValueRequestId). Run in order or set variables manually.\n\nSee docs/E2E_FLOW_GUIDE_POSTMAN.md for full step-by-step guide.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "apiKey", "value": "your-api-key-min-32-characters-long" },
+    { "key": "userId", "value": "" },
+    { "key": "fileId", "value": "" },
+    { "key": "accountId", "value": "" },
+    { "key": "walletId", "value": "" },
+    { "key": "onrampId", "value": "" },
+    { "key": "offrampId", "value": "" },
+    { "key": "highValueRequestId", "value": "" },
+    { "key": "requestId", "value": "705f1f8b-a080-467c-b683-174eca409928" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{apiKey}}", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "health"]
+            },
+            "description": "No auth. 200: { success: true, data: { status: 'ok', timestamp } }."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "description": "Upload file (max 10MB; PDF, JPEG, PNG). Save data.fileId for Attach KYB Documents.",
+      "item": [
+        {
+          "name": "Upload File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().success && pm.response.json().data && pm.response.json().data.fileId) {",
+                  "    pm.collectionVariables.set('fileId', pm.response.json().data.fileId);",
+                  "    console.log('Saved fileId: ' + pm.response.json().data.fileId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select a PDF, JPEG, or PNG file (max 10MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/files",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "files"]
+            },
+            "description": "Multipart form-data, field 'file'. 201: fileId, filename, size, mimeType, uploadedAt. fileId is auto-saved."
+          }
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "description": "User and KYB. Create User first; save userId for all other user-scoped requests.",
+      "item": [
+        {
+          "name": "Create Business User",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
+                  "    pm.collectionVariables.set('userId', pm.response.json().data.id);",
+                  "    console.log('Saved userId: ' + pm.response.json().data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}", "description": "Auto-set by Pre-request Script (new UUID each send)" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"business\",\n  \"businessInfo\": {\n    \"legalName\": \"Acme Corporation Ltd\",\n    \"tradingName\": \"Acme Corp\",\n    \"registrationNumber\": \"12345678\",\n    \"entityType\": \"LIMITED_COMPANY\",\n    \"dateOfIncorporation\": \"2020-01-15\",\n    \"taxIdentificationNumber\": \"GB123456789\",\n    \"website\": \"https://www.acmecorp.com\",\n    \"industry\": \"TECHNOLOGY\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+442071234567\"\n  },\n  \"registeredAddress\": {\n    \"addressLine1\": \"123 Business Street\",\n    \"addressLine2\": \"Suite 400\",\n    \"city\": \"London\",\n    \"stateProvinceRegion\": \"England\",\n    \"postalCode\": \"EC1A 1BB\",\n    \"country\": \"GBR\"\n  },\n  \"legalRepresentative\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Smith\",\n    \"email\": \"john.smith@acmecorp.com\",\n    \"phone\": \"+442071234567\",\n    \"dateOfBirth\": \"1980-05-15\",\n    \"position\": \"Director\",\n    \"address\": {\n      \"addressLine1\": \"456 Residential Road\",\n      \"city\": \"London\",\n      \"stateProvinceRegion\": \"England\",\n      \"postalCode\": \"SW1A 1AA\",\n      \"country\": \"GBR\"\n    }\n  },\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "201: id, type, status, businessInfo, kybStatus, createdAt. userId is auto-saved."
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}"]
+            },
+            "description": "200: full user; 404 if not found."
+          }
+        },
+        {
+          "name": "Update KYB Information",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessDetails\": {\n    \"numberOfEmployees\": \"51-200\",\n    \"annualRevenue\": \"1000000-5000000\",\n    \"sourceOfFunds\": \"BUSINESS_REVENUE\",\n    \"purposeOfAccount\": \"CROSS_BORDER_PAYMENTS\",\n    \"expectedMonthlyVolume\": \"100000-500000\",\n    \"businessDescription\": \"Technology consulting and software development\"\n  },\n  \"beneficialOwners\": [\n    {\n      \"firstName\": \"Jane\",\n      \"lastName\": \"Doe\",\n      \"dateOfBirth\": \"1975-08-22\",\n      \"nationality\": \"GBR\",\n      \"ownershipPercentage\": 60,\n      \"isPoliticallyExposed\": false,\n      \"address\": {\n        \"addressLine1\": \"789 Owner Avenue\",\n        \"city\": \"London\",\n        \"postalCode\": \"W1A 1AA\",\n        \"country\": \"GBR\"\n      }\n    }\n  ],\n  \"directors\": [\n    {\n      \"firstName\": \"John\",\n      \"lastName\": \"Smith\",\n      \"dateOfBirth\": \"1980-05-15\",\n      \"nationality\": \"GBR\",\n      \"position\": \"CEO\",\n      \"isPoliticallyExposed\": false\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/kyb",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "kyb"]
+            },
+            "description": "200: status, missingFields, nextSteps."
+          }
+        },
+        {
+          "name": "Attach KYB Documents",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"type\": \"CERTIFICATE_OF_INCORPORATION\",\n    \"fileId\": \"{{fileId}}\",\n    \"issuedCountry\": \"GBR\",\n    \"issueDate\": \"2020-01-15\",\n    \"expiryDate\": null\n  },\n  {\n    \"type\": \"DIRECTOR_ID\",\n    \"subType\": \"PASSPORT\",\n    \"fileId\": \"{{fileId}}\",\n    \"issuedCountry\": \"GBR\",\n    \"documentNumber\": \"123456789\",\n    \"issueDate\": \"2020-06-01\",\n    \"expiryDate\": \"2030-06-01\",\n    \"ownerName\": \"John Smith\"\n  }\n]"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/kyb/documents",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "kyb", "documents"]
+            },
+            "description": "Array of { type, fileId, ... }. 201: documentsAdded, documents[]."
+          }
+        },
+        {
+          "name": "Submit KYB Application",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rails\": [\"USD\", \"EUR\", \"GBP\"],\n  \"priority\": \"standard\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/kyb/submissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "kyb", "submissions"]
+            },
+            "description": "201: submissionId, status, rails, submittedAt, estimatedCompletionDate."
+          }
+        },
+        {
+          "name": "Get KYB Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/kyb/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "kyb", "status"]
+            },
+            "description": "200: userId, overallStatus, railStatuses[], lastUpdated. Add ?rails=USD,EUR to filter."
+          }
+        },
+        {
+          "name": "Get User Limits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "limits"]
+            },
+            "description": "200: userId, effectiveLimits[], limitIncreaseEligibility, lastUpdated."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallets",
+      "description": "External crypto wallets. Add Wallet returns id; use walletId in onramp/offramp.",
+      "item": [
+        {
+          "name": "Add External Wallet",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
+                  "    pm.collectionVariables.set('walletId', pm.response.json().data.id);",
+                  "    console.log('Saved walletId: ' + pm.response.json().data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"address\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n  \"chain\": \"POLYGON\",\n  \"name\": \"My USDT wallet\",\n  \"referenceId\": \"ref-wallet-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "wallets", "external"]
+            },
+            "description": "chain: POLYGON, ETHEREUM, BASE, SOLANA, ARBITRUM, OPTIMISM, AVALANCHE, BNB_CHAIN. 201: id (auto-saved), userId, address, chain, name, referenceId, active, createdAt."
+          }
+        },
+        {
+          "name": "List Wallets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "wallets", "external"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "chain", "value": "", "disabled": true },
+                { "key": "active", "value": "true", "disabled": true },
+                { "key": "createdBefore", "value": "", "disabled": true }
+              ]
+            },
+            "description": "200: list of wallets. Query: limit, chain, active, createdBefore."
+          }
+        },
+        {
+          "name": "Get Wallet",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external/{{walletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "wallets", "external", "{{walletId}}"]
+            },
+            "description": "200: wallet by id; 404 if not found."
+          }
+        },
+        {
+          "name": "Update Wallet",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated wallet name\",\n  \"active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external/{{walletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "wallets", "external", "{{walletId}}"]
+            },
+            "description": "200: updated wallet. Body: name?, active?."
+          }
+        },
+        {
+          "name": "Delete Wallet",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external/{{walletId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "wallets", "external", "{{walletId}}"]
+            },
+            "description": "204 or 200. Fails if wallet has pending transactions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts",
+      "description": "Fiat accounts for onramp/offramp. Create returns id; use accountId in Create Onramp/Offramp.",
+      "item": [
+        {
+          "name": "Create Account (onramp)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
+                  "    pm.collectionVariables.set('accountId', pm.response.json().data.id);",
+                  "    console.log('Saved accountId: ' + pm.response.json().data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rail\": \"onramp\",\n  \"type\": \"nigeria\",\n  \"accountHolder\": {\n    \"type\": \"business\",\n    \"name\": \"Acme Corporation Ltd\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+2348012345678\"\n  },\n  \"nigeria\": {\n    \"currency\": \"NGN\",\n    \"accountNumber\": \"0123456789\",\n    \"bankName\": \"Test Bank\",\n    \"bankCode\": \"058\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts"]
+            },
+            "description": "type: us, brazil, nigeria, ghana, etc. Provide matching region key (e.g. nigeria) with currency. 200: id (auto-saved), status, message. User must be KYB-approved for rail."
+          }
+        },
+        {
+          "name": "Create Account (offramp)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"nigeria\",\n  \"accountHolder\": {\n    \"type\": \"business\",\n    \"name\": \"Acme Corporation Ltd\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+2348012345678\"\n  },\n  \"nigeria\": {\n    \"currency\": \"NGN\",\n    \"accountNumber\": \"0123456789\",\n    \"bankName\": \"Test Bank\",\n    \"bankCode\": \"058\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts"]
+            },
+            "description": "Same as onramp but rail: offramp. Use a new requestId. Can reuse same accountId for both if one account does both."
+          }
+        },
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "rail", "value": "onramp", "disabled": true },
+                { "key": "type", "value": "nigeria", "disabled": true },
+                { "key": "currency", "value": "NGN", "disabled": true },
+                { "key": "createdBefore", "value": "", "disabled": true },
+                { "key": "createdAfter", "value": "", "disabled": true }
+              ]
+            },
+            "description": "200: list of accounts. Query: rail, type, currency, limit, createdBefore, createdAfter."
+          }
+        },
+        {
+          "name": "Get Account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts/{{accountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts", "{{accountId}}"]
+            },
+            "description": "200: account by id; 404 if not found."
+          }
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts/{{accountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts", "{{accountId}}"]
+            },
+            "description": "204 or 200. Fails if account has pending transactions."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Onramps",
+      "description": "Fiat → Crypto. Need userId, accountId, walletId. Create returns transferDetails.id (onrampId).",
+      "item": [
+        {
+          "name": "Get Onramp Rates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/onramps/rates?fromCurrency=USD&toCurrency=USDT",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "onramps", "rates"],
+              "query": [
+                { "key": "fromCurrency", "value": "USD" },
+                { "key": "toCurrency", "value": "USDT" }
+              ]
+            },
+            "description": "200: fromCurrency, toCurrency, conversionRate."
+          }
+        },
+        {
+          "name": "Create Onramp",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var j = pm.response.json();",
+                  "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
+                  "    pm.collectionVariables.set('onrampId', j.data.transferDetails.id);",
+                  "    console.log('Saved onrampId: ' + j.data.transferDetails.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 100,\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"ach\"\n  },\n  \"destination\": {\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"purposeOfPayment\": \"Investment\",\n  \"fee\": {\n    \"type\": \"PERCENT\",\n    \"value\": 0.01\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/onramps",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "onramps"]
+            },
+            "description": "Body.requestId must match requestId header. 201: transferType ONRAMP, transferDetails (id auto-saved, requestId, status, source, destination, quoteInformation, depositInfo, createdAt). Use new requestId for each create."
+          }
+        },
+        {
+          "name": "List Onramps",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/onramps?userId={{userId}}&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "onramps"],
+              "query": [
+                { "key": "userId", "value": "{{userId}}" },
+                { "key": "limit", "value": "50" },
+                { "key": "status", "value": "CREATED", "disabled": true },
+                { "key": "currency", "value": "USD", "disabled": true },
+                { "key": "createdBefore", "value": "", "disabled": true },
+                { "key": "createdAfter", "value": "", "disabled": true }
+              ]
+            },
+            "description": "200: list of onramps. Query: userId, status, currency, limit, createdBefore, createdAfter."
+          }
+        },
+        {
+          "name": "Get Onramp",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/onramps/{{onrampId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "onramps", "{{onrampId}}"]
+            },
+            "description": "200: transferType, transferDetails (id, status, source, destination, quoteInformation, depositInfo, etc.)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Offramps",
+      "description": "Crypto → Fiat. Need userId, accountId, walletId. Create returns transferDetails.id (offrampId).",
+      "item": [
+        {
+          "name": "Get Offramp Rates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/rates?fromCurrency=USDT&toCurrency=NGN",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps", "rates"],
+              "query": [
+                { "key": "fromCurrency", "value": "USDT" },
+                { "key": "toCurrency", "value": "NGN" },
+                { "key": "fromChain", "value": "POLYGON", "disabled": true }
+              ]
+            },
+            "description": "200: fromCurrency, toCurrency, rate, inverseRate, fromChain?."
+          }
+        },
+        {
+          "name": "Create Offramp",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var j = pm.response.json();",
+                  "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
+                  "    pm.collectionVariables.set('offrampId', j.data.transferDetails.id);",
+                  "    console.log('Saved offrampId: ' + j.data.transferDetails.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005\n  },\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps"]
+            },
+            "description": "Body.requestId must match requestId header. 201: transferType OFFRAMP, transferDetails (id auto-saved, depositInstructions, rateInformation, timeline). Use new requestId for each create."
+          }
+        },
+        {
+          "name": "List Offramps",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps?userId={{userId}}&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps"],
+              "query": [
+                { "key": "userId", "value": "{{userId}}" },
+                { "key": "limit", "value": "50" },
+                { "key": "status", "value": "", "disabled": true },
+                { "key": "currency", "value": "", "disabled": true },
+                { "key": "createdBefore", "value": "", "disabled": true },
+                { "key": "createdAfter", "value": "", "disabled": true }
+              ]
+            },
+            "description": "200: list of offramps."
+          }
+        },
+        {
+          "name": "Get Offramp",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/{{offrampId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps", "{{offrampId}}"]
+            },
+            "description": "200: transferType, transferDetails (id, status, depositInstructions, rateInformation, timeline)."
+          }
+        },
+        {
+          "name": "Cancel Offramp",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/{{offrampId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps", "{{offrampId}}", "cancel"]
+            },
+            "description": "200: updated transferDetails. Only when offramp is in a cancellable state (e.g. before crypto received)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Limits",
+      "description": "Platform and user limits; high-value requests.",
+      "item": [
+        {
+          "name": "Get Limits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "limits"]
+            },
+            "description": "200: lastUpdated, rails[] (rail, currency, onramp, offramp, highValueSupport, processingTime), globalLimits."
+          }
+        },
+        {
+          "name": "Create High-Value Request",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201 && pm.response.json().success && pm.response.json().data && pm.response.json().data.requestId) {",
+                  "    pm.collectionVariables.set('highValueRequestId', pm.response.json().data.requestId);",
+                  "    console.log('Saved highValueRequestId: ' + pm.response.json().data.requestId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"userId\": \"{{userId}}\",\n  \"currency\": \"USD\",\n  \"requestedLimit\": \"500000\",\n  \"reason\": \"Higher monthly volume for Q2\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/high-value-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "high-value-requests"]
+            },
+            "description": "Body.requestId must match requestId header. 201: requestId (auto-saved), userId, status, createdAt, message."
+          }
+        },
+        {
+          "name": "Get High-Value Request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/high-value-requests/{{highValueRequestId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "high-value-requests", "{{highValueRequestId}}"]
+            },
+            "description": "200: requestId, userId, status, currency, requestedLimit, reason, createdAt, updatedAt, reviewedAt?."
+          }
+        }
+      ]
+    }
+  ]
+}
