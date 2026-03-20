@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Base URL: {{baseUrl}}/api/v1.\n\n**Auth:** Authorization: Bearer {{apiKey}} (32 alphanumeric chars).\n**Idempotent POSTs:** Each request that needs `requestId` has a Pre-request Script that auto-generates a new UUID and sets `requestId` before sending (no need to change it manually).\n\n**E2E flow:** Health → Create User → Get User → Update KYB → Upload File → Attach KYB Documents → Submit KYB → Get KYB Status → Create Account(s) → Add Wallet → Get Onramp Rates → Create Onramp → Get Onramp → Get Offramp Rates → Create Offramp → Get Offramp → Cancel Offramp (optional) → Get Limits → Get User Limits → Create High-Value Request → Get High-Value Request.\n\nRequests with test scripts auto-save response IDs to collection variables (userId, fileId, accountId, walletId, onrampId, offrampId, highValueRequestId). Run in order or set variables manually.\n\nSee docs/E2E_FLOW_GUIDE_POSTMAN.md for full step-by-step guide.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both.\n\n**Webhooks:** `POST /api/v1/webhooks` uses **no Bearer auth**; set `webhookSecret` (same as `PALREMIT_ACCESS_KEY` or `WEBHOOK_SECRET`) and run the pre-request script to set `X-Webhook-Signature` (HMAC-SHA256).\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `offrampId`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,7 +14,8 @@
     { "key": "onrampId", "value": "" },
     { "key": "offrampId", "value": "" },
     { "key": "highValueRequestId", "value": "" },
-    { "key": "requestId", "value": "705f1f8b-a080-467c-b683-174eca409928" }
+    { "key": "requestId", "value": "705f1f8b-a080-467c-b683-174eca409928" },
+    { "key": "webhookSecret", "value": "", "description": "PALREMIT_ACCESS_KEY or WEBHOOK_SECRET — used to sign POST /api/v1/webhooks" }
   ],
   "auth": {
     "type": "bearer",
@@ -29,6 +30,7 @@
         {
           "name": "Health check",
           "request": {
+            "auth": { "type": "noauth" },
             "method": "GET",
             "header": [],
             "url": {
@@ -36,7 +38,21 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "health"]
             },
-            "description": "No auth. 200: { success: true, data: { status: 'ok', timestamp } }."
+            "description": "Liveness under `/api/v1`. No auth. 200: `{ success, data: { status, timestamp } }`."
+          }
+        },
+        {
+          "name": "Readiness (DB + Redis)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["ready"]
+            },
+            "description": "Root path (not `/api/v1`). No auth. 200 if DB + Redis OK; 503 if either fails. Body: `{ success, data: { database, redis } }`."
           }
         }
       ]
@@ -111,9 +127,11 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.response.code === 201 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
-                  "    pm.collectionVariables.set('userId', pm.response.json().data.id);",
-                  "    console.log('Saved userId: ' + pm.response.json().data.id);",
+                  "var code = pm.response.code;",
+                  "var j = pm.response.json();",
+                  "if ((code === 201 || code === 200) && j && j.success && j.data && j.data.id) {",
+                  "    pm.collectionVariables.set('userId', j.data.id);",
+                  "    console.log('Saved userId: ' + j.data.id + ' (status ' + code + ')');",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -135,7 +153,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users"]
             },
-            "description": "201: id, type, status, businessInfo, kybStatus, createdAt. userId is auto-saved."
+            "description": "**201** first create; **200** idempotent replay (same `requestId` header + same body). `data.id` is the user UUID. Optional body fields `requestId` / `requestld` must match header when sent. Duplicate business email with a new `requestId` → **409**."
           }
         },
         {
@@ -382,7 +400,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "wallets", "external", "{{walletId}}"]
             },
-            "description": "204 or 200. Fails if wallet has pending transactions."
+            "description": "**200** with success payload (not 204). **400** if wallet has pending transactions (`WALLET_HAS_PENDING_TRANSACTIONS`)."
           }
         }
       ]
@@ -457,6 +475,18 @@
                 ],
                 "type": "text/javascript"
               }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
+                  "    pm.collectionVariables.set('accountId', pm.response.json().data.id);",
+                  "    console.log('Saved accountId (offramp): ' + pm.response.json().data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
             }
           ],
           "request": {
@@ -521,7 +551,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts", "{{accountId}}"]
             },
-            "description": "204 or 200. Fails if account has pending transactions."
+            "description": "**200** with success payload. **409** if account has pending transactions."
           }
         }
       ]
@@ -695,14 +725,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005\n  },\n  \"metadata\": {}\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\"\n  },\n  \"metadata\": {}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "offramps"]
             },
-            "description": "Body.requestId must match requestId header. 201: transferType OFFRAMP, transferDetails (id auto-saved, depositInstructions, rateInformation, timeline). Use new requestId for each create."
+            "description": "Body.requestId must match requestId header. **destination.purposeOfPayment** (required) and **platformFee.walletAddress** (required) must be present per API schema. 201: transferType OFFRAMP, transferDetails (id auto-saved). Use new requestId for each create."
           }
         },
         {
@@ -831,6 +861,50 @@
               "path": ["api", "v1", "high-value-requests", "{{highValueRequestId}}"]
             },
             "description": "200: requestId, userId, status, currency, requestedLimit, reason, createdAt, updatedAt, reviewedAt?."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "description": "Inbound LP webhooks at `POST /api/v1/webhooks`. **No Bearer auth** (separate Express mount). Server verifies `X-Webhook-Signature`: HMAC-SHA256 using `WEBHOOK_SECRET` or `PALREMIT_ACCESS_KEY`. Set collection variable **`webhookSecret`** to that value. Use **minified** JSON body so signature matches canonical `JSON.stringify(JSON.parse(body))`, or sign the exact raw UTF-8 (server accepts either).",
+      "item": [
+        {
+          "name": "Inbound webhook (BloxFi-shaped)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const secret = pm.collectionVariables.get('webhookSecret');",
+                  "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
+                  "if (!secret) { console.warn('Set collection variable webhookSecret to PALREMIT_ACCESS_KEY or WEBHOOK_SECRET'); }",
+                  "else if (raw) {",
+                  "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+                  "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"postman-test-event-1\",\"eventType\":\"onramp.completed\",\"timestamp\":\"2025-01-01T12:00:00.000Z\",\"data\":{\"reference\":\"example-order\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "webhooks"]
+            },
+            "description": "Example **BloxFi** payload (`eventId`, `eventType`, `timestamp`, `data`). Change `eventType`/`data` to match handlers in `src/core/webhooks`. If `require('crypto-js')` fails in your Postman version, compute HMAC-SHA256 hex of the raw body with the same secret and add header `X-Webhook-Signature` manually."
           }
         }
       ]
