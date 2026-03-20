@@ -1,25 +1,22 @@
 /**
- * Webhook controller: verify signature and timestamp, parse payload, delegate to core.
+ * Webhook controller: verify Palremit signature (§7.2), parse payload, delegate to core.
  * No business logic; core processes events via repos.
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import { verifyWebhookSignature, isWebhookTimestampFresh } from '../../../services/webhookVerify';
-import { processWebhookEvent } from '../../../core/webhooks';
-import * as userRepo from '../../../db/repositories/user.repo';
-import * as onrampRepo from '../../../db/repositories/onramp.repo';
-import * as offrampRepo from '../../../db/repositories/offramp.repo';
-import * as highValueRequestRepo from '../../../db/repositories/highValueRequest.repo';
-import { env } from '../../../config/env';
-import { inboundWebhookPayloadSchema } from './schemas';
-import type { InboundWebhookPayload } from '../../../types/webhook';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import { verifyPalremitWebhookSignature } from '@/services/webhookVerify';
+import { processWebhookEvent } from '@/core/webhooks';
+import * as userRepo from '@/db/repositories/user.repo';
+import * as onrampRepo from '@/db/repositories/onramp.repo';
+import * as offrampRepo from '@/db/repositories/offramp.repo';
+import * as highValueRequestRepo from '@/db/repositories/highValueRequest.repo';
+import { env } from '@/config/env';
+import { inboundWebhookPayloadSchema } from '@/api/v1/webhooks/schemas';
+import type { InboundWebhookPayload } from '@/types/webhook';
 
-const WEBHOOK_ID_HEADER = 'x-webhook-id';
-const WEBHOOK_TIMESTAMP_HEADER = 'x-webhook-timestamp';
 const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature';
-const MAX_TIMESTAMP_AGE_SECONDS = 300; // 5 minutes
 
 const webhookRepos = {
   user: {
@@ -29,10 +26,12 @@ const webhookRepos = {
   },
   onramp: {
     findOnrampById: onrampRepo.findOnrampById,
+    findOnrampByReferenceMatch: onrampRepo.findOnrampByReferenceMatch,
     updateOnrampStatus: onrampRepo.updateOnrampStatus,
   },
   offramp: {
     findOfframpById: offrampRepo.findOfframpById,
+    findOfframpByReferenceMatch: offrampRepo.findOfframpByReferenceMatch,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
   },
   highValueRequest: {
@@ -64,36 +63,23 @@ export async function handleInboundWebhook(
       return;
     }
 
-    const webhookId = getHeader(req, WEBHOOK_ID_HEADER);
-    const timestamp = getHeader(req, WEBHOOK_TIMESTAMP_HEADER);
+    const rawUtf8 = rawBody.toString('utf8');
     const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
 
-    if (!webhookId || !timestamp || !signature) {
-      next(
-        new AppError(
-          'Missing webhook headers: X-Webhook-Id, X-Webhook-Timestamp, X-Webhook-Signature',
-          'INVALID_REQUEST',
-          400
-        )
-      );
+    if (!signature) {
+      next(new AppError('Missing X-Webhook-Signature header', 'INVALID_REQUEST', 400));
       return;
     }
 
-    const secret = env.WEBHOOK_SECRET;
-    if (secret) {
-      if (!verifyWebhookSignature(webhookId, timestamp, rawBody, secret, signature)) {
-        next(new AppError('Invalid webhook signature', 'UNAUTHORIZED', 401));
-        return;
-      }
-      if (!isWebhookTimestampFresh(timestamp, MAX_TIMESTAMP_AGE_SECONDS)) {
-        next(new AppError('Webhook timestamp expired or invalid', 'INVALID_REQUEST', 400));
-        return;
-      }
+    const secret = env.WEBHOOK_SECRET ?? env.PALREMIT_ACCESS_KEY;
+    if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
+      next(new AppError('Invalid webhook signature', 'UNAUTHORIZED', 401));
+      return;
     }
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(rawBody.toString('utf8'));
+      parsed = JSON.parse(rawUtf8);
     } catch {
       next(new AppError('Invalid webhook JSON', 'INVALID_REQUEST', 400));
       return;

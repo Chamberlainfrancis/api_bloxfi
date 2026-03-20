@@ -5,7 +5,7 @@
 import type {
   GetExternalWalletResponse,
   BlockchainNetwork,
-} from '../../types/wallet';
+} from '@/types/wallet';
 
 export interface WalletRepoGet {
   findExternalWalletByIdAndUser(

@@ -4,11 +4,11 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import { uploadFile } from '../../../core/files';
-import * as fileRepo from '../../../db/repositories/file.repo';
-import { storeFile, isAllowedMimeType, MAX_FILE_SIZE_BYTES } from '../../../services/storage';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import { uploadFile } from '@/core/files';
+import * as fileRepo from '@/db/repositories/file.repo';
+import { storeFile, isAllowedMimeType, MAX_FILE_SIZE_BYTES } from '@/services/storage';
 
 export async function uploadFileHandler(
   req: Request,

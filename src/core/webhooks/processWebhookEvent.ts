@@ -1,14 +1,15 @@
 /**
- * Core: process inbound webhook events from LPs. Update state via repository interfaces.
- * Spec: user.*, kyb.*, document.reviewed; wallet.*; account.*; onramp.*; offramp.*; limit.*.
+ * Core: process inbound webhook events from LPs / Palremit. Update state via repository interfaces.
+ * BloxFi-shaped: user.*, kyb.*, onramp.*, offramp.*, …
+ * Palremit §7: ramp.order.* — map to BloxFi ramp statuses using reference / id in `data`.
  * No Express/Prisma; receives repos via DI.
  */
 
-import type { InboundWebhookPayload, WebhookEventType } from '../../types/webhook';
-import type { OnrampStatus } from '../../types/onramp';
-import type { OfframpStatus } from '../../types/offramp';
-import type { KYBStatus } from '../../types/user';
-import type { HighValueRequestStatus } from '../../types/limits';
+import type { InboundWebhookPayload } from '@/types/webhook';
+import type { OnrampStatus } from '@/types/onramp';
+import type { OfframpStatus } from '@/types/offramp';
+import type { KYBStatus } from '@/types/user';
+import type { HighValueRequestStatus } from '@/types/limits';
 
 export interface WebhookRepos {
   user: {
@@ -23,7 +24,8 @@ export interface WebhookRepos {
     ): Promise<void>;
   };
   onramp: {
-    findOnrampById(id: string): Promise<{ id: string } | null>;
+    findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
+    findOnrampByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
     updateOnrampStatus(
       id: string,
       status: OnrampStatus,
@@ -31,7 +33,8 @@ export interface WebhookRepos {
     ): Promise<unknown>;
   };
   offramp: {
-    findOfframpById(id: string): Promise<{ id: string } | null>;
+    findOfframpById(id: string): Promise<{ id: string; status?: string } | null>;
+    findOfframpByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
     updateOfframpStatus(
       id: string,
       status: OfframpStatus,
@@ -40,6 +43,7 @@ export interface WebhookRepos {
         receipt?: object | null;
         failedReason?: string | null;
         refundDetails?: object | null;
+        lpReference?: string | null;
       }
     ): Promise<unknown>;
   };
@@ -67,10 +71,17 @@ const ONRAMP_STATUS_MAP: Record<string, OnrampStatus> = {
 const OFFRAMP_STATUS_MAP: Record<string, OfframpStatus> = {
   CREATED: 'CREATED',
   AWAITING_CRYPTO: 'AWAITING_CRYPTO',
+  CRYPTO_PENDING: 'CRYPTO_PENDING',
   CRYPTO_RECEIVED: 'CRYPTO_RECEIVED',
+  CRYPTO_CONFIRMED: 'CRYPTO_CONFIRMED',
+  PROCESSING_FEE: 'PROCESSING_FEE',
+  FEE_PROCESSED: 'FEE_PROCESSED',
+  FIAT_INITIATED: 'FIAT_INITIATED',
   FIAT_PENDING: 'FIAT_PENDING',
   COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
+  REFUNDED: 'REFUNDED',
   CRYPTO_FAILED: 'CRYPTO_FAILED',
   FIAT_FAILED: 'FIAT_FAILED',
   EXPIRED: 'EXPIRED',
@@ -84,12 +95,116 @@ function toOfframpStatus(s: string): OfframpStatus {
   return OFFRAMP_STATUS_MAP[s] ?? 'CREATED';
 }
 
+function pickString(d: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = d[key];
+    if (typeof value === 'string' && value.trim() !== '') return value;
+  }
+  return undefined;
+}
+
 function toKybStatus(s: string): KYBStatus {
   const v = s?.toLowerCase();
   if (['not_started', 'incomplete', 'under_review', 'approved', 'rejected', 'suspended'].includes(v)) {
     return v as KYBStatus;
   }
   return 'under_review';
+}
+
+function pickPalremitReference(d: Record<string, unknown>): string {
+  return (
+    pickString(d, ['reference', 'order_reference', 'orderReference', 'request_id', 'requestId']) ??
+    pickString(d, ['id', 'order_id', 'orderId']) ??
+    ''
+  );
+}
+
+/** Palremit `ramp.order.*` → BloxFi offramp/onramp rows (matched by id, requestId, lpReference, or deposit reference). */
+async function handlePalremitRampOrder(
+  repos: WebhookRepos,
+  eventType: string,
+  d: Record<string, unknown>
+): Promise<void> {
+  const ref = pickPalremitReference(d);
+  if (!ref) return;
+
+  const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
+  const onramp =
+    offramp == null ? await repos.onramp.findOnrampByReferenceMatch(ref) : null;
+
+  const txHash =
+    pickString(d, ['transaction_hash', 'transactionHash', 'tx_hash', 'txHash']) ?? undefined;
+  const failedReason =
+    (typeof d.message === 'string' && d.message.trim() !== '' ? d.message : undefined) ??
+    pickString(d, ['failure_reason', 'failureReason', 'failed_reason']);
+
+  if (offramp) {
+    const sid = offramp.id;
+    const st = offramp.status;
+    switch (eventType) {
+      case 'ramp.order.pending':
+        if (st === 'CREATED') {
+          await repos.offramp.updateOfframpStatus(sid, 'AWAITING_CRYPTO');
+        }
+        break;
+      case 'ramp.order.processing':
+        if (['CREATED', 'AWAITING_CRYPTO', 'CRYPTO_PENDING'].includes(st)) {
+          await repos.offramp.updateOfframpStatus(sid, 'CRYPTO_PENDING', {
+            ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
+          });
+        }
+        break;
+      case 'ramp.order.successful':
+        await repos.offramp.updateOfframpStatus(sid, 'COMPLETED', {
+          timeline: { completedAt: new Date().toISOString() } as object,
+          ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
+          lpReference: ref,
+        });
+        break;
+      case 'ramp.order.failed':
+        await repos.offramp.updateOfframpStatus(sid, 'FAILED', {
+          failedReason: failedReason ?? 'Palremit ramp failed',
+        });
+        break;
+      case 'ramp.order.cancelled':
+        await repos.offramp.updateOfframpStatus(sid, 'CANCELLED', {
+          timeline: { cancelledAt: new Date().toISOString() } as object,
+        });
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  if (onramp) {
+    const oid = onramp.id;
+    switch (eventType) {
+      case 'ramp.order.pending':
+      case 'ramp.order.processing':
+        if (onramp.status === 'CREATED' || onramp.status === 'AWAITING_FUNDS') {
+          await repos.onramp.updateOnrampStatus(oid, 'CRYPTO_PENDING');
+        }
+        break;
+      case 'ramp.order.successful':
+        await repos.onramp.updateOnrampStatus(oid, 'COMPLETED', {
+          ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
+        });
+        break;
+      case 'ramp.order.failed':
+        await repos.onramp.updateOnrampStatus(oid, 'CRYPTO_FAILED', {
+          failedReason: failedReason ?? 'Palremit ramp failed',
+        });
+        break;
+      case 'ramp.order.cancelled':
+        await repos.onramp.updateOnrampStatus(oid, 'EXPIRED', {
+          failedReason: 'Cancelled',
+        });
+        break;
+      default:
+        break;
+    }
+  }
 }
 
 /**
@@ -102,6 +217,11 @@ export async function processWebhookEvent(
   const { eventType, data } = payload;
   const d = data as Record<string, unknown>;
 
+  if (eventType.startsWith('ramp.order.')) {
+    await handlePalremitRampOrder(repos, eventType, d);
+    return;
+  }
+
   switch (eventType) {
     case 'user.created':
     case 'user.status_updated':
@@ -111,7 +231,7 @@ export async function processWebhookEvent(
     case 'kyb.status_updated':
     case 'kyb.approved':
     case 'kyb.rejected': {
-      const userId = d.userId as string | undefined;
+      const userId = pickString(d, ['userId', 'userld']);
       if (!userId) break;
       const kybStatus = (d.kybStatus as string) || (eventType === 'kyb.approved' ? 'approved' : eventType === 'kyb.rejected' ? 'rejected' : undefined);
       const rails = (d.rails as string[] | undefined) ?? [];
@@ -150,8 +270,27 @@ export async function processWebhookEvent(
 
     case 'onramp.created':
       break;
+    case 'onramp.awaiting_funds':
+    case 'onramp.fiat_received':
+    case 'onramp.fiat_processed':
+    case 'onramp.crypto_initiated': {
+      const onrampId = pickString(d, ['onrampId', 'onrampld']);
+      if (!onrampId) break;
+      const existing = await repos.onramp.findOnrampById(onrampId);
+      if (!existing) break;
+      const nextStatus: OnrampStatus =
+        eventType === 'onramp.awaiting_funds'
+          ? 'AWAITING_FUNDS'
+          : eventType === 'onramp.fiat_received'
+            ? 'FIAT_PENDING'
+            : eventType === 'onramp.fiat_processed'
+              ? 'FIAT_PROCESSED'
+              : 'CRYPTO_INITIATED';
+      await repos.onramp.updateOnrampStatus(onrampId, nextStatus);
+      break;
+    }
     case 'onramp.completed': {
-      const onrampId = d.onrampId as string | undefined;
+      const onrampId = pickString(d, ['onrampId', 'onrampld']);
       if (!onrampId) break;
       const existing = await repos.onramp.findOnrampById(onrampId);
       if (existing) {
@@ -163,7 +302,7 @@ export async function processWebhookEvent(
       break;
     }
     case 'onramp.failed': {
-      const onrampId = d.onrampId as string | undefined;
+      const onrampId = pickString(d, ['onrampId', 'onrampld']);
       if (!onrampId) break;
       const existing = await repos.onramp.findOnrampById(onrampId);
       if (existing) {
@@ -178,21 +317,50 @@ export async function processWebhookEvent(
     case 'offramp.created':
       break;
     case 'offramp.crypto_received': {
-      const offrampId = d.offrampId as string | undefined;
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
         const timeline = { cryptoReceivedAt: new Date().toISOString() };
         const receipt = d.transactionHash ? { transactionHash: d.transactionHash as string } : undefined;
-        await repos.offramp.updateOfframpStatus(offrampId, 'CRYPTO_RECEIVED', {
+        await repos.offramp.updateOfframpStatus(offrampId, 'CRYPTO_PENDING', {
           timeline: timeline as object,
           receipt: receipt ?? null,
         });
       }
       break;
     }
+    case 'offramp.crypto_confirmed': {
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      if (!offrampId) break;
+      const existing = await repos.offramp.findOfframpById(offrampId);
+      if (existing) {
+        await repos.offramp.updateOfframpStatus(offrampId, 'CRYPTO_CONFIRMED');
+      }
+      break;
+    }
+    case 'offramp.fee_processed': {
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      if (!offrampId) break;
+      const existing = await repos.offramp.findOfframpById(offrampId);
+      if (existing) {
+        await repos.offramp.updateOfframpStatus(offrampId, 'FEE_PROCESSED');
+      }
+      break;
+    }
+    case 'offramp.fiat_initiated': {
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      if (!offrampId) break;
+      const existing = await repos.offramp.findOfframpById(offrampId);
+      if (existing) {
+        await repos.offramp.updateOfframpStatus(offrampId, 'FIAT_INITIATED', {
+          timeline: { fiatInitiatedAt: new Date().toISOString() } as object,
+        });
+      }
+      break;
+    }
     case 'offramp.completed': {
-      const offrampId = d.offrampId as string | undefined;
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -203,13 +371,41 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.failed': {
-      const offrampId = d.offrampId as string | undefined;
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
         const failedReason = (d.failureReason ?? d.failedReason) as string | undefined;
-        await repos.offramp.updateOfframpStatus(offrampId, 'FIAT_FAILED', {
+        await repos.offramp.updateOfframpStatus(offrampId, 'FAILED', {
           failedReason: failedReason ?? 'LP reported failure',
+        });
+      }
+      break;
+    }
+    case 'offramp.cancelled': {
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      if (!offrampId) break;
+      const existing = await repos.offramp.findOfframpById(offrampId);
+      if (existing) {
+        await repos.offramp.updateOfframpStatus(offrampId, 'CANCELLED', {
+          timeline: { cancelledAt: new Date().toISOString() } as object,
+        });
+      }
+      break;
+    }
+    case 'offramp.refunded': {
+      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      if (!offrampId) break;
+      const existing = await repos.offramp.findOfframpById(offrampId);
+      if (existing) {
+        await repos.offramp.updateOfframpStatus(offrampId, 'REFUNDED', {
+          refundDetails: {
+            status: (d.refundStatus as string) ?? 'refunded',
+            refundedAt: new Date().toISOString(),
+            transactionHash: (d.refundTransactionHash as string) ?? undefined,
+            currency: (d.refundCurrency as string) ?? undefined,
+            amount: (d.refundAmount as string) ?? undefined,
+          } as object,
         });
       }
       break;

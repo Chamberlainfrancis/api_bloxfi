@@ -1,11 +1,12 @@
-export type { AuthUser } from './auth';
+export type { AuthUser } from '@/types/auth';
 export {
   AppError,
   type ErrorResponseBody,
   type ErrorResponsePayload,
   type ErrorDetailField,
   type ErrorDetails,
-} from './errors';
+} from '@/types/errors';
+export { CreateUserConflictError } from '@/types/createUserConflict';
 export type {
   Address,
   BusinessInfo,
@@ -25,13 +26,13 @@ export type {
   SubmitKybResponse,
   RailStatusItem,
   GetKybStatusResponse,
-} from './user';
+} from '@/types/user';
 export type {
   UploadFileResponse,
   KybDocumentType,
   AttachDocumentItem,
   AttachDocumentsResponse,
-} from './file';
+} from '@/types/file';
 export type {
   BlockchainNetwork,
   ExternalWallet,
@@ -43,8 +44,8 @@ export type {
   UpdateExternalWalletRequest,
   UpdateExternalWalletResponse,
   DeleteExternalWalletResponse,
-} from './wallet';
-export { ACCOUNT_REGION_TYPES } from './account';
+} from '@/types/wallet';
+export { ACCOUNT_REGION_TYPES } from '@/types/account';
 export type {
   RailType,
   AccountRegionType,
@@ -59,7 +60,7 @@ export type {
   ListAccountsResponse,
   GetAccountResponse,
   DeleteAccountResponse,
-} from './account';
+} from '@/types/account';
 export type {
   OnrampStatus,
   OnrampFee,
@@ -78,7 +79,7 @@ export type {
   ListOnrampsQuery,
   ListOnrampsResponse,
   ListOnrampItem,
-} from './onramp';
+} from '@/types/onramp';
 export type {
   OfframpStatus,
   PlatformFee,
@@ -100,7 +101,7 @@ export type {
   ListOfframpsResponse,
   ListOfframpItem,
   CancelOfframpResponse,
-} from './offramp';
+} from '@/types/offramp';
 export type {
   DirectionalLimits,
   RailLimits,
@@ -114,11 +115,11 @@ export type {
   CreateHighValueRequestInput,
   CreateHighValueRequestResponse,
   GetHighValueRequestResponse,
-} from './limits';
+} from '@/types/limits';
 export type {
   WebhookEventType,
   InboundWebhookPayload,
   WebhookKybData,
   WebhookOnrampData,
   WebhookOfframpData,
-} from './webhook';
+} from '@/types/webhook';

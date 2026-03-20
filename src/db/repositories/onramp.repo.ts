@@ -3,8 +3,8 @@
  * Per CURSOR_RULES: all DB access for onramps goes through this file.
  */
 
-import { prisma } from '../prisma/client';
-import type { OnrampStatus } from '../../types/onramp';
+import { prisma } from '@/db/prisma/client';
+import type { OnrampStatus } from '@/types/onramp';
 
 // Map our status type to Prisma enum (same string values).
 const STATUS_VALUES = [
@@ -79,6 +79,22 @@ export async function findOnrampByRequestId(requestId: string): Promise<OnrampRo
     where: { requestId },
   });
   return row as OnrampRow | null;
+}
+
+/** Match BloxFi id, requestId, or depositInfo.reference (Palremit withdrawal reference). */
+export async function findOnrampByReferenceMatch(ref: string): Promise<OnrampRow | null> {
+  const trimmed = ref?.trim();
+  if (!trimmed) return null;
+  const byRequest = await findOnrampByRequestId(trimmed);
+  if (byRequest) return byRequest;
+  const byId = await findOnrampById(trimmed);
+  if (byId) return byId;
+  const rows = await prisma.$queryRaw<OnrampRow[]>`
+    SELECT * FROM "Onramp"
+    WHERE "depositInfo"->>'reference' = ${trimmed}
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
 }
 
 export async function updateOnrampStatus(

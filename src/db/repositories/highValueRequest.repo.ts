@@ -2,8 +2,8 @@
  * High-value request repository. Only layer that touches Prisma for HighValueRequest.
  */
 
-import { prisma } from '../prisma/client';
-import type { HighValueRequestStatus } from '../../types/limits';
+import { prisma } from '@/db/prisma/client';
+import type { HighValueRequestStatus } from '@/types/limits';
 
 const STATUS_VALUES = ['pending', 'under_review', 'approved', 'rejected'] as const;
 

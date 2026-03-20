@@ -1,15 +1,15 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import { env } from './config';
-import { errorMiddleware } from './middleware/error';
-import { authMiddleware } from './middleware/auth';
-import { rateLimitMiddleware } from './middleware/rateLimit';
-import { v1Router } from './api/v1';
-import { webhooksRouter } from './api/v1/webhooks/routes';
-import { pingDb } from './db/repositories/health.repo';
-import { hashApiKey, findActiveApiKeyByKeyHash } from './db/repositories/apiKey.repo';
-import { getRedis } from './services/redis';
+import { env } from '@/config';
+import { errorMiddleware } from '@/middleware/error';
+import { authMiddleware } from '@/middleware/auth';
+import { rateLimitMiddleware } from '@/middleware/rateLimit';
+import { v1Router } from '@/api/v1';
+import { webhooksRouter } from '@/api/v1/webhooks/routes';
+import { pingDb } from '@/db/repositories/health.repo';
+import { hashApiKey, findActiveApiKeyByKeyHash } from '@/db/repositories/apiKey.repo';
+import { getRedis } from '@/services/redis';
 
 const app = express();
 

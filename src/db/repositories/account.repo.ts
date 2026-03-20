@@ -3,8 +3,8 @@
  * Per CURSOR_RULES: all DB access for accounts goes through this file.
  */
 
-import { prisma } from '../prisma/client';
-import type { RailType, AccountRegionType } from '../../types/account';
+import { prisma } from '@/db/prisma/client';
+import type { RailType, AccountRegionType } from '@/types/account';
 
 export interface CreateAccountData {
   userId: string;

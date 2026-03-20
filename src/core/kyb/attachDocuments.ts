@@ -4,7 +4,7 @@
  * No Express/Prisma; receives repos via DI.
  */
 
-import type { AttachDocumentsResponse, AttachDocumentItem } from '../../types/file';
+import type { AttachDocumentsResponse, AttachDocumentItem } from '@/types/file';
 
 export interface UserRepoFind {
   findUserById(id: string): Promise<{ id: string } | null>;

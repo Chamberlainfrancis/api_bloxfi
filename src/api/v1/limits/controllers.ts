@@ -3,12 +3,12 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as limitsCore from '../../../core/limits';
-import * as highValueRequestRepo from '../../../db/repositories/highValueRequest.repo';
-import * as userRepo from '../../../db/repositories/user.repo';
-import { createHighValueRequestBodySchema } from './schemas';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import * as limitsCore from '@/core/limits';
+import * as highValueRequestRepo from '@/db/repositories/highValueRequest.repo';
+import * as userRepo from '@/db/repositories/user.repo';
+import { createHighValueRequestBodySchema } from '@/api/v1/limits/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
 

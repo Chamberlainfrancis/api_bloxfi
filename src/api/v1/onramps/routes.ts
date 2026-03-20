@@ -4,8 +4,8 @@
  */
 
 import { Router } from 'express';
-import { idempotencyMiddleware } from '../../../middleware/idempotency';
-import * as controllers from './controllers';
+import { idempotencyMiddleware } from '@/middleware/idempotency';
+import * as controllers from '@/api/v1/onramps/controllers';
 
 const router = Router();
 

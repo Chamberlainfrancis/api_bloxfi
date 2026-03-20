@@ -5,7 +5,7 @@
 
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
-import { env } from '../config';
+import { env } from '@/config';
 
 export const ALLOWED_MIME_TYPES = [
   'application/pdf',

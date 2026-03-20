@@ -1,5 +1,5 @@
-export { applyOnrampFee, type OnrampFeeResult } from './applyOnrampFee';
+export { applyOnrampFee, type OnrampFeeResult } from '@/core/payments/applyOnrampFee';
 export {
   applyOfframpPlatformFee,
   type OfframpPlatformFeeResult,
-} from './applyOfframpPlatformFee';
+} from '@/core/payments/applyOfframpPlatformFee';

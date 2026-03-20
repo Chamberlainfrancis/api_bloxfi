@@ -1,52 +1,79 @@
 /**
- * Palremit offramp flow: ensure customer, create offramp order, map to our DTOs.
- * Uses API_INTEGRATION_GUIDE §4.1 (customer profile) and §4.3 (create offramp order).
+ * Palremit offramp: crypto → fiat via Deposits API (receive crypto) + Withdrawals API (fiat payout).
+ * docs/palremit_integration_guide.md §5 (deposits), §6.1 (fiat withdrawal).
  */
 
-import type { PalremitLiquidityRequestFn } from './palremitLiquidity';
+import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
-  createPalremitCustomerProfile,
-  createPalremitOfframpOrder,
-  type PalremitOfframpOrder,
-} from './palremitLiquidity';
-import { CHAIN_TO_PALREMIT_NETWORK } from './palremit';
-import type { DepositInstructions } from '../../types/offramp';
-import type { CreateOfframpRequest } from '../../types/offramp';
+  createPalremitCryptoAddress,
+  createPalremitFiatWithdrawal,
+  confirmPalremitFiatWithdrawal,
+  listPalremitCryptoDeposits,
+} from '@/core/integrations/palremitLiquidity';
+import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
+import type { DepositInstructions } from '@/types/offramp';
+import type { CreateOfframpRequest } from '@/types/offramp';
 
-export interface PalremitOfframpResult {
-  reference: string;
+export interface PalremitOfframpDepositResult {
+  /** Correlation: BloxFi offramp requestId (used for fiat withdrawal reference prefix). */
+  correlationId: string;
   depositInstructions: DepositInstructions;
-  destinationAmount?: number;
+  /** Palremit crypto address metadata for deposit matching. */
+  channelAddressId?: string;
 }
 
-function buildCustomerProfileFromUser(businessInfo: unknown): {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  date_of_birth: string;
-  country: string;
-} {
-  const info = (businessInfo && typeof businessInfo === 'object'
-    ? businessInfo
-    : {}) as Record<string, unknown>;
-  const legalName = (info.legalName as string) ?? (info.tradingName as string) ?? '';
-  const [first = '', ...rest] = legalName.trim().split(/\s+/);
-  const last = rest.join(' ') || 'N/A';
-  const address = info.registeredAddress as Record<string, unknown> | undefined;
-  const country = (address?.country as string) ?? (info.country as string) ?? 'NG';
-  const countryCode = typeof country === 'string' && country.length >= 2 ? country.slice(0, 2).toUpperCase() : 'NG';
+function mapCryptoAddressToDepositInstructions(
+  addr: { address: string; currency: string; network: string; channel_address_id?: string },
+  amount: number,
+  depositBy: string
+): DepositInstructions {
   return {
-    first_name: first || 'Customer',
-    last_name: last || 'User',
-    email: (info.email as string) ?? '',
-    phone: (info.phone as string) ?? '+2340000000000',
-    date_of_birth: (info.dateOfBirth as string) ?? (info.date_of_birth as string) ?? '1990-01-01',
-    country: countryCode,
+    address: addr.address,
+    amount: String(amount),
+    currency: addr.currency,
+    network: addr.network,
+    depositBy,
+    instruction: `Send exactly ${amount} ${addr.currency} on ${addr.network} to the address above by ${depositBy}`,
   };
 }
 
-function buildDestinationInformation(
+/**
+ * Create offramp receive leg: Palremit crypto deposit address for existing channel user (BloxFi userId).
+ */
+export async function createOfframpPalremitCryptoDeposit(
+  liquidityRequest: PalremitLiquidityRequestFn,
+  userId: string,
+  body: Omit<CreateOfframpRequest, 'requestId'>,
+  requestId: string,
+  depositBy: string
+): Promise<PalremitOfframpDepositResult | null> {
+  const fromCurrency = body.source.currency.trim().toUpperCase();
+  const sourceNetwork =
+    CHAIN_TO_PALREMIT_NETWORK[body.source.chain.trim().toUpperCase()] ??
+    body.source.chain.trim().toUpperCase();
+
+  const addr = await createPalremitCryptoAddress(liquidityRequest, {
+    channel_user_id: userId,
+    currency: fromCurrency,
+    network: sourceNetwork,
+  });
+  if (!addr?.address) return null;
+
+  return {
+    correlationId: requestId,
+    depositInstructions: mapCryptoAddressToDepositInstructions(
+      addr,
+      body.source.amount,
+      depositBy
+    ),
+    channelAddressId: addr.channel_address_id,
+  };
+}
+
+/**
+ * Build Palremit §6.1.3 fiat withdrawal destination_information from BloxFi Account region + holder.
+ */
+export function buildPalremitFiatDestinationInformation(
   accountHolder: unknown,
   regionDetails: unknown
 ): Record<string, string> {
@@ -56,83 +83,74 @@ function buildDestinationInformation(
   const region = (regionDetails && typeof regionDetails === 'object'
     ? regionDetails
     : {}) as Record<string, unknown>;
+  const accountNumber =
+    (region.accountNumber as string) ?? (region.account_number as string) ?? '';
+  const bankName = (region.bankName as string) ?? (region.bank_name as string) ?? 'Bank';
+  const bankCode = (region.bankCode as string) ?? (region.bank_code as string) ?? '00';
+  const accountName =
+    (holder.name as string) ?? (holder.account_name as string) ?? 'Account Holder';
+  const country =
+    typeof region.country === 'string' && region.country.length >= 2
+      ? String(region.country).slice(0, 2).toUpperCase()
+      : 'NG';
   return {
-    bank_name: (region.bankName as string) ?? (region.bank_name as string) ?? 'Bank',
-    bank_code: (region.bankCode as string) ?? (region.bank_code as string) ?? '00',
-    account_number: (region.accountNumber as string) ?? (region.account_number as string) ?? '',
-    account_name: (holder.name as string) ?? (holder.account_name as string) ?? 'Account Holder',
+    account_unique: accountNumber,
+    account_name: accountName,
+    provider_name: bankName,
+    provider_code: bankCode,
+    country,
   };
 }
 
-function mapOrderToDepositInstructions(
-  order: PalremitOfframpOrder,
-  depositBy: string
-): DepositInstructions {
-  const pi = order.payment_information;
-  return {
-    address: pi?.address ?? '',
-    amount: pi?.amount != null ? String(pi.amount) : '',
-    currency: pi?.currency ?? order.source_currency ?? '',
-    network: pi?.network_code ?? order.source_network ?? '',
-    networkName: pi?.network_name,
-    token: pi?.token,
-    depositBy,
-    instruction: pi?.address
-      ? `Send exactly ${pi?.amount ?? ''} ${pi?.currency ?? ''} to the address above by ${depositBy}`
-      : undefined,
-  };
-}
+const DEPOSIT_OK_STATUSES = ['successful', 'success', 'completed', 'confirmed'];
 
 /**
- * Create offramp via Palremit: ensure customer profile exists, then create offramp order.
- * Returns reference, deposit instructions, and destination amount for the core to persist.
+ * After user sends crypto, list deposits and if matched, create + confirm fiat withdrawal.
  */
-export async function createOfframpViaPalremit(
+export async function tryPalremitOfframpFiatPayout(
   liquidityRequest: PalremitLiquidityRequestFn,
-  user: { businessInfo: unknown },
-  account: { accountHolder: unknown; regionDetails: unknown; paymentRail: string },
-  body: Omit<CreateOfframpRequest, 'requestId'>,
-  depositBy: string
-): Promise<PalremitOfframpResult | null> {
-  const profile = buildCustomerProfileFromUser(user.businessInfo);
-  if (!profile.email) return null;
+  params: {
+    offrampId: string;
+    requestId: string;
+    expectedCryptoAmount: number;
+    depositAddress: string;
+    sourceCurrency: string;
+    sourceNetwork: string;
+    destinationAmount: number;
+    destinationCurrency: string;
+    destinationInformation: Record<string, string>;
+  }
+): Promise<{ withdrawalReference: string } | null> {
+  const deposits = await listPalremitCryptoDeposits(liquidityRequest, {
+    currency: params.sourceCurrency,
+    network: params.sourceNetwork,
+    limit: 50,
+  });
+  if (!deposits?.length) return null;
 
-  const customer = await createPalremitCustomerProfile(liquidityRequest, profile);
-  if (!customer) return null;
+  const normalizedAddr = params.depositAddress.toLowerCase();
+  const match = deposits.find((d) => {
+    const dest = (d.destination_address ?? '').toLowerCase();
+    const okAddr = dest === normalizedAddr || dest.includes(normalizedAddr) || normalizedAddr.includes(dest);
+    const amtOk = d.amount >= params.expectedCryptoAmount * 0.99;
+    const st = (d.status ?? '').toLowerCase();
+    const okStatus = DEPOSIT_OK_STATUSES.some((s) => st.includes(s));
+    return okAddr && amtOk && okStatus;
+  });
+  if (!match) return null;
 
-  const fromCurrency = body.source.currency.trim().toUpperCase();
-  const toCurrency = body.destination.currency.trim().toUpperCase();
-  const sourceNetwork =
-    CHAIN_TO_PALREMIT_NETWORK[body.source.chain.trim().toUpperCase()] ?? body.source.chain.trim().toUpperCase();
-  const destinationInformation = buildDestinationInformation(
-    account.accountHolder,
-    account.regionDetails
-  );
-  if (!destinationInformation.account_number) return null;
+  const reference = `WTH-OFF-${params.offrampId.slice(0, 8)}-${params.requestId.slice(0, 8)}`;
+  const created = await createPalremitFiatWithdrawal(liquidityRequest, {
+    reference,
+    destination_amount: params.destinationAmount,
+    destination_currency: params.destinationCurrency.toUpperCase(),
+    destination_type: 'bank_account',
+    destination_information: params.destinationInformation,
+  });
+  if (!created?.reference) return null;
 
-  const appFee =
-    body.platformFee.type === 'FLAT'
-      ? { value: body.platformFee.value, unit: toCurrency }
-      : undefined;
-  // For PERCENTAGE we could compute a fixed fee from estimated amount; Palremit app_fee is fixed value
-  const orderBody = {
-    customer_id: customer._id,
-    source_amount: body.source.amount,
-    source_currency: fromCurrency,
-    source_network: sourceNetwork,
-    destination_type: 'bank_account' as const,
-    destination_currency: toCurrency,
-    destination_information: destinationInformation,
-    app_fee: appFee,
-  };
+  const confirmed = await confirmPalremitFiatWithdrawal(liquidityRequest, created.reference);
+  if (!confirmed) return null;
 
-  const order = await createPalremitOfframpOrder(liquidityRequest, orderBody);
-  if (!order) return null;
-
-  const depositInstructions = mapOrderToDepositInstructions(order, depositBy);
-  return {
-    reference: order.reference,
-    depositInstructions,
-    destinationAmount: order.destination_amount,
-  };
+  return { withdrawalReference: created.reference };
 }

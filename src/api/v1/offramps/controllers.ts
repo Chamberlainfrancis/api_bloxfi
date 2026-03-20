@@ -1,30 +1,40 @@
 /**
- * Offramp controllers. Validate → call core → return standardized response.
- * No Prisma/Redis/business logic here. Idempotency: duplicate requestId → 409.
+ * Offramp controllers. Palremit only (deposits + withdrawals). Idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as offrampCore from '../../../core/offramps';
-import * as offrampRepo from '../../../db/repositories/offramp.repo';
-import * as userRepo from '../../../db/repositories/user.repo';
-import * as accountRepo from '../../../db/repositories/account.repo';
-import * as walletRepo from '../../../db/repositories/wallet.repo';
-import { env } from '../../../config/env';
-import { getLpClient } from '../../../services/lpClient';
-import { getRate as getRateFromCurrencyApiService } from '../../../services/currencyApi';
-import { palremitLiquidityRequest } from '../../../services/palremitClient';
-import { createOfframpViaPalremit } from '../../../core/integrations';
-import type { PalremitLiquidityRequestFn } from '../../../core/integrations/palremitLiquidity';
-import type { GetOfframpRatesResponse } from '../../../types/offramp';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import * as offrampCore from '@/core/offramps';
+import * as offrampRepo from '@/db/repositories/offramp.repo';
+import * as userRepo from '@/db/repositories/user.repo';
+import * as accountRepo from '@/db/repositories/account.repo';
+import * as walletRepo from '@/db/repositories/wallet.repo';
 import {
+  createPalremitLiquidityAdapter,
+  createPalremitCurrencyAdapter,
+} from '@/services/palremitAdapters';
+import {
+  createOfframpPalremitCryptoDeposit,
+  getPalremitOfframpRates,
+} from '@/core/integrations';
+import type {
+  CreateOfframpDestinationInput,
+  CreateOfframpSourceInput,
+  GetOfframpRatesResponse,
+  PlatformFee,
+} from '@/types/offramp';
+import {
+  cancelOfframpBodySchema,
   createOfframpBodySchema,
   getOfframpRatesQuerySchema,
   listOfframpsQuerySchema,
-} from './schemas';
+} from '@/api/v1/offramps/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
+
+const palremitLiquidity = createPalremitLiquidityAdapter();
+const palremitCurrency = createPalremitCurrencyAdapter();
 
 const repos = {
   offramp: {
@@ -48,50 +58,13 @@ const repos = {
   },
 };
 
-const lpClient = getLpClient();
-
-/** Currency API as sole rate source for offramp (RAMP_ARCHITECTURE). */
-const getRateFromCurrencyApi = async (
+const getRateFromPalremit = async (
   from: string,
   to: string,
   fromChain?: string
 ): Promise<GetOfframpRatesResponse | null> => {
-  const result = await getRateFromCurrencyApiService(from, to);
-  if (!result) return null;
-  return {
-    fromCurrency: from,
-    toCurrency: to,
-    fromChain: fromChain ?? undefined,
-    rate: result.rate,
-    inverseRate: result.inverseRate,
-  };
+  return getPalremitOfframpRates(palremitCurrency, from, to, fromChain);
 };
-
-/** Palremit liquidity API adapter for offramp order creation. */
-const palremitLiquidityAdapter = (
-  path: string,
-  opts?: { method?: 'GET' | 'POST'; body?: unknown }
-) =>
-  palremitLiquidityRequest(path, opts as { method?: 'GET' | 'POST'; body?: unknown }).then((r) => ({
-    status: r.status,
-    data: r.data,
-  }));
-
-const createViaPalremitFn = env.PALREMIT_LIQUIDITY_URL
-  ? (
-      user: { businessInfo: unknown },
-      account: { accountHolder: unknown; regionDetails: unknown; paymentRail: string },
-      body: Parameters<typeof createOfframpViaPalremit>[3],
-      depositBy: string
-    ) =>
-      createOfframpViaPalremit(
-        palremitLiquidityAdapter as PalremitLiquidityRequestFn,
-        user,
-        account,
-        body,
-        depositBy
-      )
-  : undefined;
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
@@ -115,10 +88,14 @@ export async function getOfframpRates(
       parsed.data.fromCurrency,
       parsed.data.toCurrency,
       parsed.data.fromChain,
-      { getRateFromCurrencyApi }
+      { getRateFromPalremit }
     );
     sendSuccess(res, result);
   } catch (e) {
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
     next(e);
   }
 }
@@ -154,22 +131,32 @@ export async function createOfframp(
       next(new AppError('Duplicate requestId', 'CONFLICT', 409));
       return;
     }
-    const { requestId: _reqId, ...body } = parsed.data;
+    const body: {
+      source: CreateOfframpSourceInput;
+      destination: CreateOfframpDestinationInput;
+      platformFee: PlatformFee;
+      metadata?: Record<string, unknown>;
+    } = {
+      source: parsed.data.source as CreateOfframpSourceInput,
+      destination: parsed.data.destination as CreateOfframpDestinationInput,
+      platformFee: parsed.data.platformFee,
+      metadata: parsed.data.metadata,
+    };
     const result = await offrampCore.createOfframp(
       repos.offramp,
       repos.user,
       repos.account,
       repos.wallet,
       repos.kyb,
-      lpClient,
       raw,
       body,
       {
-        getRateFromCurrencyApi,
-        createViaPalremit: createViaPalremitFn ?? undefined,
+        getRateFromPalremit,
+        createPalremitDeposit: (userId, b, rid, depositBy) =>
+          createOfframpPalremitCryptoDeposit(palremitLiquidity, userId, b, rid, depositBy),
       }
     );
-    sendSuccess(res, result, 200);
+    sendSuccess(res, result, 201);
   } catch (e) {
     if (e instanceof Error && e.message === 'USER_NOT_FOUND') {
       next(new AppError('User not found', 'NOT_FOUND', 404));
@@ -193,6 +180,14 @@ export async function createOfframp(
       next(new AppError('Source and destination userId must match', 'INVALID_REQUEST', 400));
       return;
     }
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_DEPOSIT_ADDRESS_FAILED') {
+      next(new AppError('Palremit deposit address creation failed', 'BAD_GATEWAY', 502));
+      return;
+    }
     next(e);
   }
 }
@@ -204,6 +199,15 @@ export async function getOfframp(
 ): Promise<void> {
   try {
     const { id } = req.params;
+    await offrampCore.advanceOfframpIfDepositReady(
+      {
+        findOfframpById: repos.offramp.findOfframpById,
+        updateOfframpStatus: repos.offramp.updateOfframpStatus,
+      },
+      { findAccountByIdAndUser: repos.account.findAccountByIdAndUser },
+      palremitLiquidity,
+      id
+    );
     const result = await offrampCore.getOfframp(repos.offramp, id);
     if (!result) {
       next(new AppError('Offramp not found', 'NOT_FOUND', 404));
@@ -248,8 +252,16 @@ export async function cancelOfframp(
   next: NextFunction
 ): Promise<void> {
   try {
+    const parsed = cancelOfframpBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors
+        .map((e) => `${e.path.join('.')}: ${e.message}`)
+        .join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
     const { id } = req.params;
-    const result = await offrampCore.cancelOfframp(repos.offramp, id);
+    const result = await offrampCore.cancelOfframp(repos.offramp, id, parsed.data);
     if (!result) {
       next(new AppError('Offramp not found', 'NOT_FOUND', 404));
       return;

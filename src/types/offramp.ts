@@ -1,15 +1,22 @@
 /**
- * Offramp types per docs/bloxfi-liquidity-provider-integration-spec-v1.0.0.md §5.
+ * Offramp types per docs/bloxfi-api-specmd.md §5.
  * Crypto-to-fiat: rates, create, get, list, cancel.
  */
 
 export type OfframpStatus =
   | 'CREATED'
   | 'AWAITING_CRYPTO'
+  | 'CRYPTO_PENDING'
   | 'CRYPTO_RECEIVED'
+  | 'CRYPTO_CONFIRMED'
+  | 'PROCESSING_FEE'
+  | 'FEE_PROCESSED'
+  | 'FIAT_INITIATED'
   | 'FIAT_PENDING'
   | 'COMPLETED'
+  | 'FAILED'
   | 'CANCELLED'
+  | 'REFUNDED'
   | 'CRYPTO_FAILED'
   | 'FIAT_FAILED'
   | 'EXPIRED';
@@ -18,6 +25,7 @@ export type OfframpStatus =
 export interface PlatformFee {
   type: 'PERCENTAGE' | 'FLAT';
   value: number;
+  walletAddress: string;
 }
 
 export interface OfframpSource {
@@ -41,6 +49,9 @@ export interface OfframpDestination {
   amount: number;
   accountId?: string;
   transferType?: string;
+  bankTransferMethod?: string;
+  reference?: string;
+  purposeOfPayment: string;
   user?: {
     email: string;
     businessName?: string;
@@ -49,6 +60,7 @@ export interface OfframpDestination {
 
 export interface RateInformation {
   rate: string;
+  conversionRate?: string;
   inverseRate: string;
   fromCurrency: string;
   toCurrency: string;
@@ -77,8 +89,17 @@ export interface Timeline {
 }
 
 export interface OfframpFees {
-  platformFee?: { amount: string; currency: string };
+  platformFee?: {
+    type: 'PERCENTAGE' | 'FLAT';
+    value: string;
+    amount: string;
+    currency: string;
+    walletAddress: string;
+    transactionHash?: string;
+  };
   railFee?: { amount: string; currency: string };
+  networkFee?: { amount: string; currency: string; description?: string };
+  totalFees?: string;
 }
 
 export interface OfframpTransferDetails {
@@ -129,10 +150,18 @@ export interface GetOfframpRatesResponse {
   fromCurrency: string;
   toCurrency: string;
   fromChain?: string;
-  rate: string;
+  conversionRate: string;
   inverseRate: string;
+  rateValidUntil: string;
+  minimumAmount: string;
+  maximumAmount: string;
+  estimatedProcessingTime: string;
   limits?: OfframpRateLimits;
-  availableRails?: string[];
+  availableRails?: Array<{
+    rail: string;
+    methods: string[];
+    processingTime: string;
+  }>;
 }
 
 // --- POST /offramps (create) ---
@@ -151,6 +180,9 @@ export interface CreateOfframpDestinationInput {
   userId: string;
   accountId: string;
   transferType?: string;
+  bankTransferMethod?: string;
+  reference?: string;
+  purposeOfPayment: string;
 }
 
 export interface CreateOfframpRequest {
@@ -198,4 +230,10 @@ export interface CancelOfframpResponse {
   transferType: 'OFFRAMP';
   transferDetails: OfframpTransferDetails;
   cancelled: true;
+  cancelledAt?: string;
+  reason?: string;
+  refund?: {
+    status: string;
+    refundAddress: string;
+  };
 }

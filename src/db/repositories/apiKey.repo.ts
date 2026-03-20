@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { prisma } from '../prisma/client';
+import { prisma } from '@/db/prisma/client';
 
 const HASH_ALGORITHM = 'sha256';
 

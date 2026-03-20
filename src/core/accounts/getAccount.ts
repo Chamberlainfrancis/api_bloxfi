@@ -8,7 +8,7 @@ import {
   type AccountHolder,
   type RegionAccountDetails,
   type RailType,
-} from '../../types/account';
+} from '@/types/account';
 
 export interface AccountRepoGet {
   findAccountByIdAndUser(

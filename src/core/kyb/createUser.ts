@@ -1,6 +1,7 @@
 /**
  * Core: create business user. Pure logic; depends on repository (DI).
  * Returns spec §1.1 Create User response shape.
+ * Idempotency + unique business email enforced in user.repo.
  */
 
 import type {
@@ -9,16 +10,19 @@ import type {
   BusinessInfo,
   KYBStatus,
   UserStatus,
-} from '../../types/user';
+} from '@/types/user';
 
 export interface UserRepo {
   createUser(data: CreateUserRequest): Promise<{
-    id: string;
-    type: string;
-    status: UserStatus;
-    businessInfo: unknown;
-    kybStatus: KYBStatus;
-    createdAt: Date;
+    user: {
+      id: string;
+      type: string;
+      status: UserStatus;
+      businessInfo: unknown;
+      kybStatus: KYBStatus;
+      createdAt: Date;
+    };
+    created: boolean;
   }>;
 }
 
@@ -48,7 +52,7 @@ function toCreateUserResponse(row: {
 export async function createBusinessUser(
   repo: UserRepo,
   data: CreateUserRequest
-): Promise<CreateUserResponse> {
-  const user = await repo.createUser(data);
-  return toCreateUserResponse(user);
+): Promise<{ response: CreateUserResponse; created: boolean }> {
+  const { user, created } = await repo.createUser(data);
+  return { response: toCreateUserResponse(user), created };
 }

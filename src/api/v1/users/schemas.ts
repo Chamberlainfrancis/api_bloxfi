@@ -45,14 +45,29 @@ const legalRepresentativeSchema = z.object({
   address: addressSchema,
 });
 
-/** POST /users body (requestId is in header) */
-export const createUserBodySchema = z.object({
-  type: z.literal('business'),
-  businessInfo: businessInfoSchema,
-  registeredAddress: addressSchema,
-  legalRepresentative: legalRepresentativeSchema,
-  metadata: z.record(z.unknown()).optional(),
-});
+/**
+ * POST /users body per spec §1.1 (type, businessInfo, registeredAddress, legalRepresentative, metadata).
+ * Optional body `requestId` / `requestld` (spec typo): if present, must equal `requestId` header.
+ * Idempotency key is always the header when body omits requestId (common spec example shape).
+ */
+export const createUserBodySchema = z
+  .object({
+    type: z.literal('business'),
+    requestId: z.string().uuid().optional(),
+    requestld: z.string().uuid().optional(),
+    businessInfo: businessInfoSchema,
+    registeredAddress: addressSchema,
+    legalRepresentative: legalRepresentativeSchema,
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .transform((val) => ({
+    type: val.type,
+    requestId: val.requestId ?? val.requestld,
+    businessInfo: val.businessInfo,
+    registeredAddress: val.registeredAddress,
+    legalRepresentative: val.legalRepresentative,
+    metadata: val.metadata,
+  }));
 
 const businessDetailsSchema = z.object({
   numberOfEmployees: z.string().optional(),

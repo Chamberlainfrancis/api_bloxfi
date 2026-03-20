@@ -1,49 +1,50 @@
 /**
- * Webhook signature verification for inbound LP webhooks.
- * HMAC SHA256(webhook_id + "." + timestamp + "." + rawBody, secret).
- * No business logic; verification only. Spec: Webhook Format, Signature Verification.
+ * Inbound webhook signature verification.
+ * Palremit (integration guide §7.2): X-Webhook-Signature = HMAC-SHA256 of JSON.stringify(parsed payload), secret = access_key (or WEBHOOK_SECRET).
+ * Accepts either canonical JSON.stringify(body) or raw UTF-8 body if Palremit signs the raw bytes.
  */
 
 import { createHmac, timingSafeEqual } from 'crypto';
 
 const SIG_PREFIX = 'sha256=';
 
-/**
- * Verify LP webhook signature. Uses raw body as received.
- * Header format: X-Webhook-Signature: sha256={hex}
- * Returns true only if signature matches and secret is non-empty.
- */
-export function verifyWebhookSignature(
-  webhookId: string,
-  timestamp: string,
-  rawBody: string | Buffer,
-  secret: string,
-  headerSignature: string
-): boolean {
-  if (!secret || !headerSignature || typeof webhookId !== 'string' || typeof timestamp !== 'string') {
-    return false;
-  }
-  const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-  const payload = `${webhookId}.${timestamp}.${bodyStr}`;
-  const expected = createHmac('sha256', secret).update(payload).digest('hex');
-  const received = headerSignature.startsWith(SIG_PREFIX)
-    ? headerSignature.slice(SIG_PREFIX.length)
-    : headerSignature;
-  if (received.length !== 64 || expected.length !== 64) return false;
+function hexTimingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== 64 || b.length !== 64) return false;
   try {
-    return timingSafeEqual(Buffer.from(received, 'hex'), Buffer.from(expected, 'hex'));
+    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
   } catch {
     return false;
   }
 }
 
 /**
- * Check if webhook timestamp is within allowed window (replay protection).
- * timestamp is Unix seconds. maxAgeSeconds typically 300 (5 min) or 600 (10 min).
+ * Verify Palremit webhook signature.
+ * Header: X-Webhook-Signature (hex or sha256=hex).
  */
-export function isWebhookTimestampFresh(timestampStr: string, maxAgeSeconds: number): boolean {
-  const ts = parseInt(timestampStr, 10);
-  if (Number.isNaN(ts) || ts <= 0) return false;
-  const now = Math.floor(Date.now() / 1000);
-  return ts >= now - maxAgeSeconds && ts <= now + 60; // allow 1 min clock skew future
+export function verifyPalremitWebhookSignature(
+  rawBodyUtf8: string,
+  secret: string,
+  headerSignature: string
+): boolean {
+  if (!secret || !headerSignature || !rawBodyUtf8) {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBodyUtf8);
+  } catch {
+    return false;
+  }
+  const canonical = JSON.stringify(parsed);
+  const hmacHex = (payload: string) =>
+    createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+  const expectedCanonical = hmacHex(canonical);
+  const expectedRaw = hmacHex(rawBodyUtf8);
+  const received = headerSignature.startsWith(SIG_PREFIX)
+    ? headerSignature.slice(SIG_PREFIX.length).trim()
+    : headerSignature.trim();
+  if (received.length !== 64) return false;
+  return (
+    hexTimingSafeEqual(received, expectedCanonical) || hexTimingSafeEqual(received, expectedRaw)
+  );
 }

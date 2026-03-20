@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { handleInboundWebhook } from './controllers';
+import { handleInboundWebhook } from '@/api/v1/webhooks/controllers';
 
 const router = Router();
 

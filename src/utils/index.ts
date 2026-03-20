@@ -1,1 +1,1 @@
-export { sendSuccess, type SuccessResponseBody } from './response';
+export { sendSuccess, type SuccessResponseBody } from '@/utils/response';

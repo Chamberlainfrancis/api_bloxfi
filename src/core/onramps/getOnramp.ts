@@ -12,7 +12,7 @@ import type {
   Receipt,
   DeveloperFeeAmount,
   OnrampStatus,
-} from '../../types/onramp';
+} from '@/types/onramp';
 
 export interface OnrampRepoGet {
   findOnrampById(id: string): Promise<{

@@ -7,7 +7,7 @@ import type {
   ListOfframpsResponse,
   ListOfframpItem,
   OfframpStatus,
-} from '../../types/offramp';
+} from '@/types/offramp';
 
 export interface OfframpRepoList {
   listOfframps(params: {

@@ -6,7 +6,7 @@ import type {
   CreateHighValueRequestInput,
   CreateHighValueRequestResponse,
   HighValueRequestStatus,
-} from '../../types/limits';
+} from '@/types/limits';
 
 export interface HighValueRequestRepoCreate {
   createHighValueRequest(data: {

@@ -9,15 +9,17 @@
   },
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/server.ts",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:up": "docker compose up -d",
     "db:migrate": "prisma migrate dev",
-    "create-api-key": "ts-node scripts/create-api-key.ts"
+    "create-api-key": "ts-node -r tsconfig-paths/register scripts/create-api-key.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=18"
@@ -45,6 +47,9 @@
     "eslint": "^9.14.0",
     "prisma": "^7.0.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.6.3"
+    "tsconfig-paths": "^4.2.0",
+    "tsc-alias": "^1.8.10",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.5"
   }
 }

@@ -13,9 +13,14 @@ import type {
   OfframpStatus,
   RefundDetails,
   CancelOfframpResponse,
-} from '../../types/offramp';
+} from '@/types/offramp';
 
 const CANCELLABLE_STATUSES: OfframpStatus[] = ['CREATED', 'AWAITING_CRYPTO'];
+
+export interface CancelOfframpInput {
+  reason: string;
+  refundAddress: string;
+}
 
 export interface OfframpRepoGetAndUpdate {
   findOfframpById(id: string): Promise<{
@@ -81,7 +86,8 @@ function rowToTransferDetails(row: {
 
 export async function cancelOfframp(
   repo: OfframpRepoGetAndUpdate,
-  offrampId: string
+  offrampId: string,
+  input: CancelOfframpInput
 ): Promise<CancelOfframpResponse | null> {
   const row = await repo.findOfframpById(offrampId);
   if (!row) return null;
@@ -98,8 +104,11 @@ export async function cancelOfframp(
     cancelledAt: now.toISOString(),
   };
   const refundDetails: RefundDetails = {
-    status: 'cancelled',
+    status: 'pending',
     refundedAt: now.toISOString(),
+    transactionHash: undefined,
+    amount: undefined,
+    currency: undefined,
   };
 
   await repo.updateOfframpStatus(offrampId, 'CANCELLED', {
@@ -109,10 +118,23 @@ export async function cancelOfframp(
 
   const updated = await repo.findOfframpById(offrampId);
   if (!updated) return null;
+  const transferDetails = rowToTransferDetails(updated);
 
   return {
     transferType: 'OFFRAMP',
-    transferDetails: rowToTransferDetails(updated),
+    transferDetails: {
+      ...transferDetails,
+      refundDetails: {
+        ...(transferDetails.refundDetails ?? {}),
+        status: 'pending',
+      },
+    },
     cancelled: true,
+    cancelledAt: now.toISOString(),
+    reason: input.reason,
+    refund: {
+      status: 'pending',
+      refundAddress: input.refundAddress,
+    },
   };
 }

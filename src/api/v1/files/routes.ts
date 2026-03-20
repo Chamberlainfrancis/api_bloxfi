@@ -5,8 +5,8 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadFileHandler } from './controllers';
-import { MAX_FILE_SIZE_BYTES } from '../../../services/storage';
+import { uploadFileHandler } from '@/api/v1/files/controllers';
+import { MAX_FILE_SIZE_BYTES } from '@/services/storage';
 
 const upload = multer({
   storage: multer.memoryStorage(),

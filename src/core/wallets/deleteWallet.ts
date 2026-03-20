@@ -3,7 +3,7 @@
  * Spec §2.5 Delete Wallet.
  */
 
-import type { DeleteExternalWalletResponse } from '../../types/wallet';
+import type { DeleteExternalWalletResponse } from '@/types/wallet';
 
 export interface WalletRepoDelete {
   findExternalWalletByIdAndUser(

@@ -1,11 +1,9 @@
 /**
- * Core: create onramp. Validate user, account, wallet; compute quote (Currency API + fees); persist; return transferDetails.
- * Spec §4.2 POST /onramps. Rates from Currency API; LP used only for liquidity (e.g. depositInfo when configured).
+ * Core: create onramp. Palremit only: rates from Currency API + prepare/confirm crypto withdrawal.
+ * Fiat debited from Palremit-integrated balance (source_currency). docs/palremit_integration_guide.md §6.2.
  */
 
-import type { LpHttpClient } from '../integrations/types';
-import { applyOnrampFee } from '../payments';
-import { createOnrampAtLp } from '../integrations/onrampLp';
+import { applyOnrampFee } from '@/core/payments';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -17,13 +15,19 @@ import type {
   DepositInfo,
   DeveloperFeeAmount,
   OnrampTransferDetails,
-} from '../../types/onramp';
+} from '@/types/onramp';
 
 const QUOTE_EXPIRY_MINUTES = 30;
 
 export interface CreateOnrampOptions {
-  /** Fetches rate from Currency API. Used as sole rate source for quote (RAMP_ARCHITECTURE). */
-  getRateFromCurrencyApi?: (from: string, to: string) => Promise<GetOnrampRatesResponse | null>;
+  getRateFromPalremit?: (from: string, to: string) => Promise<GetOnrampRatesResponse | null>;
+  /** Palremit prepare + confirm crypto withdrawal to user's wallet. */
+  executePalremitCryptoWithdrawal: (
+    body: Omit<CreateOnrampRequest, 'requestId'>,
+    requestId: string,
+    receiveNetCryptoAmount: number,
+    destinationAddress: string
+  ) => Promise<{ prepareReference: string } | null>;
 }
 
 export interface OnrampRepoCreate {
@@ -102,21 +106,20 @@ function userDisplay(user: { businessInfo?: unknown } | null): { email: string; 
   };
 }
 
-/**
- * Build deposit info (where the user sends fiat). When LP does not return depositInfo,
- * we build a minimal placeholder. Platform-specific bank details can be injected by the API layer if needed.
- */
-function buildDepositInfoPlaceholder(
+/** depositInfo: Palremit ledger debit — user must maintain fiat balance at Palremit; reference tracks withdrawal. */
+function buildPalremitOnrampDepositInfo(
   beneficiaryName: string,
-  reference: string,
-  depositBy: string
+  palremitReference: string,
+  depositBy: string,
+  sourceCurrency: string,
+  sourceAmount: number
 ): DepositInfo {
   return {
-    bankName: 'Platform',
+    bankName: 'Palremit',
     beneficiary: { name: beneficiaryName, address: '' },
-    reference,
+    reference: palremitReference,
     depositBy,
-    instruction: `Include reference code ${reference} in payment description`,
+    instruction: `Palremit debits ${sourceAmount} ${sourceCurrency} from your integrated partner balance. Withdrawal reference: ${palremitReference}. Crypto is sent to the destination wallet after confirmation.`,
   };
 }
 
@@ -126,10 +129,9 @@ export async function createOnramp(
   accountRepo: AccountRepoForOnramp,
   walletRepo: WalletRepoForOnramp,
   kybRepo: KybRepoForOnramp,
-  lpClient: LpHttpClient | null,
   requestId: string,
   body: Omit<CreateOnrampRequest, 'requestId'>,
-  options?: CreateOnrampOptions
+  options: CreateOnrampOptions
 ): Promise<CreateOnrampResponse> {
   const { source: src, destination: dest, fee } = body;
   const userId = src.userId;
@@ -153,11 +155,15 @@ export async function createOnramp(
 
   const fromCurrency = src.currency.trim().toLowerCase();
   const toCurrency = dest.currency.trim().toLowerCase();
-  let conversionRate = '1.00';
-  if (options?.getRateFromCurrencyApi) {
-    const currencyApiRates = await options.getRateFromCurrencyApi(fromCurrency, toCurrency);
-    if (currencyApiRates?.conversionRate) conversionRate = currencyApiRates.conversionRate;
+
+  if (!options.getRateFromPalremit) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
+  const rates = await options.getRateFromPalremit(fromCurrency, toCurrency);
+  if (!rates?.conversionRate) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
+  }
+  const conversionRate = rates.conversionRate;
 
   const grossFiat = src.amount;
   const rateNum = parseFloat(conversionRate) || 1;
@@ -168,8 +174,8 @@ export async function createOnramp(
   const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
   const sendNet = sendGross;
   const railFee = { amount: '0.00', currency: fromCurrency };
-  const receiveGrossStr = { amount: receiveGross.toFixed(2), currency: toCurrency };
-  const receiveNetStr = { amount: receiveNet.toFixed(2), currency: toCurrency };
+  const receiveGrossStr = { amount: receiveGross.toFixed(8), currency: toCurrency };
+  const receiveNetStr = { amount: receiveNet.toFixed(8), currency: toCurrency };
   const quoteInformation: QuoteInformation = {
     sendGross,
     sendNet,
@@ -181,9 +187,19 @@ export async function createOnramp(
   };
 
   const developerFee: DeveloperFeeAmount = {
-    amount: developerFeeAmount.toFixed(2),
+    amount: developerFeeAmount.toFixed(8),
     currency: toCurrency,
   };
+
+  const withdrawResult = await options.executePalremitCryptoWithdrawal(
+    body,
+    requestId,
+    receiveNet,
+    wallet.address
+  );
+  if (!withdrawResult) {
+    throw new Error('PALREMIT_ONRAMP_WITHDRAWAL_FAILED');
+  }
 
   const userDisplayInfo = userDisplay(user);
   const sourcePayload: OnrampSource = {
@@ -204,29 +220,24 @@ export async function createOnramp(
     user: userDisplayInfo,
   };
 
-  const reference = `ONR-${requestId.slice(0, 8).toUpperCase()}`;
-  const depositBy = expiresAt.toISOString();
   const beneficiaryName = (account.accountHolder as { name?: string })?.name ?? 'Account Holder';
-  let depositInfo: DepositInfo = buildDepositInfoPlaceholder(beneficiaryName, reference, depositBy);
-
-  // Optionally create at LP and use LP depositInfo if returned
-  if (lpClient) {
-    const lpPayload: CreateOnrampRequest = { ...body, requestId };
-    const lpResponse = await createOnrampAtLp(lpClient, lpPayload);
-    if (lpResponse?.transferDetails?.depositInfo) {
-      depositInfo = lpResponse.transferDetails.depositInfo;
-    }
-  }
+  const depositInfo = buildPalremitOnrampDepositInfo(
+    beneficiaryName,
+    withdrawResult.prepareReference,
+    expiresAt.toISOString(),
+    fromCurrency.toUpperCase(),
+    grossFiat
+  );
 
   const row = await onrampRepo.createOnramp({
     requestId,
     userId,
-    status: 'CREATED',
+    status: 'COMPLETED',
     source: sourcePayload,
     destination: destinationPayload,
     quoteInformation,
     depositInfo,
-    receipt: null,
+    receipt: { transactionHash: withdrawResult.prepareReference },
     developerFee,
     failedReason: null,
   });

@@ -1,1 +1,1 @@
-export { processWebhookEvent, type WebhookRepos } from './processWebhookEvent';
+export { processWebhookEvent, type WebhookRepos } from '@/core/webhooks/processWebhookEvent';

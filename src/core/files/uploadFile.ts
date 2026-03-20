@@ -4,8 +4,8 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { UploadFileResponse } from '../../types/file';
-import type { AllowedMimeType } from '../../services/storage';
+import type { UploadFileResponse } from '@/types/file';
+import type { AllowedMimeType } from '@/services/storage';
 
 export interface FileRepo {
   createFile(data: {

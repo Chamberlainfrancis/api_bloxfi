@@ -7,7 +7,7 @@ import type {
   ListExternalWalletsQuery,
   ListExternalWalletsResponse,
   BlockchainNetwork,
-} from '../../types/wallet';
+} from '@/types/wallet';
 
 export interface WalletRepoList {
   listExternalWallets(params: {

@@ -2,7 +2,7 @@
  * Core: list onramps with filters and cursor pagination. Spec §4.4 GET /onramps.
  */
 
-import type { ListOnrampsQuery, ListOnrampsResponse, ListOnrampItem, OnrampStatus } from '../../types/onramp';
+import type { ListOnrampsQuery, ListOnrampsResponse, ListOnrampItem, OnrampStatus } from '@/types/onramp';
 
 export interface OnrampRepoList {
   listOnramps(params: {

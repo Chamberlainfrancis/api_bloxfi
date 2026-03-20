@@ -11,7 +11,7 @@ import {
   type AccountHolder,
   type RegionAccountDetails,
   type RailType,
-} from '../../types/account';
+} from '@/types/account';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;

@@ -4,8 +4,8 @@
  * - Liquidity API (liquidity-api.palremit.com): ramp, deposits, withdrawals — access_key header
  */
 
-import { env } from '../config/env';
-import { httpRequest, type HttpRequestOptions, type HttpResponse } from './http';
+import { env } from '@/config/env';
+import { httpRequest, type HttpRequestOptions, type HttpResponse } from '@/services/http';
 
 const PALREMIT_TIMEOUT_MS = 15000;
 
@@ -68,5 +68,5 @@ export async function palremitLiquidityRequest<T = unknown>(
 }
 
 export function isPalremitConfigured(): boolean {
-  return Boolean(env.PALREMIT_CURRENCY_URL ?? env.PALREMIT_LIQUIDITY_URL);
+  return Boolean(env.PALREMIT_LIQUIDITY_URL && env.PALREMIT_ACCESS_KEY);
 }

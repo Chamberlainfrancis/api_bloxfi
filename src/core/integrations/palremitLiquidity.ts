@@ -35,17 +35,6 @@ export interface PalremitCustomerProfile {
   updatedAt?: string;
 }
 
-export interface PalremitCreateOfframpOrderBody {
-  customer_id: string;
-  source_amount: number;
-  source_currency: string;
-  source_network: string;
-  destination_type: 'bank_account' | 'crypto_address';
-  destination_currency: string;
-  destination_information: Record<string, string>;
-  app_fee?: { value: number; unit: string };
-}
-
 export interface PalremitOfframpOrder {
   reference: string;
   type: string;
@@ -77,18 +66,6 @@ export async function createPalremitCustomerProfile(
   body: PalremitCreateCustomerProfileBody
 ): Promise<PalremitCustomerProfile | null> {
   const res = await request<PalremitCustomerProfile>('/ramp/create_customer_profile', {
-    method: 'POST',
-    body,
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-export async function createPalremitOfframpOrder(
-  request: PalremitLiquidityRequestFn,
-  body: PalremitCreateOfframpOrderBody
-): Promise<PalremitOfframpOrder | null> {
-  const res = await request<PalremitOfframpOrder>('/ramp/create_offramp_order', {
     method: 'POST',
     body,
   });

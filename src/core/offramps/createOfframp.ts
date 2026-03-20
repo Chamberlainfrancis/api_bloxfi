@@ -1,11 +1,11 @@
 /**
- * Core: create offramp. Validate user, wallet, account; compute quote (Currency API + platform fee); persist; return deposit instructions.
- * Spec §5.2 POST /offramps. Rates from Currency API; LP used only for liquidity (Deposit API for crypto address, Withdrawal API for fiat).
+ * Core: create offramp. Palremit only: rates from Currency API + crypto deposit address + (later) fiat withdrawal.
+ * docs/palremit_lp_refactor.md, palremit_integration_guide.md §5–6.
  */
 
-import type { LpHttpClient } from '../integrations/types';
-import { applyOfframpPlatformFee } from '../payments';
-import { createOfframpAtLp } from '../integrations/offrampLp';
+import { applyOfframpPlatformFee } from '@/core/payments';
+import { createOfframpPalremitCryptoDeposit } from '@/core/integrations/palremitOfframp';
+import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import type {
   CreateOfframpRequest,
   CreateOfframpResponse,
@@ -17,25 +17,24 @@ import type {
   DepositInstructions,
   OfframpFees,
   OfframpTransferDetails,
-} from '../../types/offramp';
+} from '@/types/offramp';
+
+const QUOTE_EXPIRY_MINUTES = 30;
 
 export interface CreateOfframpOptions {
-  /** Fetches rate from Currency API. Used as sole rate source (RAMP_ARCHITECTURE). */
-  getRateFromCurrencyApi?: (
+  getRateFromPalremit?: (
     from: string,
     to: string,
     fromChain?: string
   ) => Promise<GetOfframpRatesResponse | null>;
-  /** When set, used for liquidity: get crypto deposit address/instructions (e.g. Palremit Deposit API). */
-  createViaPalremit?: (
-    user: { businessInfo: unknown },
-    account: { accountHolder: unknown; regionDetails: unknown; paymentRail: string },
+  /** Required: Palremit liquidity (deposits). */
+  createPalremitDeposit: (
+    userId: string,
     body: Omit<CreateOfframpRequest, 'requestId'>,
+    requestId: string,
     depositBy: string
-  ) => Promise<{ reference: string; depositInstructions: DepositInstructions } | null>;
+  ) => Promise<{ depositInstructions: DepositInstructions; correlationId: string } | null>;
 }
-
-const QUOTE_EXPIRY_MINUTES = 30;
 
 export interface OfframpRepoCreate {
   createOfframp(data: {
@@ -122,36 +121,15 @@ function userDisplay(user: { businessInfo?: unknown } | null): {
   };
 }
 
-/**
- * Build deposit instructions (where user sends crypto). Placeholder when LP does not return.
- */
-function buildDepositInstructionsPlaceholder(
-  address: string,
-  amount: string,
-  currency: string,
-  network: string,
-  depositBy: string
-): DepositInstructions {
-  return {
-    address,
-    amount,
-    currency,
-    network,
-    depositBy,
-    instruction: `Send exactly ${amount} ${currency} to the address above by ${depositBy}`,
-  };
-}
-
 export async function createOfframp(
   offrampRepo: OfframpRepoCreate,
   userRepo: UserRepoForOfframp,
   accountRepo: AccountRepoForOfframp,
   walletRepo: WalletRepoForOfframp,
   kybRepo: KybRepoForOfframp,
-  lpClient: LpHttpClient | null,
   requestId: string,
   body: Omit<CreateOfframpRequest, 'requestId'>,
-  options?: CreateOfframpOptions
+  options: CreateOfframpOptions
 ): Promise<CreateOfframpResponse> {
   const { source: src, destination: dest, platformFee } = body;
   const userId = src.userId;
@@ -177,31 +155,28 @@ export async function createOfframp(
   const toCurrency = dest.currency.trim().toLowerCase();
   const chain = src.chain.trim();
 
-  let rate = '1.00';
-  let inverseRate = '1.00';
-  if (options?.getRateFromCurrencyApi) {
-    const currencyApiRates = await options.getRateFromCurrencyApi(
-      fromCurrency,
-      toCurrency,
-      chain
-    );
-    if (currencyApiRates) {
-      rate = currencyApiRates.rate;
-      inverseRate = currencyApiRates.inverseRate;
-    }
+  if (!options.getRateFromPalremit) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
+  const rateResponse = await options.getRateFromPalremit(fromCurrency, toCurrency, chain);
+  if (!rateResponse) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
+  }
+  const rate = rateResponse.conversionRate;
+  const inverseRate = rateResponse.inverseRate;
 
   const cryptoAmount = src.amount;
-  const rateNum = parseFloat(rate) || 1;
-  const fiatGross = cryptoAmount * rateNum;
-  const { feeAmount: platformFeeAmount, netAmount: fiatNet } = applyOfframpPlatformFee(
-    fiatGross,
+  const { feeAmount: platformFeeAmount, netAmount: netCryptoAmount } = applyOfframpPlatformFee(
+    cryptoAmount,
     platformFee
   );
+  const rateNum = parseFloat(rate) || 1;
+  const fiatNet = netCryptoAmount * rateNum;
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const rateInformation: RateInformation = {
     rate,
+    conversionRate: rate,
     inverseRate,
     fromCurrency,
     toCurrency,
@@ -225,13 +200,19 @@ export async function createOfframp(
     amount: fiatNet,
     accountId: account.id,
     transferType: dest.transferType ?? account.paymentRail,
+    bankTransferMethod: dest.bankTransferMethod,
+    reference: dest.reference,
+    purposeOfPayment: dest.purposeOfPayment,
     user: userDisplayInfo,
   };
 
   const fees: OfframpFees = {
     platformFee: {
-      amount: platformFeeAmount.toFixed(2),
-      currency: toCurrency,
+      type: platformFee.type,
+      value: String(platformFee.value),
+      amount: platformFeeAmount.toFixed(6),
+      currency: fromCurrency,
+      walletAddress: platformFee.walletAddress,
     },
   };
 
@@ -239,51 +220,26 @@ export async function createOfframp(
     createdAt: new Date().toISOString(),
   };
 
-  let depositInstructions: DepositInstructions | null = null;
-  let lpReference: string | null = null;
   const depositBy = expiresAt.toISOString();
-
-  if (options?.createViaPalremit) {
-    const palremitResult = await options.createViaPalremit(user, account, body, depositBy);
-    if (palremitResult) {
-      depositInstructions = palremitResult.depositInstructions;
-      lpReference = palremitResult.reference;
-    }
-  }
-  if (!depositInstructions && lpClient) {
-    const lpPayload: CreateOfframpRequest = { ...body, requestId };
-    const lpResponse = await createOfframpAtLp(lpClient, lpPayload);
-    if (lpResponse?.transferDetails?.depositInstructions) {
-      depositInstructions = lpResponse.transferDetails.depositInstructions;
-      lpReference =
-        (lpResponse.transferDetails as { lpReference?: string })?.lpReference ?? null;
-    }
-  }
-
-  if (!depositInstructions) {
-    depositInstructions = buildDepositInstructionsPlaceholder(
-      wallet.address,
-      cryptoAmount.toFixed(6),
-      fromCurrency,
-      chain,
-      expiresAt.toISOString()
-    );
+  const palremitDeposit = await options.createPalremitDeposit(userId, body, requestId, depositBy);
+  if (!palremitDeposit) {
+    throw new Error('PALREMIT_DEPOSIT_ADDRESS_FAILED');
   }
 
   const row = await offrampRepo.createOfframp({
     requestId,
     userId,
-    status: 'CREATED',
+    status: 'AWAITING_CRYPTO',
     source: sourcePayload,
     destination: destinationPayload,
     rateInformation,
-    depositInstructions,
+    depositInstructions: palremitDeposit.depositInstructions,
     timeline,
     fees,
     receipt: null,
     refundDetails: null,
     failedReason: null,
-    lpReference,
+    lpReference: palremitDeposit.correlationId,
   });
 
   const transferDetails: OfframpTransferDetails = {

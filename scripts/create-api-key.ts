@@ -7,7 +7,7 @@
  */
 import 'dotenv/config';
 import { randomBytes } from 'crypto';
-import { hashApiKey, createApiKey, deactivateKeysForPartner } from '../src/db/repositories/apiKey.repo';
+import { hashApiKey, createApiKey, deactivateKeysForPartner } from '@/db/repositories/apiKey.repo';
 
 const ALPHANUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 

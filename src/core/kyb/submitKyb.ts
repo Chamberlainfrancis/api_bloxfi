@@ -2,7 +2,7 @@
  * Core: submit KYB application. Returns spec §1.6 Submit KYB response shape.
  */
 
-import type { SubmitKybRequest, SubmitKybResponse } from '../../types/user';
+import type { SubmitKybRequest, SubmitKybResponse } from '@/types/user';
 
 export interface UserRepoSubmitKyb {
   createKybSubmission(

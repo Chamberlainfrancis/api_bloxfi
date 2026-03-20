@@ -4,13 +4,13 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as accountCore from '../../../core/accounts';
-import * as accountRepo from '../../../db/repositories/account.repo';
-import * as userRepo from '../../../db/repositories/user.repo';
-import type { CreateAccountRequest } from '../../../types/account';
-import { createAccountBodySchema, listAccountsQuerySchema } from './schemas';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import * as accountCore from '@/core/accounts';
+import * as accountRepo from '@/db/repositories/account.repo';
+import * as userRepo from '@/db/repositories/user.repo';
+import type { CreateAccountRequest } from '@/types/account';
+import { createAccountBodySchema, listAccountsQuerySchema } from '@/api/v1/accounts/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
 

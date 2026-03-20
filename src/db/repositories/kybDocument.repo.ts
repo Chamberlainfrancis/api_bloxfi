@@ -3,7 +3,7 @@
  * Spec §1.5: attach uploaded files to user's KYB profile.
  */
 
-import { prisma } from '../prisma/client';
+import { prisma } from '@/db/prisma/client';
 
 export interface CreateKybDocumentInput {
   userId: string;

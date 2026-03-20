@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { ACCOUNT_REGION_TYPES } from '../../../types/account';
+import { ACCOUNT_REGION_TYPES } from '@/types/account';
 
 const addressSchema = z.object({
   addressLine1: z.string().min(1),

@@ -8,7 +8,7 @@ import type {
   EffectiveLimit,
   RailLimits,
   LimitIncreaseEligibility,
-} from '../../types/limits';
+} from '@/types/limits';
 
 export interface UserLimitsRepo {
   findUserById(id: string): Promise<{

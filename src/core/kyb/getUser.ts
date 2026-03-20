@@ -8,7 +8,7 @@ import type {
   EntityType,
   KYBStatus,
   UserStatus,
-} from '../../types/user';
+} from '@/types/user';
 
 export interface UserRepoGet {
   findUserById(id: string): Promise<{

@@ -38,10 +38,14 @@ model User {
   id                   String    @id @default(uuid())
   type                 String    @default("business")
   status               UserStatus @default(active)
-  businessInfo         Json      // BusinessInfo shape
+  businessInfo         Json      // BusinessInfo shape; unique normalized email also enforced via DB indexes (see migrations)
   registeredAddress    Json      // Address shape
   legalRepresentative  Json      // LegalRepresentative shape
   metadata             Json?
+  /** POST /users idempotency key (requestId header). */
+  creationRequestId    String?   @unique
+  /** Normalized businessInfo.email: lower(trim). Unique at DB + app layer. */
+  businessEmailNorm    String?   @unique
   kybStatus            KYBStatusEnum @default(not_started)
   approvedRails        String[]  @default([])
   createdAt            DateTime  @default(now())
@@ -222,10 +226,17 @@ model Onramp {
 enum OfframpStatusEnum {
   CREATED
   AWAITING_CRYPTO
+  CRYPTO_PENDING
   CRYPTO_RECEIVED
+  CRYPTO_CONFIRMED
+  PROCESSING_FEE
+  FEE_PROCESSED
+  FIAT_INITIATED
   FIAT_PENDING
   COMPLETED
+  FAILED
   CANCELLED
+  REFUNDED
   CRYPTO_FAILED
   FIAT_FAILED
   EXPIRED

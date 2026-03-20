@@ -2,7 +2,7 @@
  * Core: update KYB information. Returns spec §1.3 Update KYB response shape.
  */
 
-import type { UpdateKybRequest, UpdateKybResponse } from '../../types/user';
+import type { UpdateKybRequest, UpdateKybResponse } from '@/types/user';
 
 export interface UserRepoUpdateKyb {
   upsertKybInfo(userId: string, data: UpdateKybRequest): Promise<void>;

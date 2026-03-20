@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { sendSuccess } from '../../utils';
-import { usersRouter } from './users/routes';
-import { filesRouter } from './files/routes';
-import { walletsRouter } from './wallets/routes';
-import { accountsRouter } from './accounts/routes';
-import { onrampsRouter } from './onramps/routes';
-import { offrampsRouter } from './offramps/routes';
-import { limitsRouter } from './limits/routes';
+import { sendSuccess } from '@/utils';
+import { usersRouter } from '@/api/v1/users/routes';
+import { filesRouter } from '@/api/v1/files/routes';
+import { walletsRouter } from '@/api/v1/wallets/routes';
+import { accountsRouter } from '@/api/v1/accounts/routes';
+import { onrampsRouter } from '@/api/v1/onramps/routes';
+import { offrampsRouter } from '@/api/v1/offramps/routes';
+import { limitsRouter } from '@/api/v1/limits/routes';
 
 const router = Router();
 

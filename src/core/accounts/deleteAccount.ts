@@ -2,7 +2,7 @@
  * Core: delete fiat account. Cannot delete if pending transactions. Spec §3.4.
  */
 
-import type { DeleteAccountResponse } from '../../types/account';
+import type { DeleteAccountResponse } from '@/types/account';
 
 export interface AccountRepoDelete {
   findAccountByIdAndUser(accountId: string, userId: string): Promise<{ id: string } | null>;

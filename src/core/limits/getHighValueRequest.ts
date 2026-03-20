@@ -2,7 +2,7 @@
  * Core: get high-value request by requestId. Spec §6 GET /high-value-requests/:requestId.
  */
 
-import type { GetHighValueRequestResponse, HighValueRequestStatus } from '../../types/limits';
+import type { GetHighValueRequestResponse, HighValueRequestStatus } from '@/types/limits';
 
 export interface HighValueRequestRepoGet {
   findHighValueRequestByRequestId(requestId: string): Promise<{

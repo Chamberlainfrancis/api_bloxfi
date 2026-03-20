@@ -3,18 +3,19 @@
  * Per CURSOR_RULES: all DB access for users goes through this file.
  */
 
-import { prisma } from '../prisma/client';
+import { prisma } from '@/db/prisma/client';
 import type {
   CreateUserRequest,
   UpdateKybRequest,
   SubmitKybRequest,
   KYBStatus,
   UserStatus,
-} from '../../types/user';
+} from '@/types/user';
+import { CreateUserConflictError } from '@/types/createUserConflict';
+import { normalizeBusinessEmail } from '@/utils/normalizeBusinessEmail';
+import { userCreationPayloadsMatch } from '@/db/repositories/userCreationPayload';
 
-// --- User CRUD ---
-
-export async function createUser(data: CreateUserRequest): Promise<{
+export type UserRow = {
   id: string;
   type: string;
   status: UserStatus;
@@ -22,24 +23,106 @@ export async function createUser(data: CreateUserRequest): Promise<{
   registeredAddress: unknown;
   legalRepresentative: unknown;
   metadata: unknown;
+  creationRequestId: string | null;
+  businessEmailNorm: string | null;
   kybStatus: KYBStatus;
   approvedRails: string[];
   createdAt: Date;
   updatedAt: Date;
+};
+
+function isPrismaUniqueError(e: unknown): e is { code: string } {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'code' in e &&
+    (e as { code: string }).code === 'P2002'
+  );
+}
+
+// --- User CRUD ---
+
+/**
+ * Create user: unique normalized business email + idempotent creationRequestId (requestId header).
+ * Same requestId + identical payload → { created: false }. Same requestId + different payload → throws.
+ */
+export async function createUser(data: CreateUserRequest): Promise<{
+  user: UserRow;
+  created: boolean;
 }> {
-  const user = await prisma.user.create({
-    data: {
-      type: data.type,
-      status: 'active',
-      businessInfo: data.businessInfo as object,
-      registeredAddress: data.registeredAddress as object,
-      legalRepresentative: data.legalRepresentative as object,
-      metadata: data.metadata != null ? (data.metadata as object) : undefined,
-      kybStatus: 'not_started',
-      approvedRails: [],
-    },
+  const normEmail = normalizeBusinessEmail(data.businessInfo.email);
+
+  const existingByRequest = await prisma.user.findUnique({
+    where: { creationRequestId: data.requestId },
   });
-  return user as ReturnType<typeof createUser> extends Promise<infer R> ? R : never;
+  if (existingByRequest) {
+    const row = existingByRequest as UserRow;
+    if (userCreationPayloadsMatch(row, data)) {
+      return { user: row, created: false };
+    }
+    throw new CreateUserConflictError(
+      'REQUEST_ID_MISMATCH',
+      'requestId was already used to create a user with different data'
+    );
+  }
+
+  const existingByEmail = await prisma.user.findUnique({
+    where: { businessEmailNorm: normEmail },
+  });
+  if (existingByEmail) {
+    throw new CreateUserConflictError(
+      'EMAIL_EXISTS',
+      'A user with this business email already exists'
+    );
+  }
+
+  try {
+    const user = await prisma.user.create({
+      data: {
+        type: data.type,
+        status: 'active',
+        businessInfo: data.businessInfo as object,
+        registeredAddress: data.registeredAddress as object,
+        legalRepresentative: data.legalRepresentative as object,
+        metadata: data.metadata != null ? (data.metadata as object) : undefined,
+        kybStatus: 'not_started',
+        approvedRails: [],
+        creationRequestId: data.requestId,
+        businessEmailNorm: normEmail,
+      },
+    });
+    return { user: user as UserRow, created: true };
+  } catch (e) {
+    if (!isPrismaUniqueError(e)) {
+      throw e;
+    }
+
+    const againByRequest = await prisma.user.findUnique({
+      where: { creationRequestId: data.requestId },
+    });
+    if (againByRequest) {
+      const row = againByRequest as UserRow;
+      if (userCreationPayloadsMatch(row, data)) {
+        return { user: row, created: false };
+      }
+      throw new CreateUserConflictError(
+        'REQUEST_ID_MISMATCH',
+        'requestId was already used to create a user with different data'
+      );
+    }
+
+    const againByEmail = await prisma.user.findUnique({
+      where: { businessEmailNorm: normEmail },
+    });
+    if (againByEmail) {
+      throw new CreateUserConflictError(
+        'EMAIL_EXISTS',
+        'A user with this business email already exists'
+      );
+    }
+
+    throw e;
+  }
 }
 
 export async function findUserById(id: string): Promise<{

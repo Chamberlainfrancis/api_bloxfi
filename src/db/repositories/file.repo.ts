@@ -3,7 +3,7 @@
  * Spec §1.4: file metadata (fileId, filename, size, mimeType, uploadedAt).
  */
 
-import { prisma } from '../prisma/client';
+import { prisma } from '@/db/prisma/client';
 
 export interface CreateFileInput {
   id: string;

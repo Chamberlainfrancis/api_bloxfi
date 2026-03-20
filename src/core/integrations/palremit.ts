@@ -5,8 +5,8 @@
  * No Express/Prisma here. HTTP is injected so core does not import services.
  */
 
-import type { GetOnrampRatesResponse } from '../../types/onramp';
-import type { GetOfframpRatesResponse } from '../../types/offramp';
+import type { GetOnrampRatesResponse } from '@/types/onramp';
+import type { GetOfframpRatesResponse } from '@/types/offramp';
 
 /** Currency API conversion response data */
 interface PalremitConversionData {
@@ -117,8 +117,13 @@ export async function getPalremitOfframpRates(
       fromCurrency: from.toLowerCase(),
       toCurrency: to.toLowerCase(),
       fromChain: fromChain?.trim() || undefined,
-      rate: rateStr,
+      conversionRate: rateStr,
       inverseRate,
+      rateValidUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      minimumAmount: '10.00',
+      maximumAmount: '50000.00',
+      estimatedProcessingTime: '1-3 business days',
+      availableRails: [],
     };
   } catch {
     return null;

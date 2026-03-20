@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { AppError, type ErrorResponseBody, type ErrorDetails } from '../types/errors';
+import { AppError, type ErrorResponseBody, type ErrorDetails } from '@/types/errors';
 
 const REQUEST_ID_HEADER = 'requestid';
 

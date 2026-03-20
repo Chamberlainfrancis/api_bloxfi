@@ -3,7 +3,7 @@
  * Fee object is complete per spec-clarifications §3: type (FIX | PERCENT) and value only.
  */
 
-import type { OnrampFee } from '../../types/onramp';
+import type { OnrampFee } from '@/types/onramp';
 
 export interface OnrampFeeResult {
   /** Fee amount in same unit as input (fiat or crypto as applicable). */

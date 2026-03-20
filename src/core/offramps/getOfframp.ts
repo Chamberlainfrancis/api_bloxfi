@@ -13,7 +13,7 @@ import type {
   OfframpFees,
   OfframpStatus,
   RefundDetails,
-} from '../../types/offramp';
+} from '@/types/offramp';
 
 export interface OfframpRepoGet {
   findOfframpById(id: string): Promise<{

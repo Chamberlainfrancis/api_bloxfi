@@ -1,15 +1,11 @@
 /**
- * Core: get offramp rate (crypto → fiat). Uses Currency API for rates (RAMP_ARCHITECTURE).
- * Spec §5.1 GET /offramps/rates. LP is not the source of rates.
+ * Core: get offramp rate (crypto → fiat). Palremit Currency API only (palremit_rates_guide.md).
  */
 
-import type { GetOfframpRatesResponse } from '../../types/offramp';
-
-const DEFAULT_RATE = '1.00';
+import type { GetOfframpRatesResponse } from '@/types/offramp';
 
 export interface GetOfframpRateOptions {
-  /** Fetches rate from Currency API. When set, used as sole rate source. */
-  getRateFromCurrencyApi?: (
+  getRateFromPalremit?: (
     from: string,
     to: string,
     fromChain?: string
@@ -17,8 +13,7 @@ export interface GetOfframpRateOptions {
 }
 
 /**
- * Get conversion rate for fromCurrency (crypto) → toCurrency (fiat).
- * Uses Currency API when getRateFromCurrencyApi is provided; otherwise returns default rate.
+ * Get conversion rate for fromCurrency (crypto) → toCurrency (fiat). Palremit only; throws if unavailable.
  */
 export async function getOfframpRate(
   fromCurrency: string,
@@ -32,25 +27,16 @@ export async function getOfframpRate(
   const chain = fromChain?.trim() ? fromChain.trim() : undefined;
 
   if (!from || !to) {
-    return {
-      fromCurrency: from || fromCurrency,
-      toCurrency: to || toCurrency,
-      fromChain: chain,
-      rate: DEFAULT_RATE,
-      inverseRate: DEFAULT_RATE,
-    };
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
-  if (opts.getRateFromCurrencyApi) {
-    const result = await opts.getRateFromCurrencyApi(from, to, chain);
-    if (result) return result;
+  if (!opts.getRateFromPalremit) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
-  return {
-    fromCurrency: from,
-    toCurrency: to,
-    fromChain: chain,
-    rate: DEFAULT_RATE,
-    inverseRate: DEFAULT_RATE,
-  };
+  const result = await opts.getRateFromPalremit(from, to, chain);
+  if (!result) {
+    throw new Error('PALREMIT_RATES_UNAVAILABLE');
+  }
+  return result;
 }

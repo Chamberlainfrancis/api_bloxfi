@@ -66,9 +66,10 @@ Optional / recommended:
 | `RATE_LIMIT_MAX_REQUESTS` | Max requests per window per key (default 100)   |
 | `IDEMPOTENCY_TTL_SECONDS` | TTL for idempotency keys in Redis (default 86400) |
 | `S3_*`                    | S3-compatible storage for file uploads          |
-| `CURRENCY_API_URL`        | Currency API for rates (onramp/offramp)         |
-| `PALREMIT_*`              | Palremit liquidity/currency URLs and access key |
-| `WEBHOOK_SECRET`          | HMAC secret for LP webhook verification         |
+| `PALREMIT_LIQUIDITY_URL` | Palremit liquidity API (required)                |
+| `PALREMIT_ACCESS_KEY`    | Palremit `access_key` (required)                |
+| `PALREMIT_CURRENCY_URL` | Palremit currency/rates API (optional; has default) |
+| `WEBHOOK_SECRET`         | Optional; Palremit webhooks verify with `PALREMIT_ACCESS_KEY` by default |
 
 See `.env.example` for all supported variables.
 
@@ -112,7 +113,10 @@ The API key must be 32 alphanumeric characters and exist in the database (use `n
 | **Limits** | `GET /api/v1/limits`, `POST/GET /api/v1/high-value-requests` |
 | **Webhooks** | `POST /api/v1/webhooks` — LP webhooks (raw body, HMAC; no API key) |
 
-State-changing POSTs (create user, create account, create onramp, etc.) require a **`requestId`** header (UUID v4) for idempotency. Duplicate `requestId` returns `409 Conflict`.
+State-changing POSTs (create user, create account, create onramp, etc.) require a **`requestId`** header (UUID v4) where documented.
+
+- **`POST /api/v1/users`:** **One user per** normalized **`businessInfo.email`** (DB unique on `businessEmailNorm` + JSON). **`requestId`** header prevents duplicate creates; same `requestId` + same body → **`200`**; same `requestId` + different body → **`409`**. Duplicate email (new `requestId`) → **`409`**. Optional body **`requestId`** / **`requestld`** must match the header when sent. **User ≠ Account (spec §3):** that user may have **many** fiat accounts via `POST /api/v1/users/:userId/accounts`.
+- Other resources: duplicate `requestId` often returns **`409`** where enforced.
 
 ### Response format
 

@@ -3,16 +3,23 @@
  * Per CURSOR_RULES: all DB access for offramps goes through this file.
  */
 
-import { prisma } from '../prisma/client';
-import type { OfframpStatus } from '../../types/offramp';
+import { prisma } from '@/db/prisma/client';
+import type { OfframpStatus } from '@/types/offramp';
 
 const STATUS_VALUES = [
   'CREATED',
   'AWAITING_CRYPTO',
+  'CRYPTO_PENDING',
   'CRYPTO_RECEIVED',
+  'CRYPTO_CONFIRMED',
+  'PROCESSING_FEE',
+  'FEE_PROCESSED',
+  'FIAT_INITIATED',
   'FIAT_PENDING',
   'COMPLETED',
+  'FAILED',
   'CANCELLED',
+  'REFUNDED',
   'CRYPTO_FAILED',
   'FIAT_FAILED',
   'EXPIRED',
@@ -95,6 +102,18 @@ export async function findOfframpByRequestId(requestId: string): Promise<Offramp
   return row as OfframpRow | null;
 }
 
+/** Match BloxFi id, requestId, or stored lpReference (Palremit / BloxFi correlation). */
+export async function findOfframpByReferenceMatch(ref: string): Promise<OfframpRow | null> {
+  const trimmed = ref?.trim();
+  if (!trimmed) return null;
+  const row = await prisma.offramp.findFirst({
+    where: {
+      OR: [{ id: trimmed }, { requestId: trimmed }, { lpReference: trimmed }],
+    },
+  });
+  return row as OfframpRow | null;
+}
+
 export async function updateOfframpStatus(
   id: string,
   status: OfframpStatus,
@@ -105,6 +124,7 @@ export async function updateOfframpStatus(
     receipt?: object | null;
     refundDetails?: object | null;
     failedReason?: string | null;
+    lpReference?: string | null;
   }
 ): Promise<OfframpRow | null> {
   const row = await prisma.offramp.update({
@@ -121,6 +141,7 @@ export async function updateOfframpStatus(
         refundDetails: updates.refundDetails as object | undefined,
       }),
       ...(updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
+      ...(updates?.lpReference !== undefined && { lpReference: updates.lpReference }),
     },
   });
   return row as OfframpRow;

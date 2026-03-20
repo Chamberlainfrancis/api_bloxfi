@@ -6,9 +6,9 @@
  */
 
 import { Router } from 'express';
-import { idempotencyMiddleware } from '../../../middleware/idempotency';
-import * as controllers from './controllers';
-import { getUserLimits } from '../limits/controllers';
+import { idempotencyMiddleware } from '@/middleware/idempotency';
+import * as controllers from '@/api/v1/users/controllers';
+import { getUserLimits } from '@/api/v1/limits/controllers';
 
 const router = Router();
 

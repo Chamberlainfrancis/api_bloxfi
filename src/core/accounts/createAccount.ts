@@ -8,7 +8,7 @@ import type {
   AccountRegionType,
   RegionAccountDetails,
   RailType,
-} from '../../types/account';
+} from '@/types/account';
 
 export interface AccountRepoCreate {
   createAccount(data: {

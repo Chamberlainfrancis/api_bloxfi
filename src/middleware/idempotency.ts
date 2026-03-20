@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
-import { getRedis } from '../services/redis';
-import { env } from '../config';
-import { AppError } from '../types/errors';
+import { getRedis } from '@/services/redis';
+import { env } from '@/config';
+import { AppError } from '@/types/errors';
 
 const REQUEST_ID_HEADER = 'requestid';
 

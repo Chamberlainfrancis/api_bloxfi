@@ -3,7 +3,7 @@
  * Returns lastUpdated, rails[] (per-rail onramp/offramp limits, highValueSupport, processingTime), globalLimits.
  */
 
-import type { GetLimitsResponse, RailLimits, GlobalLimits } from '../../types/limits';
+import type { GetLimitsResponse, RailLimits, GlobalLimits } from '@/types/limits';
 
 /** Default platform rails and limits. Can be replaced by config or LP later. */
 const DEFAULT_RAILS: RailLimits[] = [

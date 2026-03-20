@@ -12,25 +12,71 @@ const onrampFeeSchema = z.object({
 const createOnrampSourceSchema = z.object({
   amount: z.number().positive(),
   currency: z.string().min(1),
-  userId: z.string().uuid(),
-  accountId: z.string().uuid(),
+  userId: z.string().uuid().optional(),
+  userld: z.string().uuid().optional(),
+  accountId: z.string().uuid().optional(),
+  accountld: z.string().uuid().optional(),
   transferType: z.string().optional(),
 });
 
 const createOnrampDestinationSchema = z.object({
   currency: z.string().min(1),
   chain: z.string().min(1),
-  userId: z.string().uuid(),
-  externalWalletId: z.string().uuid(),
+  userId: z.string().uuid().optional(),
+  userld: z.string().uuid().optional(),
+  externalWalletId: z.string().uuid().optional(),
+  externalWalletld: z.string().uuid().optional(),
 });
 
-export const createOnrampBodySchema = z.object({
-  requestId: z.string().uuid(),
-  source: createOnrampSourceSchema,
-  destination: createOnrampDestinationSchema,
-  purposeOfPayment: z.string().optional(),
-  fee: onrampFeeSchema,
-});
+export const createOnrampBodySchema = z
+  .object({
+    requestId: z.string().uuid().optional(),
+    requestld: z.string().uuid().optional(),
+    source: createOnrampSourceSchema,
+    destination: createOnrampDestinationSchema,
+    purposeOfPayment: z.string().optional(),
+    fee: onrampFeeSchema,
+  })
+  .transform((val) => ({
+    requestId: val.requestId ?? val.requestld,
+    source: {
+      ...val.source,
+      userId: val.source.userId ?? val.source.userld,
+      accountId: val.source.accountId ?? val.source.accountld,
+    },
+    destination: {
+      ...val.destination,
+      userId: val.destination.userId ?? val.destination.userld,
+      externalWalletId: val.destination.externalWalletId ?? val.destination.externalWalletld,
+    },
+    purposeOfPayment: val.purposeOfPayment,
+    fee: val.fee,
+  }))
+  .superRefine((val, ctx) => {
+    if (!val.requestId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['requestId'], message: 'requestId is required' });
+    }
+    if (!val.source.userId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'userId'], message: 'source.userId is required' });
+    }
+    if (!val.source.accountId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'accountId'], message: 'source.accountId is required' });
+    }
+    if (!val.destination.userId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destination', 'userId'],
+        message: 'destination.userId is required',
+      });
+    }
+    if (!val.destination.externalWalletId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destination', 'externalWalletId'],
+        message: 'destination.externalWalletId is required',
+      });
+    }
+  });
 
 export const getOnrampRatesQuerySchema = z.object({
   fromCurrency: z.string().min(1),

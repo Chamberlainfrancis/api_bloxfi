@@ -1,27 +1,35 @@
 /**
- * Onramp controllers. Validate → call core → return standardized response.
- * No Prisma/Redis/business logic here. Idempotency: duplicate requestId → 409.
+ * Onramp controllers. Palremit only (currency rates + crypto withdrawal). Idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as onrampCore from '../../../core/onramps';
-import * as onrampRepo from '../../../db/repositories/onramp.repo';
-import * as userRepo from '../../../db/repositories/user.repo';
-import * as accountRepo from '../../../db/repositories/account.repo';
-import * as walletRepo from '../../../db/repositories/wallet.repo';
-import { getLpClient } from '../../../services/lpClient';
-import { getRate as getRateFromCurrencyApiService } from '../../../services/currencyApi';
-import type { GetOnrampRatesResponse } from '../../../types/onramp';
-import type { CreateOnrampRequest } from '../../../types/onramp';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import * as onrampCore from '@/core/onramps';
+import * as onrampRepo from '@/db/repositories/onramp.repo';
+import * as userRepo from '@/db/repositories/user.repo';
+import * as accountRepo from '@/db/repositories/account.repo';
+import * as walletRepo from '@/db/repositories/wallet.repo';
+import {
+  createPalremitLiquidityAdapter,
+  createPalremitCurrencyAdapter,
+} from '@/services/palremitAdapters';
+import {
+  executePalremitOnrampCryptoWithdrawal,
+  getPalremitOnrampRates,
+} from '@/core/integrations';
+import type { OnrampFee } from '@/types/onramp';
+import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
 import {
   createOnrampBodySchema,
   getOnrampRatesQuerySchema,
   listOnrampsQuerySchema,
-} from './schemas';
+} from '@/api/v1/onramps/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
+
+const palremitLiquidity = createPalremitLiquidityAdapter();
+const palremitCurrency = createPalremitCurrencyAdapter();
 
 const repos = {
   onramp: {
@@ -44,19 +52,8 @@ const repos = {
   },
 };
 
-const lpClient = getLpClient();
-
-/** Currency API as sole rate source for onramp (RAMP_ARCHITECTURE). */
-const getRateFromCurrencyApi = (async (from: string, to: string): Promise<GetOnrampRatesResponse | null> => {
-  const result = await getRateFromCurrencyApiService(from, to);
-  if (!result) return null;
-  return {
-    fromCurrency: from,
-    toCurrency: to,
-    conversionRate: result.rate,
-  };
-});
-
+const getRateFromPalremit = (from: string, to: string) =>
+  getPalremitOnrampRates(palremitCurrency, from, to);
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
@@ -75,10 +72,14 @@ export async function getOnrampRates(
       return;
     }
     const result = await onrampCore.getOnrampRate(parsed.data.fromCurrency, parsed.data.toCurrency, {
-      getRateFromCurrencyApi,
+      getRateFromPalremit,
     });
     sendSuccess(res, result);
   } catch (e) {
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
     next(e);
   }
 }
@@ -110,19 +111,32 @@ export async function createOnramp(
       next(new AppError('Duplicate requestId', 'CONFLICT', 409));
       return;
     }
-    const { requestId: _reqId, ...body } = parsed.data;
+    const body: {
+      source: CreateOnrampSourceInput;
+      destination: CreateOnrampDestinationInput;
+      purposeOfPayment?: string;
+      fee: OnrampFee;
+    } = {
+      source: parsed.data.source as CreateOnrampSourceInput,
+      destination: parsed.data.destination as CreateOnrampDestinationInput,
+      purposeOfPayment: parsed.data.purposeOfPayment,
+      fee: parsed.data.fee,
+    };
     const result = await onrampCore.createOnramp(
       repos.onramp,
       repos.user,
       repos.account,
       repos.wallet,
       repos.kyb,
-      lpClient,
       raw,
       body,
-      { getRateFromCurrencyApi }
+      {
+        getRateFromPalremit,
+        executePalremitCryptoWithdrawal: (b, rid, receiveNet, destAddr) =>
+          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr),
+      }
     );
-    sendSuccess(res, result, 200);
+    sendSuccess(res, result, 201);
   } catch (e) {
     if (e instanceof Error && e.message === 'USER_NOT_FOUND') {
       next(new AppError('User not found', 'NOT_FOUND', 404));
@@ -142,6 +156,14 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'SOURCE_DESTINATION_USER_MISMATCH') {
       next(new AppError('Source and destination userId must match', 'INVALID_REQUEST', 400));
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_ONRAMP_WITHDRAWAL_FAILED') {
+      next(new AppError('Palremit crypto withdrawal failed', 'BAD_GATEWAY', 502));
       return;
     }
     next(e);

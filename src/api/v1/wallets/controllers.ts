@@ -4,16 +4,16 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as walletCore from '../../../core/wallets';
-import * as walletRepo from '../../../db/repositories/wallet.repo';
-import * as userRepo from '../../../db/repositories/user.repo';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import * as walletCore from '@/core/wallets';
+import * as walletRepo from '@/db/repositories/wallet.repo';
+import * as userRepo from '@/db/repositories/user.repo';
 import {
   addExternalWalletBodySchema,
   listExternalWalletsQuerySchema,
   updateExternalWalletBodySchema,
-} from './schemas';
+} from '@/api/v1/wallets/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
 

@@ -4,19 +4,19 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../../utils';
-import { AppError } from '../../../types';
-import * as kybCore from '../../../core/kyb';
-import * as userRepo from '../../../db/repositories/user.repo';
-import * as fileRepo from '../../../db/repositories/file.repo';
-import * as kybDocumentRepo from '../../../db/repositories/kybDocument.repo';
+import { sendSuccess } from '@/utils';
+import { AppError, CreateUserConflictError } from '@/types';
+import * as kybCore from '@/core/kyb';
+import * as userRepo from '@/db/repositories/user.repo';
+import * as fileRepo from '@/db/repositories/file.repo';
+import * as kybDocumentRepo from '@/db/repositories/kybDocument.repo';
 import {
   createUserBodySchema,
   updateKybBodySchema,
   submitKybBodySchema,
   getKybStatusQuerySchema,
   attachKybDocumentsBodySchema,
-} from './schemas';
+} from '@/api/v1/users/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
 
@@ -59,17 +59,35 @@ export async function createUser(
       next(new AppError('Missing or invalid requestId header', 'BAD_REQUEST', 400));
       return;
     }
+    const headerRequestId = raw.trim();
+    const bodyRequestId = parsed.data.requestId;
+    if (bodyRequestId !== undefined && bodyRequestId !== headerRequestId) {
+      next(
+        new AppError('requestId in body must match requestId header', 'INVALID_REQUEST', 400)
+      );
+      return;
+    }
     const data = {
       type: parsed.data.type,
-      requestId: raw.trim(),
+      requestId: headerRequestId,
       businessInfo: parsed.data.businessInfo,
       registeredAddress: parsed.data.registeredAddress,
       legalRepresentative: parsed.data.legalRepresentative,
       metadata: parsed.data.metadata,
     };
-    const result = await kybCore.createBusinessUser(repo, data);
-    sendSuccess(res, result, 201);
+    const { response, created } = await kybCore.createBusinessUser(repo, data);
+    sendSuccess(res, response, created ? 201 : 200);
   } catch (e) {
+    if (e instanceof CreateUserConflictError) {
+      if (e.kind === 'EMAIL_EXISTS') {
+        next(new AppError(e.message, 'CONFLICT', 409, { reason: 'DUPLICATE_BUSINESS_EMAIL' }));
+        return;
+      }
+      if (e.kind === 'REQUEST_ID_MISMATCH') {
+        next(new AppError(e.message, 'CONFLICT', 409, { reason: 'REQUEST_ID_PAYLOAD_MISMATCH' }));
+        return;
+      }
+    }
     next(e);
   }
 }

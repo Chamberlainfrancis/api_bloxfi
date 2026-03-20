@@ -3,7 +3,7 @@
  * Platform fee: PERCENTAGE or FLAT per spec §5.
  */
 
-import type { PlatformFee } from '../../types/offramp';
+import type { PlatformFee } from '@/types/offramp';
 
 export interface OfframpPlatformFeeResult {
   /** Fee amount in same unit as input (crypto or fiat as applicable). */

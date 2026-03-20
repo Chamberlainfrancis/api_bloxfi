@@ -1,4 +1,4 @@
-export { getOnrampRate } from './getRate';
-export { createOnramp } from './createOnramp';
-export { getOnramp } from './getOnramp';
-export { listOnramps } from './listOnramps';
+export { getOnrampRate } from '@/core/onramps/getRate';
+export { createOnramp } from '@/core/onramps/createOnramp';
+export { getOnramp } from '@/core/onramps/getOnramp';
+export { listOnramps } from '@/core/onramps/listOnramps';

@@ -3,9 +3,9 @@
  * Per CURSOR_RULES: all DB access for external wallets goes through this file.
  */
 
-import { prisma } from '../prisma/client';
-import type { BlockchainNetwork } from '../../types/wallet';
-import type { BlockchainNetwork as PrismaBlockchainNetwork } from '../../../generated/prisma';
+import { prisma } from '@/db/prisma/client';
+import type { BlockchainNetwork } from '@/types/wallet';
+import type { BlockchainNetwork as PrismaBlockchainNetwork } from '@generated/prisma';
 
 const CHAIN_MAP: Record<BlockchainNetwork, PrismaBlockchainNetwork> = {
   POLYGON: 'POLYGON',

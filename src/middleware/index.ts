@@ -1,4 +1,4 @@
-export { errorMiddleware } from './error';
-export { authMiddleware } from './auth';
-export { idempotencyMiddleware } from './idempotency';
-export { rateLimitMiddleware } from './rateLimit';
+export { errorMiddleware } from '@/middleware/error';
+export { authMiddleware } from '@/middleware/auth';
+export { idempotencyMiddleware } from '@/middleware/idempotency';
+export { rateLimitMiddleware } from '@/middleware/rateLimit';

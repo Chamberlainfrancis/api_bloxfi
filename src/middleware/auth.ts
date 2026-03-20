@@ -1,8 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { env } from '../config';
-import { AppError } from '../types/errors';
-import type { AuthUser, ApiKeyValidationResult } from '../types/auth';
+import { env } from '@/config';
+import { AppError } from '@/types/errors';
+import type { AuthUser, ApiKeyValidationResult } from '@/types/auth';
 
 const API_KEY_LENGTH = 32;
 const BEARER_PREFIX = 'Bearer ';

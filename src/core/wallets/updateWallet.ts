@@ -7,7 +7,7 @@ import type {
   UpdateExternalWalletRequest,
   UpdateExternalWalletResponse,
   BlockchainNetwork,
-} from '../../types/wallet';
+} from '@/types/wallet';
 
 export interface WalletRepoUpdate {
   updateExternalWallet(

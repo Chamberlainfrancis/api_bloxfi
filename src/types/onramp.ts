@@ -1,6 +1,6 @@
 /**
- * Onramp types per docs/bloxfi-liquidity-provider-integration-spec-v1.0.0.md §4.
- * Fee object: type (FIX | PERCENT) and value only per spec-clarifications §3.
+ * Onramp types per docs/bloxfi-api-specmd.md §4.
+ * Fee object: type (FIX | PERCENT) and value only.
  */
 
 export type OnrampStatus =

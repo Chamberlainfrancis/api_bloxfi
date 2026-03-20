@@ -2,7 +2,7 @@
  * Core: get KYB status. Returns spec §1.7 Get KYB Status response shape.
  */
 
-import type { GetKybStatusResponse, KYBStatus, RailStatusItem } from '../../types/user';
+import type { GetKybStatusResponse, KYBStatus, RailStatusItem } from '@/types/user';
 
 export interface UserRepoGetKybStatus {
   findUserById(id: string): Promise<{ id: string; kybStatus: string } | null>;

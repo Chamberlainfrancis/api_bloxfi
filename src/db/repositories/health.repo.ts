@@ -1,4 +1,4 @@
-import { prisma } from '../prisma/client';
+import { prisma } from '@/db/prisma/client';
 
 /**
  * Ping the database. Used by readiness check only.
