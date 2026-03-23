@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both.\n\n**Webhooks:** `POST /api/v1/webhooks` uses **no Bearer auth**; set `webhookSecret` (same as `PALREMIT_ACCESS_KEY` or `WEBHOOK_SECRET`) and run the pre-request script to set `X-Webhook-Signature` (HMAC-SHA256).\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `offrampId`, `highValueRequestId`.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `create_fiat_deposit`).\n\n**Webhooks:** `POST /api/v1/webhooks` uses **no Bearer auth**; set `webhookSecret` (same as `PALREMIT_ACCESS_KEY` or `WEBHOOK_SECRET`) and run the pre-request script to set `X-Webhook-Signature` (HMAC-SHA256).\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit staging:** **Onramp** — `POST /onramps` calls LP fiat deposit; first status is **`AWAITING_FUNDS`**. After fiat clears, LP/your stack should emit **`onramp.fiat_processed`** (see Webhooks folder); then **`GET /onramps/:onrampId`** runs Palremit crypto withdrawal and can reach **`COMPLETED`**. **Offramp** — `POST /offramps` returns a crypto deposit address (**`AWAITING_CRYPTO`**); **`GET /offramps/:id`** lists LP deposits and may start fiat payout.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `offrampId`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -558,7 +558,7 @@
     },
     {
       "name": "Onramps",
-      "description": "Fiat → Crypto. Need userId, accountId, walletId. Create returns transferDetails.id (onrampId).",
+      "description": "Fiat → crypto (Palremit). Needs `userId`, `accountId`, `walletId`, and **user `businessInfo.email`** (plus names from KYB / legal name for LP `create_fiat_deposit`). **Create Onramp** → status **`AWAITING_FUNDS`**, `depositInfo` from LP. Then **`onramp.fiat_processed`** webhook → **Get Onramp** to execute crypto payout (Palremit §6.2).",
       "item": [
         {
           "name": "Get Onramp Rates",
@@ -603,6 +603,9 @@
                   "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
                   "    pm.collectionVariables.set('onrampId', j.data.transferDetails.id);",
                   "    console.log('Saved onrampId: ' + j.data.transferDetails.id);",
+                  "    if (j.data.transferDetails.status !== 'AWAITING_FUNDS') {",
+                  "        console.warn('Expected transferDetails.status AWAITING_FUNDS after create; got: ' + j.data.transferDetails.status);",
+                  "    }",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -624,7 +627,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "onramps"]
             },
-            "description": "Body.requestId must match requestId header. 201: transferType ONRAMP, transferDetails (id auto-saved, requestId, status, source, destination, quoteInformation, depositInfo, createdAt). Use new requestId for each create."
+            "description": "Body.requestId must match requestId header. **502** if Palremit `POST /deposits/create_fiat_deposit` fails; **422** if user has no `businessInfo.email`.\n\n**201:** `transferType` ONRAMP. Expect **`transferDetails.status` = `AWAITING_FUNDS`**, `depositInfo` from LP, `receipt` null. Then send **Webhook: onramp.fiat_processed** (or update status) and call **Get Onramp** to trigger crypto withdrawal. New `requestId` each create."
           }
         },
         {
@@ -639,7 +642,7 @@
               "query": [
                 { "key": "userId", "value": "{{userId}}" },
                 { "key": "limit", "value": "50" },
-                { "key": "status", "value": "CREATED", "disabled": true },
+                { "key": "status", "value": "AWAITING_FUNDS", "disabled": true },
                 { "key": "currency", "value": "USD", "disabled": true },
                 { "key": "createdBefore", "value": "", "disabled": true },
                 { "key": "createdAfter", "value": "", "disabled": true }
@@ -658,14 +661,14 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "onramps", "{{onrampId}}"]
             },
-            "description": "200: transferType, transferDetails (id, status, source, destination, quoteInformation, depositInfo, etc.)."
+            "description": "200: transferType, transferDetails. **Side effect:** if status is **`FIAT_PROCESSED`**, server may call Palremit prepare/confirm crypto withdrawal and move to **`COMPLETED`** (or **`CRYPTO_FAILED`**). Poll after fiat webhook."
           }
         }
       ]
     },
     {
       "name": "Offramps",
-      "description": "Crypto → Fiat. Need userId, accountId, walletId. Create returns transferDetails.id (offrampId).",
+      "description": "Crypto → fiat (Palremit). Need userId, accountId, walletId. **Create Offramp** returns crypto **depositInstructions**; status **`AWAITING_CRYPTO`**. **Get Offramp** lists LP crypto deposits and may create/confirm fiat withdrawal (**`FIAT_PENDING`**+).",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -766,7 +769,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "offramps", "{{offrampId}}"]
             },
-            "description": "200: transferType, transferDetails (id, status, depositInstructions, rateInformation, timeline)."
+            "description": "200: transferType, transferDetails. **Side effect:** when status is **AWAITING_CRYPTO**, server may list Palremit crypto deposits and start fiat withdrawal (**FIAT_PENDING**). Poll after user sends crypto."
           }
         },
         {
@@ -867,7 +870,7 @@
     },
     {
       "name": "Webhooks",
-      "description": "Inbound LP webhooks at `POST /api/v1/webhooks`. **No Bearer auth** (separate Express mount). Server verifies `X-Webhook-Signature`: HMAC-SHA256 using `WEBHOOK_SECRET` or `PALREMIT_ACCESS_KEY`. Set collection variable **`webhookSecret`** to that value. Use **minified** JSON body so signature matches canonical `JSON.stringify(JSON.parse(body))`, or sign the exact raw UTF-8 (server accepts either).",
+      "description": "Inbound LP webhooks at `POST /api/v1/webhooks`. **No Bearer auth** (separate Express mount). Server verifies `X-Webhook-Signature`: HMAC-SHA256 using `WEBHOOK_SECRET` or `PALREMIT_ACCESS_KEY`. Set collection variable **`webhookSecret`** to that value. Use **minified** JSON body so signature matches canonical `JSON.stringify(JSON.parse(body))`, or sign the exact raw UTF-8 (server accepts either).\n\n**Onramp E2E:** run **Create Onramp** first so `{{onrampId}}` is set; then **onramp.fiat_processed** (required before **Get Onramp** will pay crypto). Optional: **onramp.fiat_received** sets `FIAT_PENDING`.",
       "item": [
         {
           "name": "Inbound webhook (BloxFi-shaped)",
@@ -904,7 +907,83 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "webhooks"]
             },
-            "description": "Example **BloxFi** payload (`eventId`, `eventType`, `timestamp`, `data`). Change `eventType`/`data` to match handlers in `src/core/webhooks`. If `require('crypto-js')` fails in your Postman version, compute HMAC-SHA256 hex of the raw body with the same secret and add header `X-Webhook-Signature` manually."
+            "description": "Generic example (`onramp.completed`). Edit `eventType` and `data` for other events. If `require('crypto-js')` fails, compute HMAC-SHA256 hex of the **exact** raw body and set `X-Webhook-Signature` manually."
+          }
+        },
+        {
+          "name": "Webhook: onramp.fiat_received",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const secret = pm.collectionVariables.get('webhookSecret');",
+                  "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
+                  "if (!secret) { console.warn('Set collection variable webhookSecret'); }",
+                  "else if (raw) {",
+                  "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+                  "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"postman-onramp-fiat-received\",\"eventType\":\"onramp.fiat_received\",\"timestamp\":\"2025-01-01T12:00:00.000Z\",\"data\":{\"onrampId\":\"{{onrampId}}\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "webhooks"]
+            },
+            "description": "Sets onramp status to **FIAT_PENDING**. Requires `{{onrampId}}` (run **Create Onramp** first)."
+          }
+        },
+        {
+          "name": "Webhook: onramp.fiat_processed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "const secret = pm.collectionVariables.get('webhookSecret');",
+                  "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
+                  "if (!secret) { console.warn('Set collection variable webhookSecret'); }",
+                  "else if (raw) {",
+                  "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+                  "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"postman-onramp-fiat-processed\",\"eventType\":\"onramp.fiat_processed\",\"timestamp\":\"2025-01-01T12:00:00.000Z\",\"data\":{\"onrampId\":\"{{onrampId}}\"}}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "webhooks"]
+            },
+            "description": "Sets onramp status to **FIAT_PROCESSED**. Then **Get Onramp** runs Palremit crypto withdrawal. Requires `{{onrampId}}`."
           }
         }
       ]

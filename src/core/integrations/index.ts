@@ -1,6 +1,6 @@
 /**
  * Palremit integrations only. HTTP via injected request fns (services/palremitAdapters.ts).
- * docs/palremit_integration_guide.md, palremit_rates_guide.md.
+ * docs/palremit_integration_guide.md §5–§6 (deposits + withdrawals).
  */
 
 export {
@@ -9,7 +9,11 @@ export {
   tryPalremitOfframpFiatPayout,
 } from '@/core/integrations/palremitOfframp';
 export type { PalremitOfframpDepositResult } from '@/core/integrations/palremitOfframp';
-export { executePalremitOnrampCryptoWithdrawal } from '@/core/integrations/palremitOnramp';
+export {
+  createOnrampPalremitFiatDeposit,
+  mapPalremitFiatDepositResponseToDepositInfo,
+  executePalremitOnrampCryptoWithdrawal,
+} from '@/core/integrations/palremitOnramp';
 export type { PalremitOnrampWithdrawResult } from '@/core/integrations/palremitOnramp';
 export {
   getPalremitOnrampRates,
@@ -19,11 +23,9 @@ export {
 } from '@/core/integrations/palremit';
 export type { PalremitCurrencyRequestFn } from '@/core/integrations/palremit';
 export {
-  createPalremitCustomerProfile,
-  getPalremitRampOrder,
-  listPalremitRampOrders,
   createPalremitCryptoAddressNewUser,
   createPalremitCryptoAddress,
+  createPalremitFiatDeposit,
   listPalremitCryptoDeposits,
   createPalremitFiatWithdrawal,
   confirmPalremitFiatWithdrawal,
@@ -32,10 +34,9 @@ export {
 } from '@/core/integrations/palremitLiquidity';
 export type {
   PalremitLiquidityRequestFn,
-  PalremitCreateCustomerProfileBody,
-  PalremitCustomerProfile,
   PalremitCreateCryptoAddressNewUserBody,
   PalremitCreateCryptoAddressBody,
+  PalremitCreateFiatDepositBody,
   PalremitCryptoAddress,
   PalremitCryptoDeposit,
   PalremitCreateFiatWithdrawalBody,

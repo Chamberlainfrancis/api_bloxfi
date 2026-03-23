@@ -1,7 +1,6 @@
 /**
- * Palremit Liquidity API integration. Maps our flows to liquidity-api.palremit.com.
- * All functions accept an injected liquidityRequest (from services/palremitClient).
- * Used for: ramp (offramp), crypto deposits, fiat/crypto withdrawals.
+ * Palremit Liquidity API integration. Partner ramps use §5 (deposits) + §6 (withdrawals) only —
+ * docs/palremit_integration_guide.md (§4 ramp API is not used).
  */
 
 /** Liquidity API request function (injected; implemented by services). */
@@ -12,96 +11,7 @@ export interface PalremitLiquidityRequestFn {
   }>;
 }
 
-// --- Ramp (offramp) ---
-
-export interface PalremitCreateCustomerProfileBody {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  date_of_birth: string;
-  country: string;
-}
-
-export interface PalremitCustomerProfile {
-  _id: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  date_of_birth?: string;
-  country: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface PalremitOfframpOrder {
-  reference: string;
-  type: string;
-  source_amount: number;
-  source_currency: string;
-  source_network?: string;
-  destination_type?: string;
-  destination_currency?: string;
-  destination_amount?: number;
-  destination_name?: string;
-  destination_code?: string;
-  destination_account?: string;
-  destination_account_name?: string;
-  payment_information?: {
-    amount: number;
-    currency: string;
-    address: string;
-    network_name?: string;
-    network_code?: string;
-    token?: string;
-  };
-  app_fee?: { unit: string; value: number };
-  status: string;
-  createdAt?: string;
-}
-
-export async function createPalremitCustomerProfile(
-  request: PalremitLiquidityRequestFn,
-  body: PalremitCreateCustomerProfileBody
-): Promise<PalremitCustomerProfile | null> {
-  const res = await request<PalremitCustomerProfile>('/ramp/create_customer_profile', {
-    method: 'POST',
-    body,
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-export async function getPalremitRampOrder(
-  request: PalremitLiquidityRequestFn,
-  reference: string
-): Promise<PalremitOfframpOrder | null> {
-  const res = await request<PalremitOfframpOrder>(`/ramp/get_order?reference=${encodeURIComponent(reference)}`, {
-    method: 'GET',
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-export async function listPalremitRampOrders(
-  request: PalremitLiquidityRequestFn,
-  params?: { page?: number; limit?: number; type?: string; status?: string }
-): Promise<{ count: number; result: PalremitOfframpOrder[] } | null> {
-  const q = new URLSearchParams();
-  if (params?.page != null) q.set('page', String(params.page));
-  if (params?.limit != null) q.set('limit', String(params.limit));
-  if (params?.type) q.set('type', params.type);
-  if (params?.status) q.set('status', params.status);
-  const res = await request<{ count: number; result: PalremitOfframpOrder[] }>(
-    `/ramp/get_orders?${q.toString()}`,
-    { method: 'GET' }
-  );
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-// --- Crypto deposits ---
+// --- Crypto deposits (§5) ---
 
 export interface PalremitCreateCryptoAddressNewUserBody {
   first_name: string;
@@ -178,6 +88,30 @@ export async function listPalremitCryptoDeposits(
   });
   if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
   return res.data.data;
+}
+
+/** LP fiat deposit instructions (user wires fiat before crypto payout). */
+export interface PalremitCreateFiatDepositBody {
+  first_name: string;
+  last_name: string;
+  email: string;
+  currency: string;
+  amount: number;
+}
+
+export async function createPalremitFiatDeposit(
+  request: PalremitLiquidityRequestFn,
+  body: PalremitCreateFiatDepositBody
+): Promise<Record<string, unknown> | null> {
+  const res = await request<Record<string, unknown>>('/deposits/create_fiat_deposit', {
+    method: 'POST',
+    body,
+  });
+  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
+  const data = res.data.data;
+  return data != null && typeof data === 'object' && !Array.isArray(data)
+    ? (data as Record<string, unknown>)
+    : null;
 }
 
 // --- Fiat withdrawal ---

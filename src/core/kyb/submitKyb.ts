@@ -2,9 +2,14 @@
  * Core: submit KYB application. Returns spec §1.6 Submit KYB response shape.
  */
 
-import type { SubmitKybRequest, SubmitKybResponse } from '@/types/user';
+import type { KYBStatus, SubmitKybRequest, SubmitKybResponse } from '@/types/user';
 
 export interface UserRepoSubmitKyb {
+  findUserById(userId: string): Promise<{ kybStatus: KYBStatus } | null>;
+  updateUser(
+    userId: string,
+    data: { kybStatus?: KYBStatus; approvedRails?: string[]; status?: 'active' | 'inactive' | 'suspended' }
+  ): Promise<void>;
   createKybSubmission(
     userId: string,
     data: SubmitKybRequest,
@@ -31,6 +36,12 @@ export async function submitKybApplication(
   userId: string,
   data: SubmitKybRequest
 ): Promise<SubmitKybResponse> {
+  const user = await repo.findUserById(userId);
+  // Move user-level KYB summary into review on submission.
+  // Keep terminal/restrictive states unchanged until webhook/admin decision.
+  if (user && (user.kybStatus === 'not_started' || user.kybStatus === 'incomplete')) {
+    await repo.updateUser(userId, { kybStatus: 'under_review' });
+  }
   const estimated = defaultEstimatedCompletionDate();
   const submission = await repo.createKybSubmission(userId, data, estimated);
   return {

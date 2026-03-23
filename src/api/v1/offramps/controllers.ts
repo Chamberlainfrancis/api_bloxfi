@@ -1,5 +1,5 @@
 /**
- * Offramp controllers. Palremit only (deposits + withdrawals). Idempotency: duplicate requestId → 409.
+ * Offramp controllers. Palremit §5 deposits + §6.1 fiat withdrawal; idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -152,8 +152,15 @@ export async function createOfframp(
       body,
       {
         getRateFromPalremit,
-        createPalremitDeposit: (userId, b, rid, depositBy) =>
-          createOfframpPalremitCryptoDeposit(palremitLiquidity, userId, b, rid, depositBy),
+        createPalremitDeposit: (userCtx, b, rid, depositBy) =>
+          createOfframpPalremitCryptoDeposit(
+            palremitLiquidity,
+            userCtx,
+            userRepo.mergeUserMetadata,
+            b,
+            rid,
+            depositBy
+          ),
       }
     );
     sendSuccess(res, result, 201);

@@ -1,5 +1,5 @@
 /**
- * Onramp controllers. Palremit only (currency rates + crypto withdrawal). Idempotency: duplicate requestId → 409.
+ * Onramp controllers. Palremit `create_fiat_deposit` + rates; §6.2 crypto withdrawal after fiat processed; idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -15,6 +15,7 @@ import {
   createPalremitCurrencyAdapter,
 } from '@/services/palremitAdapters';
 import {
+  createOnrampPalremitFiatDeposit,
   executePalremitOnrampCryptoWithdrawal,
   getPalremitOnrampRates,
 } from '@/core/integrations';
@@ -132,8 +133,7 @@ export async function createOnramp(
       body,
       {
         getRateFromPalremit,
-        executePalremitCryptoWithdrawal: (b, rid, receiveNet, destAddr) =>
-          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr),
+        createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
       }
     );
     sendSuccess(res, result, 201);
@@ -166,6 +166,20 @@ export async function createOnramp(
       next(new AppError('Palremit crypto withdrawal failed', 'BAD_GATEWAY', 502));
       return;
     }
+    if (e instanceof Error && e.message === 'USER_EMAIL_REQUIRED_FOR_ONRAMP') {
+      next(
+        new AppError(
+          'User business profile must include email for fiat deposit',
+          'UNPROCESSABLE_ENTITY',
+          422
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_FIAT_DEPOSIT_FAILED') {
+      next(new AppError('Palremit fiat deposit instructions failed', 'BAD_GATEWAY', 502));
+      return;
+    }
     next(e);
   }
 }
@@ -177,6 +191,12 @@ export async function getOnramp(
 ): Promise<void> {
   try {
     const { onrampId } = req.params;
+    await onrampCore.advanceOnrampIfFiatProcessed(
+      { findOnrampById: repos.onramp.findOnrampById, updateOnrampStatus: onrampRepo.updateOnrampStatus },
+      onrampId,
+      (b, rid, receiveNet, destAddr) =>
+        executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr)
+    );
     const result = await onrampCore.getOnramp(repos.onramp, onrampId);
     if (!result) {
       next(new AppError('Onramp not found', 'NOT_FOUND', 404));

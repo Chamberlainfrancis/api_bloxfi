@@ -1,7 +1,7 @@
 /**
  * Core: process inbound webhook events from LPs / Palremit. Update state via repository interfaces.
  * BloxFi-shaped: user.*, kyb.*, onramp.*, offramp.*, …
- * Palremit §7: ramp.order.* — map to BloxFi ramp statuses using reference / id in `data`.
+ * Palremit §4 ramp webhooks are not used (partner flows use §5–§6 only).
  * No Express/Prisma; receives repos via DI.
  */
 
@@ -111,102 +111,6 @@ function toKybStatus(s: string): KYBStatus {
   return 'under_review';
 }
 
-function pickPalremitReference(d: Record<string, unknown>): string {
-  return (
-    pickString(d, ['reference', 'order_reference', 'orderReference', 'request_id', 'requestId']) ??
-    pickString(d, ['id', 'order_id', 'orderId']) ??
-    ''
-  );
-}
-
-/** Palremit `ramp.order.*` → BloxFi offramp/onramp rows (matched by id, requestId, lpReference, or deposit reference). */
-async function handlePalremitRampOrder(
-  repos: WebhookRepos,
-  eventType: string,
-  d: Record<string, unknown>
-): Promise<void> {
-  const ref = pickPalremitReference(d);
-  if (!ref) return;
-
-  const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
-  const onramp =
-    offramp == null ? await repos.onramp.findOnrampByReferenceMatch(ref) : null;
-
-  const txHash =
-    pickString(d, ['transaction_hash', 'transactionHash', 'tx_hash', 'txHash']) ?? undefined;
-  const failedReason =
-    (typeof d.message === 'string' && d.message.trim() !== '' ? d.message : undefined) ??
-    pickString(d, ['failure_reason', 'failureReason', 'failed_reason']);
-
-  if (offramp) {
-    const sid = offramp.id;
-    const st = offramp.status;
-    switch (eventType) {
-      case 'ramp.order.pending':
-        if (st === 'CREATED') {
-          await repos.offramp.updateOfframpStatus(sid, 'AWAITING_CRYPTO');
-        }
-        break;
-      case 'ramp.order.processing':
-        if (['CREATED', 'AWAITING_CRYPTO', 'CRYPTO_PENDING'].includes(st)) {
-          await repos.offramp.updateOfframpStatus(sid, 'CRYPTO_PENDING', {
-            ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
-          });
-        }
-        break;
-      case 'ramp.order.successful':
-        await repos.offramp.updateOfframpStatus(sid, 'COMPLETED', {
-          timeline: { completedAt: new Date().toISOString() } as object,
-          ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
-          lpReference: ref,
-        });
-        break;
-      case 'ramp.order.failed':
-        await repos.offramp.updateOfframpStatus(sid, 'FAILED', {
-          failedReason: failedReason ?? 'Palremit ramp failed',
-        });
-        break;
-      case 'ramp.order.cancelled':
-        await repos.offramp.updateOfframpStatus(sid, 'CANCELLED', {
-          timeline: { cancelledAt: new Date().toISOString() } as object,
-        });
-        break;
-      default:
-        break;
-    }
-    return;
-  }
-
-  if (onramp) {
-    const oid = onramp.id;
-    switch (eventType) {
-      case 'ramp.order.pending':
-      case 'ramp.order.processing':
-        if (onramp.status === 'CREATED' || onramp.status === 'AWAITING_FUNDS') {
-          await repos.onramp.updateOnrampStatus(oid, 'CRYPTO_PENDING');
-        }
-        break;
-      case 'ramp.order.successful':
-        await repos.onramp.updateOnrampStatus(oid, 'COMPLETED', {
-          ...(txHash ? { receipt: { transactionHash: txHash } as object } : {}),
-        });
-        break;
-      case 'ramp.order.failed':
-        await repos.onramp.updateOnrampStatus(oid, 'CRYPTO_FAILED', {
-          failedReason: failedReason ?? 'Palremit ramp failed',
-        });
-        break;
-      case 'ramp.order.cancelled':
-        await repos.onramp.updateOnrampStatus(oid, 'EXPIRED', {
-          failedReason: 'Cancelled',
-        });
-        break;
-      default:
-        break;
-    }
-  }
-}
-
 /**
  * Process a single webhook event. Updates state via repos; throws on unrecoverable errors.
  */
@@ -216,11 +120,6 @@ export async function processWebhookEvent(
 ): Promise<void> {
   const { eventType, data } = payload;
   const d = data as Record<string, unknown>;
-
-  if (eventType.startsWith('ramp.order.')) {
-    await handlePalremitRampOrder(repos, eventType, d);
-    return;
-  }
 
   switch (eventType) {
     case 'user.created':

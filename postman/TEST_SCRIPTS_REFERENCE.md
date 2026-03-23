@@ -70,11 +70,16 @@ if (pm.response.code === 200 && pm.response.json().success && pm.response.json()
 
 ### 5. Create Onramp → save `onrampId`
 
+Expect `transferDetails.status === 'AWAITING_FUNDS'` after create; then **Webhook: onramp.fiat_processed** before **Get Onramp** pays crypto.
+
 ```javascript
 var j = pm.response.json();
 if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {
     pm.collectionVariables.set('onrampId', j.data.transferDetails.id);
     console.log('Saved onrampId: ' + j.data.transferDetails.id);
+    if (j.data.transferDetails.status !== 'AWAITING_FUNDS') {
+        console.warn('Expected AWAITING_FUNDS after create; got: ' + j.data.transferDetails.status);
+    }
 }
 ```
 

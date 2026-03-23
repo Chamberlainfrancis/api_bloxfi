@@ -49,7 +49,9 @@ BloxFi API
 │   ├── Create High-Value Request
 │   └── Get High-Value Request
 └── Webhooks
-    └── Inbound webhook (BloxFi-shaped)
+    ├── Inbound webhook (BloxFi-shaped)
+    ├── Webhook: onramp.fiat_received
+    └── Webhook: onramp.fiat_processed
 ```
 
 ## Setup
@@ -87,17 +89,18 @@ BloxFi API
 11. **Create Account (offramp)** (optional) — new `requestId`; overwrites `accountId` in variables if successful.
 12. **Add External Wallet** — new `requestId`; `walletId` is auto-saved.
 13. **Get Onramp Rates** (optional).
-14. **Create Onramp** — body uses `{{userId}}`, `{{accountId}}`, `{{walletId}}`; body `requestId` must match header; new `requestId`; `onrampId` is auto-saved.
-15. **Get Onramp** / **List Onramps** (optional).
-16. **Get Offramp Rates** (optional).
-17. **Create Offramp** — includes required `destination.purposeOfPayment` and `platformFee.walletAddress`; new `requestId`; `offrampId` is auto-saved.
-18. **Get Offramp** / **Cancel Offramp** (optional).
-19. **Get Limits** — platform limits.
-20. **Get User Limits** — user-effective limits (uses `{{userId}}`).
-21. **Create High-Value Request** — body `requestId` must match header; new `requestId`; `highValueRequestId` is auto-saved.
-22. **Get High-Value Request** (optional).
+14. **Create Onramp** — body uses `{{userId}}`, `{{accountId}}`, `{{walletId}}`; body `requestId` must match header; new `requestId`; `onrampId` is auto-saved. Expect **`AWAITING_FUNDS`** and LP **`depositInfo`** (server calls Palremit `create_fiat_deposit`; user must have **`businessInfo.email`**).
+15. **Webhook: onramp.fiat_processed** (optional mid-step: **Webhook: onramp.fiat_received**) — set `webhookSecret`, **no Bearer**; uses `{{onrampId}}`. **fiat_processed** is required before the API will send crypto on GET.
+16. **Get Onramp** — may advance to **`COMPLETED`** after **fiat_processed** (Palremit crypto withdrawal). **List Onramps** (optional).
+17. **Get Offramp Rates** (optional).
+18. **Create Offramp** — includes required `destination.purposeOfPayment` and `platformFee.walletAddress`; new `requestId`; `offrampId` is auto-saved. Expect **`AWAITING_CRYPTO`** and crypto **deposit instructions**.
+19. **Get Offramp** — may detect LP crypto deposit and start fiat payout (**poll after user sends crypto**). **Cancel Offramp** (optional).
+20. **Get Limits** — platform limits.
+21. **Get User Limits** — user-effective limits (uses `{{userId}}`).
+22. **Create High-Value Request** — body `requestId` must match header; new `requestId`; `highValueRequestId` is auto-saved.
+23. **Get High-Value Request** (optional).
 
-**Webhooks:** Run **Inbound webhook** only with `webhookSecret` set; request uses **no** Bearer auth.
+**Webhooks:** Set `webhookSecret`; requests use **no** Bearer auth. Use **onramp.fiat_processed** after **Create Onramp** to unblock **Get Onramp** crypto payout.
 
 **Important:** Each idempotent POST has a **Pre-request Script** that generates a new UUID and sets `requestId` before the request is sent, so you can run the flow repeatedly without 409 Conflict.
 

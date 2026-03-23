@@ -61,27 +61,23 @@ export async function getPalremitOnrampRates(
   const to = (toCurrency ?? '').trim().toUpperCase();
   if (!from || !to) return null;
 
-  try {
-    const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
-      method: 'POST',
-      body: { from, to, amount: 1 },
-    });
-    if (res.status !== 200 || !res.data?.data) return null;
-    if (res.data.status !== 'success') return null;
+  const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
+    method: 'POST',
+    body: { from, to, amount: 1 },
+  });
+  if (res.status !== 200 || !res.data?.data) return null;
+  if (res.data.status !== 'success') return null;
 
-    const d = res.data.data;
-    const rate =
-      typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
-    if (rate == null || rate === '') return null;
+  const d = res.data.data;
+  const rate =
+    typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
+  if (rate == null || rate === '') return null;
 
-    return {
-      fromCurrency: from.toLowerCase(),
-      toCurrency: to.toLowerCase(),
-      conversionRate: rate,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    fromCurrency: from.toLowerCase(),
+    toCurrency: to.toLowerCase(),
+    conversionRate: rate,
+  };
 }
 
 /**
@@ -98,34 +94,30 @@ export async function getPalremitOfframpRates(
   const to = (toCurrency ?? '').trim().toUpperCase();
   if (!from || !to) return null;
 
-  try {
-    const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
-      method: 'POST',
-      body: { from, to, amount: 1 },
-    });
-    if (res.status !== 200 || !res.data?.data) return null;
-    if (res.data.status !== 'success') return null;
+  const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
+    method: 'POST',
+    body: { from, to, amount: 1 },
+  });
+  if (res.status !== 200 || !res.data?.data) return null;
+  if (res.data.status !== 'success') return null;
 
-    const d = res.data.data;
-    const rateStr =
-      typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
-    if (rateStr == null || rateStr === '') return null;
-    const rateNum = parseFloat(rateStr);
-    const inverseRate = rateNum > 0 ? String(1 / rateNum) : '0';
+  const d = res.data.data;
+  const rateStr =
+    typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
+  if (rateStr == null || rateStr === '') return null;
+  const rateNum = parseFloat(rateStr);
+  const inverseRate = rateNum > 0 ? String(1 / rateNum) : '0';
 
-    return {
-      fromCurrency: from.toLowerCase(),
-      toCurrency: to.toLowerCase(),
-      fromChain: fromChain?.trim() || undefined,
-      conversionRate: rateStr,
-      inverseRate,
-      rateValidUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      minimumAmount: '10.00',
-      maximumAmount: '50000.00',
-      estimatedProcessingTime: '1-3 business days',
-      availableRails: [],
-    };
-  } catch {
-    return null;
-  }
+  return {
+    fromCurrency: from.toLowerCase(),
+    toCurrency: to.toLowerCase(),
+    fromChain: fromChain?.trim() || undefined,
+    conversionRate: rateStr,
+    inverseRate,
+    rateValidUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    minimumAmount: '10.00',
+    maximumAmount: '50000.00',
+    estimatedProcessingTime: '1-3 business days',
+    availableRails: [],
+  };
 }

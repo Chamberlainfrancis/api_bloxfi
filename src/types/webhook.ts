@@ -1,5 +1,6 @@
 /**
- * Inbound webhook payloads: BloxFi-shaped (spec) or Palremit { event, data } (§7).
+ * Inbound webhook payloads: BloxFi-shaped (spec) or Palremit { event, data }.
+ * Partner Palremit flows use §5–§6 APIs; BloxFi-shaped `onramp.*` / `offramp.*` webhooks still apply.
  * Palremit verification: X-Webhook-Signature (HMAC-SHA256 of JSON payload).
  */
 
@@ -34,17 +35,11 @@ export type WebhookEventType =
   | 'offramp.refunded'
   | 'limit.reached'
   | 'high_value_request.approved'
-  | 'high_value_request.rejected'
-  /** Palremit ramp lifecycle (docs/palremit_integration_guide.md §7). */
-  | 'ramp.order.pending'
-  | 'ramp.order.processing'
-  | 'ramp.order.successful'
-  | 'ramp.order.failed'
-  | 'ramp.order.cancelled';
+  | 'high_value_request.rejected';
 
 export interface InboundWebhookPayload {
   eventId: string;
-  /** BloxFi LP names, Palremit `ramp.order.*`, or other provider strings. */
+  /** BloxFi LP event names or other provider strings. */
   eventType: string;
   timestamp: string; // ISO 8601
   data: Record<string, unknown>;

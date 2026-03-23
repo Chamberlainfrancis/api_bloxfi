@@ -1,24 +1,25 @@
 /**
- * Palremit offramp: crypto → fiat via Deposits API (receive crypto) + Withdrawals API (fiat payout).
- * docs/palremit_integration_guide.md §5 (deposits), §6.1 (fiat withdrawal).
+ * Palremit offramp: §5.2 crypto deposit address + §6.1.3–6.1.4 fiat withdrawal after deposit is seen.
+ * docs/palremit_integration_guide.md
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
   createPalremitCryptoAddress,
+  createPalremitCryptoAddressNewUser,
   createPalremitFiatWithdrawal,
   confirmPalremitFiatWithdrawal,
   listPalremitCryptoDeposits,
 } from '@/core/integrations/palremitLiquidity';
+import type { PalremitCryptoAddress } from '@/core/integrations/palremitLiquidity';
 import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
-import type { DepositInstructions } from '@/types/offramp';
 import type { CreateOfframpRequest } from '@/types/offramp';
+import type { DepositInstructions } from '@/types/offramp';
 
 export interface PalremitOfframpDepositResult {
-  /** Correlation: BloxFi offramp requestId (used for fiat withdrawal reference prefix). */
+  /** Correlation: BloxFi offramp requestId (fiat withdrawal reference prefix). */
   correlationId: string;
   depositInstructions: DepositInstructions;
-  /** Palremit crypto address metadata for deposit matching. */
   channelAddressId?: string;
 }
 
@@ -37,12 +38,76 @@ function mapCryptoAddressToDepositInstructions(
   };
 }
 
+const PALREMIT_CHANNEL_USER_METADATA_KEY = 'palremitChannelUserId';
+
+function getPalremitChannelUserIdFromMetadata(metadata: unknown): string | undefined {
+  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  const m = metadata as Record<string, unknown>;
+  const v = m.palremitChannelUserId ?? m.palremit_channel_user_id;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+}
+
+function isHttp404(e: unknown): boolean {
+  return (
+    e instanceof Error &&
+    'status' in e &&
+    typeof (e as { status: unknown }).status === 'number' &&
+    (e as { status: number }).status === 404
+  );
+}
+
+/** Names for Palremit §5.1 `create_crypto_address_new_user`. */
+function namesForPalremitNewUser(ctx: {
+  businessInfo: unknown;
+  legalRepresentative: unknown;
+}): { first_name: string; last_name: string } {
+  const lr =
+    ctx.legalRepresentative != null &&
+    typeof ctx.legalRepresentative === 'object' &&
+    !Array.isArray(ctx.legalRepresentative)
+      ? (ctx.legalRepresentative as Record<string, unknown>)
+      : undefined;
+  if (lr) {
+    const fn = (lr.firstName as string) ?? (lr.first_name as string);
+    const ln = (lr.lastName as string) ?? (lr.last_name as string);
+    if (fn?.trim() && ln?.trim()) {
+      return { first_name: fn.trim(), last_name: ln.trim() };
+    }
+    if (fn?.trim()) return { first_name: fn.trim(), last_name: fn.trim() };
+  }
+  const bi =
+    ctx.businessInfo != null && typeof ctx.businessInfo === 'object' && !Array.isArray(ctx.businessInfo)
+      ? (ctx.businessInfo as Record<string, unknown>)
+      : undefined;
+  if (bi) {
+    const fn = (bi.firstName as string) ?? (bi.first_name as string);
+    const ln = (bi.lastName as string) ?? (bi.last_name as string);
+    if (fn?.trim() && ln?.trim()) {
+      return { first_name: fn.trim(), last_name: ln.trim() };
+    }
+    const legal =
+      (bi.legalName as string) ?? (bi.tradingName as string) ?? (bi.businessName as string) ?? '';
+    const parts = legal.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return { first_name: parts[0], last_name: parts.slice(1).join(' ') };
+    }
+    if (parts.length === 1) return { first_name: parts[0], last_name: parts[0] };
+  }
+  return { first_name: 'Customer', last_name: 'User' };
+}
+
 /**
- * Create offramp receive leg: Palremit crypto deposit address for existing channel user (BloxFi userId).
+ * §5.2 crypto address: use stored Palremit `channel_user_id` (§5.1), or §5.1 new-user then save id on User.metadata.
  */
 export async function createOfframpPalremitCryptoDeposit(
   liquidityRequest: PalremitLiquidityRequestFn,
-  userId: string,
+  ctx: {
+    userId: string;
+    businessInfo: unknown;
+    legalRepresentative: unknown;
+    metadata: unknown;
+  },
+  mergeUserMetadata: (userId: string, patch: Record<string, unknown>) => Promise<void>,
   body: Omit<CreateOfframpRequest, 'requestId'>,
   requestId: string,
   depositBy: string
@@ -52,11 +117,37 @@ export async function createOfframpPalremitCryptoDeposit(
     CHAIN_TO_PALREMIT_NETWORK[body.source.chain.trim().toUpperCase()] ??
     body.source.chain.trim().toUpperCase();
 
-  const addr = await createPalremitCryptoAddress(liquidityRequest, {
-    channel_user_id: userId,
-    currency: fromCurrency,
-    network: sourceNetwork,
-  });
+  let addr: PalremitCryptoAddress | null = null;
+  const existingChannelId = getPalremitChannelUserIdFromMetadata(ctx.metadata);
+
+  if (existingChannelId) {
+    try {
+      addr = await createPalremitCryptoAddress(liquidityRequest, {
+        channel_user_id: existingChannelId,
+        currency: fromCurrency,
+        network: sourceNetwork,
+      });
+    } catch (e) {
+      if (!isHttp404(e)) throw e;
+      addr = null;
+    }
+  }
+
+  if (!addr?.address) {
+    const names = namesForPalremitNewUser(ctx);
+    addr = await createPalremitCryptoAddressNewUser(liquidityRequest, {
+      first_name: names.first_name,
+      last_name: names.last_name,
+      currency: fromCurrency,
+      network: sourceNetwork,
+    });
+    if (addr?.channel_user_id) {
+      await mergeUserMetadata(ctx.userId, {
+        [PALREMIT_CHANNEL_USER_METADATA_KEY]: addr.channel_user_id,
+      });
+    }
+  }
+
   if (!addr?.address) return null;
 
   return {
@@ -70,19 +161,19 @@ export async function createOfframpPalremitCryptoDeposit(
   };
 }
 
-/**
- * Build Palremit §6.1.3 fiat withdrawal destination_information from BloxFi Account region + holder.
- */
+/** §6.1.3 `destination_information` from BloxFi account holder + region. */
 export function buildPalremitFiatDestinationInformation(
   accountHolder: unknown,
   regionDetails: unknown
 ): Record<string, string> {
-  const holder = (accountHolder && typeof accountHolder === 'object'
-    ? accountHolder
-    : {}) as Record<string, unknown>;
-  const region = (regionDetails && typeof regionDetails === 'object'
-    ? regionDetails
-    : {}) as Record<string, unknown>;
+  const holder =
+    accountHolder && typeof accountHolder === 'object'
+      ? (accountHolder as Record<string, unknown>)
+      : {};
+  const region =
+    regionDetails && typeof regionDetails === 'object'
+      ? (regionDetails as Record<string, unknown>)
+      : {};
   const accountNumber =
     (region.accountNumber as string) ?? (region.account_number as string) ?? '';
   const bankName = (region.bankName as string) ?? (region.bank_name as string) ?? 'Bank';
@@ -105,7 +196,7 @@ export function buildPalremitFiatDestinationInformation(
 const DEPOSIT_OK_STATUSES = ['successful', 'success', 'completed', 'confirmed'];
 
 /**
- * After user sends crypto, list deposits and if matched, create + confirm fiat withdrawal.
+ * §5.5 List deposits; on match, §6.1.3–6.1.4 create + confirm fiat withdrawal.
  */
 export async function tryPalremitOfframpFiatPayout(
   liquidityRequest: PalremitLiquidityRequestFn,
@@ -131,7 +222,10 @@ export async function tryPalremitOfframpFiatPayout(
   const normalizedAddr = params.depositAddress.toLowerCase();
   const match = deposits.find((d) => {
     const dest = (d.destination_address ?? '').toLowerCase();
-    const okAddr = dest === normalizedAddr || dest.includes(normalizedAddr) || normalizedAddr.includes(dest);
+    const okAddr =
+      dest === normalizedAddr ||
+      dest.includes(normalizedAddr) ||
+      normalizedAddr.includes(dest);
     const amtOk = d.amount >= params.expectedCryptoAmount * 0.99;
     const st = (d.status ?? '').toLowerCase();
     const okStatus = DEPOSIT_OK_STATUSES.some((s) => st.includes(s));

@@ -1,6 +1,6 @@
 /**
- * Core: create onramp. Palremit only: rates from Currency API + prepare/confirm crypto withdrawal.
- * Fiat debited from Palremit-integrated balance (source_currency). docs/palremit_integration_guide.md §6.2.
+ * Core: create onramp. Fiat-deposit-first flow:
+ * create intent + deposit instructions, then execute §6.2 crypto withdrawal after fiat is processed.
  */
 
 import { applyOnrampFee } from '@/core/payments';
@@ -21,13 +21,16 @@ const QUOTE_EXPIRY_MINUTES = 30;
 
 export interface CreateOnrampOptions {
   getRateFromPalremit?: (from: string, to: string) => Promise<GetOnrampRatesResponse | null>;
-  /** Palremit prepare + confirm crypto withdrawal to user's wallet. */
-  executePalremitCryptoWithdrawal: (
-    body: Omit<CreateOnrampRequest, 'requestId'>,
-    requestId: string,
-    receiveNetCryptoAmount: number,
-    destinationAddress: string
-  ) => Promise<{ prepareReference: string } | null>;
+  /** Palremit `POST /deposits/create_fiat_deposit` → BloxFi deposit instructions. */
+  createPalremitFiatDeposit: (params: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    currency: string;
+    amount: number;
+    bloxRequestId: string;
+    depositByIso: string;
+  }) => Promise<DepositInfo | null>;
 }
 
 export interface OnrampRepoCreate {
@@ -60,10 +63,7 @@ export interface OnrampRepoCreate {
 }
 
 export interface UserRepoForOnramp {
-  findUserById(id: string): Promise<{
-    id: string;
-    businessInfo: unknown;
-  } | null>;
+  findUserById(id: string): Promise<{ id: string; businessInfo: unknown } | null>;
 }
 
 export interface AccountRepoForOnramp {
@@ -95,7 +95,10 @@ export interface KybRepoForOnramp {
   >;
 }
 
-function userDisplay(user: { businessInfo?: unknown } | null): { email: string; businessName?: string } {
+function userDisplay(user: { businessInfo?: unknown } | null): {
+  email: string;
+  businessName?: string;
+} {
   if (!user?.businessInfo || typeof user.businessInfo !== 'object') {
     return { email: '', businessName: undefined };
   }
@@ -106,21 +109,25 @@ function userDisplay(user: { businessInfo?: unknown } | null): { email: string; 
   };
 }
 
-/** depositInfo: Palremit ledger debit — user must maintain fiat balance at Palremit; reference tracks withdrawal. */
-function buildPalremitOnrampDepositInfo(
-  beneficiaryName: string,
-  palremitReference: string,
-  depositBy: string,
-  sourceCurrency: string,
-  sourceAmount: number
-): DepositInfo {
-  return {
-    bankName: 'Palremit',
-    beneficiary: { name: beneficiaryName, address: '' },
-    reference: palremitReference,
-    depositBy,
-    instruction: `Palremit debits ${sourceAmount} ${sourceCurrency} from your integrated partner balance. Withdrawal reference: ${palremitReference}. Crypto is sent to the destination wallet after confirmation.`,
-  };
+/** Names for Palremit fiat deposit API (first_name / last_name). */
+function namesForPalremitFiatDeposit(info: Record<string, unknown>): { first: string; last: string } {
+  const fn = (info.firstName as string) ?? (info.first_name as string);
+  const ln = (info.lastName as string) ?? (info.last_name as string);
+  if (fn?.trim() && ln?.trim()) {
+    return { first: fn.trim(), last: ln.trim() };
+  }
+  if (fn?.trim()) {
+    return { first: fn.trim(), last: fn.trim() };
+  }
+  const legal =
+    (info.legalName as string) ?? (info.tradingName as string) ?? (info.businessName as string) ?? '';
+  const trimmed = legal.trim();
+  if (trimmed) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 1) return { first: parts[0], last: parts[0] };
+    return { first: parts[0], last: parts.slice(1).join(' ') };
+  }
+  return { first: 'Customer', last: 'User' };
 }
 
 export async function createOnramp(
@@ -191,16 +198,6 @@ export async function createOnramp(
     currency: toCurrency,
   };
 
-  const withdrawResult = await options.executePalremitCryptoWithdrawal(
-    body,
-    requestId,
-    receiveNet,
-    wallet.address
-  );
-  if (!withdrawResult) {
-    throw new Error('PALREMIT_ONRAMP_WITHDRAWAL_FAILED');
-  }
-
   const userDisplayInfo = userDisplay(user);
   const sourcePayload: OnrampSource = {
     userId,
@@ -220,24 +217,38 @@ export async function createOnramp(
     user: userDisplayInfo,
   };
 
-  const beneficiaryName = (account.accountHolder as { name?: string })?.name ?? 'Account Holder';
-  const depositInfo = buildPalremitOnrampDepositInfo(
-    beneficiaryName,
-    withdrawResult.prepareReference,
-    expiresAt.toISOString(),
-    fromCurrency.toUpperCase(),
-    grossFiat
-  );
+  const businessInfo =
+    user.businessInfo != null && typeof user.businessInfo === 'object' && !Array.isArray(user.businessInfo)
+      ? (user.businessInfo as Record<string, unknown>)
+      : {};
+  const email = userDisplay(user).email.trim();
+  if (!email) {
+    throw new Error('USER_EMAIL_REQUIRED_FOR_ONRAMP');
+  }
+  const { first: firstName, last: lastName } = namesForPalremitFiatDeposit(businessInfo);
+
+  const depositInfo = await options.createPalremitFiatDeposit({
+    firstName,
+    lastName,
+    email,
+    currency: fromCurrency,
+    amount: grossFiat,
+    bloxRequestId: requestId,
+    depositByIso: expiresAt.toISOString(),
+  });
+  if (!depositInfo) {
+    throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
+  }
 
   const row = await onrampRepo.createOnramp({
     requestId,
     userId,
-    status: 'COMPLETED',
+    status: 'AWAITING_FUNDS',
     source: sourcePayload,
     destination: destinationPayload,
     quoteInformation,
     depositInfo,
-    receipt: { transactionHash: withdrawResult.prepareReference },
+    receipt: null,
     developerFee,
     failedReason: null,
   });

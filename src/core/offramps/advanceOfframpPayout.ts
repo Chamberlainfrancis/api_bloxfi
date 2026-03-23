@@ -1,6 +1,6 @@
 /**
- * When offramp is AWAITING_CRYPTO, poll Palremit deposits; if matched, create+confirm fiat withdrawal.
- * docs/palremit_integration_guide.md §5.5, §6.1.3–6.1.4.
+ * When offramp is AWAITING_CRYPTO, §5.5 list deposits; if matched, §6.1 fiat withdrawal.
+ * Called from GET /offramps/:id to progress state (or rely on BloxFi-shaped webhooks in parallel).
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
@@ -42,9 +42,6 @@ export interface AccountRepoAdvance {
   } | null>;
 }
 
-/**
- * Idempotent: if deposit detected and withdrawal succeeds, moves offramp toward COMPLETED.
- */
 export async function advanceOfframpIfDepositReady(
   offrampRepo: OfframpRepoAdvance,
   accountRepo: AccountRepoAdvance,
@@ -88,13 +85,19 @@ export async function advanceOfframpIfDepositReady(
   const expectedAmount = Number(source.amount) ?? parseFloat(String(source.amount));
   if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) return;
 
+  const sourceNetwork =
+    source.chain != null
+      ? CHAIN_TO_PALREMIT_NETWORK[String(source.chain).trim().toUpperCase()] ??
+        String(source.chain).trim().toUpperCase()
+      : deposit.network.toUpperCase();
+
   const result = await tryPalremitOfframpFiatPayout(liquidityRequest, {
     offrampId: row.id,
     requestId: row.requestId,
     expectedCryptoAmount: expectedAmount,
     depositAddress: deposit.address,
     sourceCurrency: deposit.currency.toUpperCase(),
-    sourceNetwork: deposit.network.toUpperCase(),
+    sourceNetwork,
     destinationAmount: destination.amount,
     destinationCurrency: destination.currency ?? 'NGN',
     destinationInformation: destInfo,

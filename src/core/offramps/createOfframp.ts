@@ -1,11 +1,8 @@
 /**
- * Core: create offramp. Palremit only: rates from Currency API + crypto deposit address + (later) fiat withdrawal.
- * docs/palremit_lp_refactor.md, palremit_integration_guide.md §5–6.
+ * Core: create offramp. Palremit §5.2 deposit address + §6.1 fiat payout after crypto is received (see advanceOfframpPayout).
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
-import { createOfframpPalremitCryptoDeposit } from '@/core/integrations/palremitOfframp';
-import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import type {
   CreateOfframpRequest,
   CreateOfframpResponse,
@@ -27,9 +24,13 @@ export interface CreateOfframpOptions {
     to: string,
     fromChain?: string
   ) => Promise<GetOfframpRatesResponse | null>;
-  /** Required: Palremit liquidity (deposits). */
   createPalremitDeposit: (
-    userId: string,
+    userContext: {
+      userId: string;
+      businessInfo: unknown;
+      legalRepresentative: unknown;
+      metadata: unknown;
+    },
     body: Omit<CreateOfframpRequest, 'requestId'>,
     requestId: string,
     depositBy: string
@@ -75,6 +76,8 @@ export interface UserRepoForOfframp {
   findUserById(id: string): Promise<{
     id: string;
     businessInfo: unknown;
+    legalRepresentative: unknown;
+    metadata: unknown;
   } | null>;
 }
 
@@ -174,6 +177,7 @@ export async function createOfframp(
   const fiatNet = netCryptoAmount * rateNum;
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
+  const depositBy = expiresAt.toISOString();
   const rateInformation: RateInformation = {
     rate,
     conversionRate: rate,
@@ -181,7 +185,7 @@ export async function createOfframp(
     fromCurrency,
     toCurrency,
     fromChain: chain,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: depositBy,
   };
 
   const userDisplayInfo = userDisplay(user);
@@ -220,8 +224,17 @@ export async function createOfframp(
     createdAt: new Date().toISOString(),
   };
 
-  const depositBy = expiresAt.toISOString();
-  const palremitDeposit = await options.createPalremitDeposit(userId, body, requestId, depositBy);
+  const palremitDeposit = await options.createPalremitDeposit(
+    {
+      userId: user.id,
+      businessInfo: user.businessInfo,
+      legalRepresentative: user.legalRepresentative,
+      metadata: user.metadata,
+    },
+    body,
+    requestId,
+    depositBy
+  );
   if (!palremitDeposit) {
     throw new Error('PALREMIT_DEPOSIT_ADDRESS_FAILED');
   }

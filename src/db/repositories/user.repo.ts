@@ -158,6 +158,19 @@ export async function updateUser(
   });
 }
 
+/** Shallow-merge keys into User.metadata (e.g. Palremit `channel_user_id` from §5.1). */
+export async function mergeUserMetadata(userId: string, patch: Record<string, unknown>): Promise<void> {
+  const u = await prisma.user.findUnique({ where: { id: userId } });
+  const meta =
+    u?.metadata != null && typeof u.metadata === 'object' && !Array.isArray(u.metadata)
+      ? (u.metadata as Record<string, unknown>)
+      : {};
+  await prisma.user.update({
+    where: { id: userId },
+    data: { metadata: { ...meta, ...patch } as object },
+  });
+}
+
 // --- KYB info (POST /users/:userId/kyb) ---
 
 export async function upsertKybInfo(
