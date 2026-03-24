@@ -10,7 +10,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc && tsc-alias -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node -r tsconfig-paths/register dist/server.js",
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/server.ts",
     "lint": "eslint src --ext .ts",
     "prisma:generate": "prisma generate",
@@ -36,7 +36,8 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.0",
     "pg": "^8.13.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "tsconfig-paths": "^4.2.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -47,7 +48,6 @@
     "eslint": "^9.14.0",
     "prisma": "^7.0.0",
     "ts-node-dev": "^2.0.0",
-    "tsconfig-paths": "^4.2.0",
     "tsc-alias": "^1.8.10",
     "typescript": "^5.6.3",
     "vitest": "^3.0.5"

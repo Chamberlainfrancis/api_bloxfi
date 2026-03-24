@@ -2,7 +2,7 @@
  * Single Prisma client instance (Prisma 7: uses driver adapter; URL from prisma.config.ts).
  * Only this file and src/db/repositories import the Prisma client.
  */
-import { PrismaClient } from '@generated/prisma/client';
+import { PrismaClient } from '@/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 const connectionString = process.env.DATABASE_URL;
