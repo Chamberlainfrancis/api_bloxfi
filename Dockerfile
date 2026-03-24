@@ -21,6 +21,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
+COPY tsconfig.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/generated ./generated
 
