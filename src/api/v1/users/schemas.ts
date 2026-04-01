@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { normalizeBusinessEmail } from '@/utils/normalizeBusinessEmail';
 
 const addressSchema = z.object({
   addressLine1: z.string().min(1),
@@ -31,7 +32,12 @@ const businessInfoSchema = z.object({
   taxIdentificationNumber: z.string().min(1),
   website: z.string().url().optional(),
   industry: z.string().min(1),
-  email: z.string().email(),
+  /** Normalized (trim + lower) so API input matches DB uniqueness (`businessEmailNorm`). */
+  email: z
+    .string()
+    .min(1)
+    .transform((s) => normalizeBusinessEmail(s))
+    .pipe(z.string().email()),
   phone: z.string().min(1),
 });
 

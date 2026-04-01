@@ -10,6 +10,7 @@ import {
   createPalremitFiatWithdrawal,
   confirmPalremitFiatWithdrawal,
   listPalremitCryptoDeposits,
+  listPalremitUserCryptoAddresses,
 } from '@/core/integrations/palremitLiquidity';
 import type { PalremitCryptoAddress } from '@/core/integrations/palremitLiquidity';
 import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
@@ -38,8 +39,6 @@ function mapCryptoAddressToDepositInstructions(
   };
 }
 
-const PALREMIT_CHANNEL_USER_METADATA_KEY = 'palremitChannelUserId';
-
 function getPalremitChannelUserIdFromMetadata(metadata: unknown): string | undefined {
   if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
   const m = metadata as Record<string, unknown>;
@@ -54,6 +53,88 @@ function isHttp404(e: unknown): boolean {
     typeof (e as { status: unknown }).status === 'number' &&
     (e as { status: number }).status === 404
   );
+}
+
+function isHttp400(e: unknown): boolean {
+  return (
+    e instanceof Error &&
+    'status' in e &&
+    typeof (e as { status: unknown }).status === 'number' &&
+    (e as { status: number }).status === 400
+  );
+}
+
+/** Palremit LP returns 400 when an address already exists for currency+network. */
+function isCryptoAddressAlreadyExistsError(e: unknown): boolean {
+  if (!isHttp400(e)) return false;
+  const data = (e as { data?: unknown }).data;
+  const msg =
+    typeof data === 'object' &&
+    data !== null &&
+    'message' in data &&
+    typeof (data as { message: unknown }).message === 'string'
+      ? (data as { message: string }).message
+      : '';
+  return /already generated|address already/i.test(msg);
+}
+
+function normalizeToken(s: string): string {
+  return s.trim().toUpperCase();
+}
+
+/** LP may label Polygon as MATIC or POLYGON — treat as equivalent for matching. */
+function networksMatch(expected: string, fromLp: string): boolean {
+  const e = normalizeToken(expected);
+  const f = normalizeToken(fromLp);
+  if (e === f) return true;
+  const poly = new Set(['POLYGON', 'MATIC']);
+  return poly.has(e) && poly.has(f);
+}
+
+function pickMatchingUserCryptoAddress(
+  rows: PalremitCryptoAddress[],
+  currency: string,
+  network: string
+): PalremitCryptoAddress | null {
+  const c = normalizeToken(currency);
+  const found = rows.find(
+    (a) => normalizeToken(a.currency) === c && networksMatch(network, a.network)
+  );
+  return found ?? null;
+}
+
+/**
+ * §5.2: For an existing channel user, LP allows one address per currency+network.
+ * List first, then create; on "already generated" 400, list again and reuse.
+ */
+async function resolveExistingUserCryptoDepositAddress(
+  liquidityRequest: PalremitLiquidityRequestFn,
+  channelUserId: string,
+  currency: string,
+  network: string
+): Promise<PalremitCryptoAddress | null> {
+  const listed = await listPalremitUserCryptoAddresses(liquidityRequest, channelUserId);
+  const fromList = listed ? pickMatchingUserCryptoAddress(listed, currency, network) : null;
+  if (fromList?.address) return fromList;
+
+  try {
+    const created = await createPalremitCryptoAddress(liquidityRequest, {
+      channel_user_id: channelUserId,
+      currency,
+      network,
+    });
+    if (created?.address) return created;
+    return null;
+  } catch (e) {
+    if (isCryptoAddressAlreadyExistsError(e)) {
+      const again = await listPalremitUserCryptoAddresses(liquidityRequest, channelUserId);
+      const retry = again ? pickMatchingUserCryptoAddress(again, currency, network) : null;
+      if (retry?.address) return retry;
+      throw e;
+    }
+    if (isHttp404(e)) return null;
+    throw e;
+  }
 }
 
 /** Names for Palremit §5.1 `create_crypto_address_new_user`. */
@@ -96,8 +177,13 @@ function namesForPalremitNewUser(ctx: {
   return { first_name: 'Customer', last_name: 'User' };
 }
 
+export interface PalremitOfframpUserPersistence {
+  setPalremitChannelUserIdIfAbsent: (userId: string, channelUserId: string) => Promise<boolean>;
+  getPalremitChannelUserId: (userId: string) => Promise<string | null>;
+}
+
 /**
- * §5.2 crypto address: use stored Palremit `channel_user_id` (§5.1), or §5.1 new-user then save id on User.metadata.
+ * §5.2 crypto address: reuse Palremit `channel_user_id` from User (or legacy metadata), else §5.1 new user + address then persist id (no duplicate LP users per BloxFi user).
  */
 export async function createOfframpPalremitCryptoDeposit(
   liquidityRequest: PalremitLiquidityRequestFn,
@@ -106,8 +192,9 @@ export async function createOfframpPalremitCryptoDeposit(
     businessInfo: unknown;
     legalRepresentative: unknown;
     metadata: unknown;
+    palremitChannelUserId: string | null;
   },
-  mergeUserMetadata: (userId: string, patch: Record<string, unknown>) => Promise<void>,
+  persistence: PalremitOfframpUserPersistence,
   body: Omit<CreateOfframpRequest, 'requestId'>,
   requestId: string,
   depositBy: string
@@ -117,16 +204,27 @@ export async function createOfframpPalremitCryptoDeposit(
     CHAIN_TO_PALREMIT_NETWORK[body.source.chain.trim().toUpperCase()] ??
     body.source.chain.trim().toUpperCase();
 
-  let addr: PalremitCryptoAddress | null = null;
-  const existingChannelId = getPalremitChannelUserIdFromMetadata(ctx.metadata);
+  let channelUserId =
+    (ctx.palremitChannelUserId?.trim() || '') ||
+    (getPalremitChannelUserIdFromMetadata(ctx.metadata)?.trim() || '') ||
+    '';
 
-  if (existingChannelId) {
+  if (!ctx.palremitChannelUserId?.trim() && getPalremitChannelUserIdFromMetadata(ctx.metadata)) {
+    const fromMeta = getPalremitChannelUserIdFromMetadata(ctx.metadata)!;
+    await persistence.setPalremitChannelUserIdIfAbsent(ctx.userId, fromMeta);
+    channelUserId = fromMeta;
+  }
+
+  let addr: PalremitCryptoAddress | null = null;
+
+  if (channelUserId) {
     try {
-      addr = await createPalremitCryptoAddress(liquidityRequest, {
-        channel_user_id: existingChannelId,
-        currency: fromCurrency,
-        network: sourceNetwork,
-      });
+      addr = await resolveExistingUserCryptoDepositAddress(
+        liquidityRequest,
+        channelUserId,
+        fromCurrency,
+        sourceNetwork
+      );
     } catch (e) {
       if (!isHttp404(e)) throw e;
       addr = null;
@@ -135,16 +233,34 @@ export async function createOfframpPalremitCryptoDeposit(
 
   if (!addr?.address) {
     const names = namesForPalremitNewUser(ctx);
-    addr = await createPalremitCryptoAddressNewUser(liquidityRequest, {
+    const created = await createPalremitCryptoAddressNewUser(liquidityRequest, {
       first_name: names.first_name,
       last_name: names.last_name,
       currency: fromCurrency,
       network: sourceNetwork,
     });
-    if (addr?.channel_user_id) {
-      await mergeUserMetadata(ctx.userId, {
-        [PALREMIT_CHANNEL_USER_METADATA_KEY]: addr.channel_user_id,
-      });
+    if (!created?.address || !created.channel_user_id) {
+      addr = created;
+    } else {
+      const saved = await persistence.setPalremitChannelUserIdIfAbsent(
+        ctx.userId,
+        created.channel_user_id
+      );
+      if (saved) {
+        addr = created;
+      } else {
+        const winner = await persistence.getPalremitChannelUserId(ctx.userId);
+        if (winner) {
+          addr = await resolveExistingUserCryptoDepositAddress(
+            liquidityRequest,
+            winner,
+            fromCurrency,
+            sourceNetwork
+          );
+        } else {
+          addr = created;
+        }
+      }
     }
   }
 

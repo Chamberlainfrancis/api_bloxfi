@@ -30,6 +30,7 @@ export interface CreateOfframpOptions {
       businessInfo: unknown;
       legalRepresentative: unknown;
       metadata: unknown;
+      palremitChannelUserId: string | null;
     },
     body: Omit<CreateOfframpRequest, 'requestId'>,
     requestId: string,
@@ -78,6 +79,7 @@ export interface UserRepoForOfframp {
     businessInfo: unknown;
     legalRepresentative: unknown;
     metadata: unknown;
+    palremitChannelUserId: string | null;
   } | null>;
 }
 
@@ -230,6 +232,7 @@ export async function createOfframp(
       businessInfo: user.businessInfo,
       legalRepresentative: user.legalRepresentative,
       metadata: user.metadata,
+      palremitChannelUserId: user.palremitChannelUserId ?? null,
     },
     body,
     requestId,

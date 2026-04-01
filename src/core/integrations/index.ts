@@ -8,7 +8,10 @@ export {
   buildPalremitFiatDestinationInformation,
   tryPalremitOfframpFiatPayout,
 } from '@/core/integrations/palremitOfframp';
-export type { PalremitOfframpDepositResult } from '@/core/integrations/palremitOfframp';
+export type {
+  PalremitOfframpDepositResult,
+  PalremitOfframpUserPersistence,
+} from '@/core/integrations/palremitOfframp';
 export {
   createOnrampPalremitFiatDeposit,
   mapPalremitFiatDepositResponseToDepositInfo,
@@ -25,6 +28,7 @@ export type { PalremitCurrencyRequestFn } from '@/core/integrations/palremit';
 export {
   createPalremitCryptoAddressNewUser,
   createPalremitCryptoAddress,
+  listPalremitUserCryptoAddresses,
   createPalremitFiatDeposit,
   listPalremitCryptoDeposits,
   createPalremitFiatWithdrawal,

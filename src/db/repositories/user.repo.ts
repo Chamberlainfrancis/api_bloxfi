@@ -4,6 +4,7 @@
  */
 
 import { prisma } from '@/db/prisma/client';
+import { Prisma } from '@/generated/prisma/client';
 import type {
   CreateUserRequest,
   UpdateKybRequest,
@@ -23,6 +24,7 @@ export type UserRow = {
   registeredAddress: unknown;
   legalRepresentative: unknown;
   metadata: unknown;
+  palremitChannelUserId: string | null;
   creationRequestId: string | null;
   businessEmailNorm: string | null;
   kybStatus: KYBStatus;
@@ -45,6 +47,9 @@ function isPrismaUniqueError(e: unknown): e is { code: string } {
 /**
  * Create user: unique normalized business email + idempotent creationRequestId (requestId header).
  * Same requestId + identical payload → { created: false }. Same requestId + different payload → throws.
+ *
+ * Uses a transaction-scoped PostgreSQL advisory lock on the normalized email so concurrent
+ * sign-ups cannot race past the pre-check; unique indexes remain the final guarantee.
  */
 export async function createUser(data: CreateUserRequest): Promise<{
   user: UserRow;
@@ -52,47 +57,60 @@ export async function createUser(data: CreateUserRequest): Promise<{
 }> {
   const normEmail = normalizeBusinessEmail(data.businessInfo.email);
 
-  const existingByRequest = await prisma.user.findUnique({
-    where: { creationRequestId: data.requestId },
-  });
-  if (existingByRequest) {
-    const row = existingByRequest as UserRow;
-    if (userCreationPayloadsMatch(row, data)) {
-      return { user: row, created: false };
-    }
-    throw new CreateUserConflictError(
-      'REQUEST_ID_MISMATCH',
-      'requestId was already used to create a user with different data'
-    );
-  }
-
-  const existingByEmail = await prisma.user.findUnique({
-    where: { businessEmailNorm: normEmail },
-  });
-  if (existingByEmail) {
-    throw new CreateUserConflictError(
-      'EMAIL_EXISTS',
-      'A user with this business email already exists'
-    );
-  }
-
   try {
-    const user = await prisma.user.create({
-      data: {
-        type: data.type,
-        status: 'active',
-        businessInfo: data.businessInfo as object,
-        registeredAddress: data.registeredAddress as object,
-        legalRepresentative: data.legalRepresentative as object,
-        metadata: data.metadata != null ? (data.metadata as object) : undefined,
-        kybStatus: 'not_started',
-        approvedRails: [],
-        creationRequestId: data.requestId,
-        businessEmailNorm: normEmail,
+    return await prisma.$transaction(
+      async (tx) => {
+        const lockKey = `lock:user_email:${normEmail}`;
+        await tx.$executeRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(CAST(${lockKey} AS TEXT)), 0)`
+        );
+
+        const existingByRequest = await tx.user.findUnique({
+          where: { creationRequestId: data.requestId },
+        });
+        if (existingByRequest) {
+          const row = existingByRequest as UserRow;
+          if (userCreationPayloadsMatch(row, data)) {
+            return { user: row, created: false };
+          }
+          throw new CreateUserConflictError(
+            'REQUEST_ID_MISMATCH',
+            'requestId was already used to create a user with different data'
+          );
+        }
+
+        const existingByEmail = await tx.user.findUnique({
+          where: { businessEmailNorm: normEmail },
+        });
+        if (existingByEmail) {
+          throw new CreateUserConflictError(
+            'EMAIL_EXISTS',
+            'A user with this business email already exists'
+          );
+        }
+
+        const user = await tx.user.create({
+          data: {
+            type: data.type,
+            status: 'active',
+            businessInfo: data.businessInfo as object,
+            registeredAddress: data.registeredAddress as object,
+            legalRepresentative: data.legalRepresentative as object,
+            metadata: data.metadata != null ? (data.metadata as object) : undefined,
+            kybStatus: 'not_started',
+            approvedRails: [],
+            creationRequestId: data.requestId,
+            businessEmailNorm: normEmail,
+          },
+        });
+        return { user: user as UserRow, created: true };
       },
-    });
-    return { user: user as UserRow, created: true };
+      { maxWait: 5_000, timeout: 15_000 }
+    );
   } catch (e) {
+    if (e instanceof CreateUserConflictError) {
+      throw e;
+    }
     if (!isPrismaUniqueError(e)) {
       throw e;
     }
@@ -133,6 +151,7 @@ export async function findUserById(id: string): Promise<{
   registeredAddress: unknown;
   legalRepresentative: unknown;
   metadata: unknown;
+  palremitChannelUserId: string | null;
   kybStatus: KYBStatus;
   approvedRails: string[];
   createdAt: Date;
@@ -169,6 +188,40 @@ export async function mergeUserMetadata(userId: string, patch: Record<string, un
     where: { id: userId },
     data: { metadata: { ...meta, ...patch } as object },
   });
+}
+
+const PALREMIT_CHANNEL_USER_METADATA_KEY = 'palremitChannelUserId';
+
+/**
+ * First successful writer persists Palremit §5.1 `channel_user_id` on User and mirrors to metadata.
+ * Returns true if this call stored the id (new), false if another value was already set.
+ */
+export async function setPalremitChannelUserIdIfAbsent(
+  userId: string,
+  channelUserId: string
+): Promise<boolean> {
+  const trimmed = channelUserId.trim();
+  if (!trimmed) return false;
+
+  const result = await prisma.user.updateMany({
+    where: { id: userId, palremitChannelUserId: null },
+    data: { palremitChannelUserId: trimmed },
+  });
+  if (result.count > 0) {
+    await mergeUserMetadata(userId, { [PALREMIT_CHANNEL_USER_METADATA_KEY]: trimmed });
+    return true;
+  }
+  return false;
+}
+
+/** Palremit Liquidity crypto user id for offramp §5.2 address reuse. */
+export async function getPalremitChannelUserId(userId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { palremitChannelUserId: true },
+  });
+  const v = u?.palremitChannelUserId?.trim();
+  return v && v.length > 0 ? v : null;
 }
 
 // --- KYB info (POST /users/:userId/kyb) ---

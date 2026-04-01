@@ -156,7 +156,10 @@ export async function createOfframp(
           createOfframpPalremitCryptoDeposit(
             palremitLiquidity,
             userCtx,
-            userRepo.mergeUserMetadata,
+            {
+              setPalremitChannelUserIdIfAbsent: userRepo.setPalremitChannelUserIdIfAbsent,
+              getPalremitChannelUserId: userRepo.getPalremitChannelUserId,
+            },
             b,
             rid,
             depositBy

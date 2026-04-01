@@ -42,6 +42,8 @@ model User {
   registeredAddress    Json      // Address shape
   legalRepresentative  Json      // LegalRepresentative shape
   metadata             Json?
+  /** Palremit Liquidity `channel_user_id` from §5.1; reused for §5.2 addresses (offramp). */
+  palremitChannelUserId String?
   /** POST /users idempotency key (requestId header). */
   creationRequestId    String?   @unique
   /** Normalized businessInfo.email: lower(trim). Unique at DB + app layer. */

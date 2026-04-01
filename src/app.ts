@@ -8,6 +8,7 @@ import { rateLimitMiddleware } from '@/middleware/rateLimit';
 import { v1Router } from '@/api/v1';
 import { webhooksRouter } from '@/api/v1/webhooks/routes';
 import { pingDb } from '@/db/repositories/health.repo';
+import { sendSuccess } from '@/utils';
 import { hashApiKey, findActiveApiKeyByKeyHash } from '@/db/repositories/apiKey.repo';
 import { getRedis } from '@/services/redis';
 
@@ -54,6 +55,11 @@ app.get('/ready', async (_req, res) => {
     success: true,
     data: { database: database ? 'ok' : 'error', redis: redis ? 'ok' : 'error' },
   });
+});
+
+// Liveness: no auth (same as Postman "Health check"; /ready is for DB+Redis readiness).
+app.get('/api/v1/health', (_req, res) => {
+  sendSuccess(res, { status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.use('/api/v1', rateLimitMiddleware, authMiddleware({ validateApiKey }), v1Router);

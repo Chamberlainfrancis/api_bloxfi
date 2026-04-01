@@ -2,13 +2,7 @@
  * Core: create fiat account. Validates user and KYB for rail. Spec §3.1.
  */
 
-import type {
-  CreateAccountRequest,
-  CreateAccountResponse,
-  AccountRegionType,
-  RegionAccountDetails,
-  RailType,
-} from '@/types/account';
+import type { CreateAccountRequest, CreateAccountResponse, AccountRegionType, RegionAccountDetails, RailType } from "@/types/account";
 
 export interface AccountRepoCreate {
   createAccount(data: {
@@ -38,42 +32,40 @@ export interface UserRepoForAccount {
 }
 
 export interface KybRepoForAccount {
-  getKybRailStatuses(userId: string, railsFilter?: string[]): Promise<
-    Array<{ rail: string; status: string; capabilities: string[] }>
-  >;
+  getKybRailStatuses(userId: string, railsFilter?: string[]): Promise<Array<{ rail: string; status: string; capabilities: string[] }>>;
 }
 
 function getRegionDetails(req: CreateAccountRequest): RegionAccountDetails | null {
   const key = req.type;
   const payload = key ? (req as unknown as Record<string, RegionAccountDetails | null | undefined>)[key] : undefined;
-  return (payload && typeof payload === 'object' && 'currency' in payload ? payload : null) as RegionAccountDetails | null;
+  return (payload && typeof payload === "object" && "currency" in payload ? payload : null) as RegionAccountDetails | null;
 }
 
 function getPaymentRail(type: AccountRegionType, details: RegionAccountDetails | null): string {
-  if (!details) return 'unknown';
+  if (!details) return "unknown";
   if (details.transferType) return String(details.transferType).toLowerCase();
   const defaults: Partial<Record<AccountRegionType, string>> = {
-    brazil: 'pix',
-    us: 'ach',
-    mexico: 'spei',
-    colombia: 'ach',
-    argentina: 'ach',
-    africa: 'ach',
-    nigeria: 'bank_transfer',
-    ghana: 'bank_transfer',
-    kenya: 'bank_transfer',
-    south_africa: 'ach',
-    zimbabwe: 'bank_transfer',
-    rwanda: 'bank_transfer',
-    senegal: 'bank_transfer',
+    brazil: "pix",
+    us: "ach",
+    mexico: "spei",
+    colombia: "ach",
+    argentina: "ach",
+    africa: "ach",
+    nigeria: "bank_transfer",
+    ghana: "bank_transfer",
+    kenya: "bank_transfer",
+    south_africa: "ach",
+    zimbabwe: "bank_transfer",
+    rwanda: "bank_transfer",
+    senegal: "bank_transfer",
   };
-  return defaults[type] ?? 'unknown';
+  return defaults[type] ?? "unknown";
 }
 
 /** Map to currency rail for KYB (e.g. USD, BRL, COP, ARS, MXN). */
 function getCurrencyRail(currency: string): string {
-  const upper = currency?.trim().toUpperCase() ?? '';
-  return upper || 'USD';
+  const upper = currency?.trim().toUpperCase() ?? "";
+  return upper || "USD";
 }
 
 export async function createAccount(
@@ -81,11 +73,11 @@ export async function createAccount(
   userRepo: UserRepoForAccount,
   kybRepo: KybRepoForAccount,
   userId: string,
-  data: CreateAccountRequest
+  data: CreateAccountRequest,
 ): Promise<CreateAccountResponse> {
   const regionDetails = getRegionDetails(data);
   if (!regionDetails?.currency) {
-    throw new Error('INVALID_ACCOUNT: region details and currency are required');
+    throw new Error("INVALID_ACCOUNT: region details and currency are required");
   }
 
   const paymentRail = getPaymentRail(data.type, regionDetails);
@@ -94,14 +86,14 @@ export async function createAccount(
 
   const user = await userRepo.findUserById(userId);
   if (!user) {
-    throw new Error('USER_NOT_FOUND');
+    throw new Error("USER_NOT_FOUND");
   }
 
   const railStatuses = await kybRepo.getKybRailStatuses(userId, [railCurrency]);
-  const railApproved = railStatuses.some((r) => r.status === 'approved');
-  const userApproved = user.kybStatus === 'approved';
+  const railApproved = railStatuses.some((r) => r.status === "approved");
+  const userApproved = user.kybStatus === "approved";
   if (!userApproved && !railApproved) {
-    throw new Error('USER_NOT_KYB_VERIFIED');
+    throw new Error("USER_NOT_KYB_VERIFIED");
   }
 
   const account = await accountRepo.createAccount({
@@ -115,8 +107,8 @@ export async function createAccount(
   });
 
   return {
-    status: 'ACTIVE',
-    message: 'Account created successfully',
+    status: "ACTIVE",
+    message: "Account created successfully",
     id: account.id,
   };
 }

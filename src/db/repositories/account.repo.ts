@@ -3,8 +3,8 @@
  * Per CURSOR_RULES: all DB access for accounts goes through this file.
  */
 
-import { prisma } from '@/db/prisma/client';
-import type { RailType, AccountRegionType } from '@/types/account';
+import { prisma } from "@/db/prisma/client";
+import type { RailType, AccountRegionType } from "@/types/account";
 
 export interface CreateAccountData {
   userId: string;
@@ -44,10 +44,7 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
   return account as AccountRow;
 }
 
-export async function findAccountByIdAndUser(
-  accountId: string,
-  userId: string
-): Promise<AccountRow | null> {
+export async function findAccountByIdAndUser(accountId: string, userId: string): Promise<AccountRow | null> {
   const account = await prisma.account.findFirst({
     where: { id: accountId, userId },
   });
@@ -93,23 +90,19 @@ export async function listAccounts(params: ListAccountsParams): Promise<{
 
   const rows = await prisma.account.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: "desc" },
     take: take + 1,
   });
   const hasMore = rows.length > take;
   const page = hasMore ? rows.slice(0, take) : rows;
-  const nextCursor =
-    hasMore && page.length > 0 ? page[page.length - 1].createdAt : null;
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].createdAt : null;
   return {
     accounts: page as AccountRow[],
     nextCursor,
   };
 }
 
-export async function deleteAccount(
-  accountId: string,
-  userId: string
-): Promise<{ id: string } | null> {
+export async function deleteAccount(accountId: string, userId: string): Promise<{ id: string } | null> {
   const account = await findAccountByIdAndUser(accountId, userId);
   if (!account) return null;
   await prisma.account.delete({

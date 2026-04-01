@@ -27,7 +27,8 @@ function nestedObject(d: Record<string, unknown>, key: string): Record<string, u
 }
 
 /**
- * Map LP `create_fiat_deposit` payload to BloxFi DepositInfo (handles common snake/camel keys).
+ * Map LP `create_fiat_deposit` `data` object to BloxFi DepositInfo.
+ * New LP shape: virtual account `address`, `bank_name`, `bank_code`, `account_name`, `channel_reference`, `id`.
  */
 export function mapPalremitFiatDepositResponseToDepositInfo(
   raw: Record<string, unknown>,
@@ -39,7 +40,8 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
   const payment = nestedObject(raw, 'payment_information') ?? nestedObject(raw, 'paymentInformation');
 
   const ref =
-    pickStr(raw, ['reference', 'deposit_reference', 'depositReference', 'id']) ??
+    pickStr(raw, ['reference', 'deposit_reference', 'depositReference', 'channel_reference', 'channelReference']) ??
+    pickStr(raw, ['id']) ??
     (payment ? pickStr(payment, ['reference', 'narration', 'narrative']) : undefined) ??
     bloxRequestId;
 
@@ -49,7 +51,7 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
     'Palremit';
 
   const accountNumber =
-    pickStr(raw, ['account_number', 'accountNumber', 'account_unique', 'accountUnique']) ??
+    pickStr(raw, ['address', 'account_number', 'accountNumber', 'account_unique', 'accountUnique']) ??
     (payment ? pickStr(payment, ['account_number', 'accountNumber', 'account']) : undefined);
 
   const routing =
@@ -59,7 +61,7 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
       : undefined);
 
   const beneficiaryName =
-    pickStr(raw, ['beneficiary_name', 'beneficiaryName', 'account_name', 'accountName']) ??
+    pickStr(raw, ['account_name', 'accountName', 'beneficiary_name', 'beneficiaryName']) ??
     (payment ? pickStr(payment, ['beneficiary_name', 'account_name']) : undefined) ??
     'Beneficiary';
 
@@ -70,6 +72,13 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
 
   const pixKey = pickStr(raw, ['pix_key', 'pixKey']) ?? (payment ? pickStr(payment, ['pix_key', 'pixKey']) : undefined);
   const pix = pixKey ? { pixKey } : undefined;
+
+  const channel = pickStr(raw, ['channel']);
+  const addressType = pickStr(raw, ['address_type', 'addressType']);
+  const channelPart =
+    channel || addressType
+      ? ` Channel: ${channel ?? '—'}${addressType ? ` (${addressType})` : ''}.`
+      : '';
 
   return {
     bankName,
@@ -82,7 +91,7 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
     pix,
     reference: ref,
     depositBy: depositByIso,
-    instruction: `Deposit ${sourceAmount} ${sourceCurrencyUpper} using reference ${ref} before ${depositByIso}. Crypto is sent after your fiat deposit is confirmed.`,
+    instruction: `Deposit ${sourceAmount} ${sourceCurrencyUpper} to the account above using reference ${ref} before ${depositByIso}.${channelPart} Crypto is sent after your fiat deposit is confirmed.`,
   };
 }
 
@@ -103,7 +112,7 @@ export async function createOnrampPalremitFiatDeposit(
     last_name: params.lastName,
     email: params.email,
     currency: params.currency.toUpperCase(),
-    amount: params.amount,
+    amount: String(params.amount),
   });
   if (!data) return null;
   return mapPalremitFiatDepositResponseToDepositInfo(

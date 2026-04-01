@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { sendSuccess } from '@/utils';
 import { usersRouter } from '@/api/v1/users/routes';
 import { filesRouter } from '@/api/v1/files/routes';
 import { walletsRouter } from '@/api/v1/wallets/routes';
@@ -9,10 +8,6 @@ import { offrampsRouter } from '@/api/v1/offramps/routes';
 import { limitsRouter } from '@/api/v1/limits/routes';
 
 const router = Router();
-
-router.get('/health', (_req, res) => {
-  sendSuccess(res, { status: 'ok', timestamp: new Date().toISOString() });
-});
 
 router.use(filesRouter);
 router.use(usersRouter);

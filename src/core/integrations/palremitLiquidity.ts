@@ -61,6 +61,22 @@ export async function createPalremitCryptoAddress(
   return res.data.data;
 }
 
+/** §5.4 List existing deposit addresses for a Palremit crypto user (reuse before create). */
+export async function listPalremitUserCryptoAddresses(
+  request: PalremitLiquidityRequestFn,
+  channelUserId: string
+): Promise<PalremitCryptoAddress[] | null> {
+  const q = new URLSearchParams();
+  q.set('channel_user_id', channelUserId.trim());
+  const res = await request<PalremitCryptoAddress[]>(
+    `/deposits/get_user_crypto_addresses?${q.toString()}`,
+    { method: 'GET' }
+  );
+  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
+  const data = res.data.data;
+  return Array.isArray(data) ? data : null;
+}
+
 export interface PalremitCryptoDeposit {
   tx_id?: string;
   source_address?: string;
@@ -96,7 +112,8 @@ export interface PalremitCreateFiatDepositBody {
   last_name: string;
   email: string;
   currency: string;
-  amount: number;
+  /** Palremit expects string amount (e.g. fiat minor units or decimal string per LP contract). */
+  amount: string;
 }
 
 export async function createPalremitFiatDeposit(
