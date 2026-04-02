@@ -23,6 +23,11 @@ const envSchema = z.object({
   PALREMIT_CURRENCY_URL: z.string().url().optional(),
   // Inbound Palremit webhooks: optional override for HMAC; defaults to PALREMIT_ACCESS_KEY (integration guide §7.2)
   WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Dev/test only: skip X-Webhook-Signature checks. Ignored when NODE_ENV=production. */
+  WEBHOOK_SKIP_SIGNATURE_VERIFY: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1' || v === 'yes'),
 });
 
 export type Env = z.infer<typeof envSchema>;

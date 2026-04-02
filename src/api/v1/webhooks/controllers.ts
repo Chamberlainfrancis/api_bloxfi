@@ -64,17 +64,32 @@ export async function handleInboundWebhook(
     }
 
     const rawUtf8 = rawBody.toString('utf8');
-    const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
+    const skipSignatureVerify =
+      env.WEBHOOK_SKIP_SIGNATURE_VERIFY && env.NODE_ENV !== 'production';
 
-    if (!signature) {
-      next(new AppError('Missing X-Webhook-Signature header', 'INVALID_REQUEST', 400));
-      return;
+    if (env.NODE_ENV === 'production' && env.WEBHOOK_SKIP_SIGNATURE_VERIFY) {
+      console.warn(
+        '[webhooks] WEBHOOK_SKIP_SIGNATURE_VERIFY is set but ignored in production'
+      );
     }
 
-    const secret = env.WEBHOOK_SECRET ?? env.PALREMIT_ACCESS_KEY;
-    if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
-      next(new AppError('Invalid webhook signature', 'UNAUTHORIZED', 401));
-      return;
+    if (skipSignatureVerify) {
+      console.warn('[webhooks] Signature verification skipped (WEBHOOK_SKIP_SIGNATURE_VERIFY)');
+    }
+
+    if (!skipSignatureVerify) {
+      const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
+
+      if (!signature) {
+        next(new AppError('Missing X-Webhook-Signature header', 'INVALID_REQUEST', 400));
+        return;
+      }
+
+      const secret = env.WEBHOOK_SECRET ?? env.PALREMIT_ACCESS_KEY;
+      if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
+        next(new AppError('Invalid webhook signature', 'UNAUTHORIZED', 401));
+        return;
+      }
     }
 
     let parsed: unknown;
