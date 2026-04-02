@@ -17,6 +17,22 @@ model SchemaVersion {
   id String @id @default(uuid())
 }
 
+// Inbound LP webhooks audit (POST /api/v1/webhooks). Purged after retention (see webhookRetention job).
+model WebhookInboundLog {
+  id           String   @id @default(uuid())
+  receivedAt   DateTime @default(now())
+  /** Truncated raw JSON body for storage caps. */
+  rawBody      String   @db.Text
+  /** invalid_buffer | bad_signature | bad_json | bad_schema | processed | handler_error */
+  outcome      String
+  eventType    String?
+  eventId      String?
+  payload      Json?
+  errorMessage String?  @db.Text
+
+  @@index([receivedAt])
+}
+
 // --- Feature 1: User Creation & KYB (spec §1) ---
 
 enum UserStatus {
