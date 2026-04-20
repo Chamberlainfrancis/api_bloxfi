@@ -20,7 +20,11 @@ import type {
 const QUOTE_EXPIRY_MINUTES = 30;
 
 export interface CreateOnrampOptions {
-  getRateFromPalremit?: (from: string, to: string) => Promise<GetOnrampRatesResponse | null>;
+  getQuoteFromPalremit?: (
+    from: string,
+    to: string,
+    amount: number
+  ) => Promise<{ conversionRate: string; conversion: number } | null>;
   /** Palremit `POST /deposits/create_fiat_deposit` → BloxFi deposit instructions. */
   createPalremitFiatDeposit: (params: {
     firstName: string;
@@ -163,18 +167,17 @@ export async function createOnramp(
   const fromCurrency = src.currency.trim().toLowerCase();
   const toCurrency = dest.currency.trim().toLowerCase();
 
-  if (!options.getRateFromPalremit) {
+  if (!options.getQuoteFromPalremit) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
-  const rates = await options.getRateFromPalremit(fromCurrency, toCurrency);
-  if (!rates?.conversionRate) {
+  const quote = await options.getQuoteFromPalremit(fromCurrency, toCurrency, src.amount);
+  if (!quote?.conversionRate || typeof quote.conversion !== 'number') {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
-  const conversionRate = rates.conversionRate;
+  const conversionRate = quote.conversionRate;
 
   const grossFiat = src.amount;
-  const rateNum = parseFloat(conversionRate) || 1;
-  const receiveGross = grossFiat * rateNum;
+  const receiveGross = quote.conversion;
   const { feeAmount: developerFeeAmount, netAmount: receiveNet } = applyOnrampFee(receiveGross, fee);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);

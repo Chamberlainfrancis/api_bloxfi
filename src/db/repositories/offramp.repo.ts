@@ -114,6 +114,18 @@ export async function findOfframpByReferenceMatch(ref: string): Promise<OfframpR
   return row as OfframpRow | null;
 }
 
+/** Find offramp by crypto deposit address stored in depositInstructions JSON. */
+export async function findOfframpByDepositAddress(address: string): Promise<OfframpRow | null> {
+  const trimmed = address?.trim();
+  if (!trimmed) return null;
+  const rows = await prisma.$queryRaw<OfframpRow[]>`
+    SELECT * FROM "Offramp"
+    WHERE LOWER("depositInstructions"->>'address') = LOWER(${trimmed})
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 export async function updateOfframpStatus(
   id: string,
   status: OfframpStatus,

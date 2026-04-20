@@ -80,6 +80,48 @@ export async function getPalremitOnrampRates(
   };
 }
 
+export interface GetOnrampQuoteResponse extends GetOnrampRatesResponse {
+  /** Amount of `toCurrency` returned by Palremit for the requested `amount`. */
+  conversion: number;
+}
+
+/**
+ * Fetch an onramp quote from Palremit Currency API for an explicit amount.
+ * Prefer this for onramp creation to avoid applying `rate` manually.
+ */
+export async function getPalremitOnrampQuote(
+  currencyRequest: PalremitCurrencyRequestFn,
+  fromCurrency: string,
+  toCurrency: string,
+  amount: number,
+  b2b?: boolean
+): Promise<GetOnrampQuoteResponse | null> {
+  const from = (fromCurrency ?? '').trim().toUpperCase();
+  const to = (toCurrency ?? '').trim().toUpperCase();
+  const amt = typeof amount === 'number' && Number.isFinite(amount) && amount > 0 ? amount : 1;
+  if (!from || !to) return null;
+
+  const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
+    method: 'POST',
+    body: { from, to, amount: amt, b2b: b2b === true ? true : undefined },
+  });
+  if (res.status !== 200 || !res.data?.data) return null;
+  if (res.data.status !== 'success') return null;
+
+  const d = res.data.data;
+  const rate =
+    typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
+  if (rate == null || rate === '') return null;
+  if (typeof d.conversion !== 'number' || !Number.isFinite(d.conversion)) return null;
+
+  return {
+    fromCurrency: from.toLowerCase(),
+    toCurrency: to.toLowerCase(),
+    conversionRate: rate,
+    conversion: d.conversion,
+  };
+}
+
 /**
  * Fetch offramp rate (crypto → fiat) from Palremit Currency API.
  * Uses POST /pairs/conversion with amount=1; returns rate and inverseRate.

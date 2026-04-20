@@ -35,6 +35,7 @@ export interface WebhookRepos {
   offramp: {
     findOfframpById(id: string): Promise<{ id: string; status?: string } | null>;
     findOfframpByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
+    findOfframpByDepositAddress?(address: string): Promise<{ id: string; status: string } | null>;
     updateOfframpStatus(
       id: string,
       status: OfframpStatus,
@@ -122,6 +123,108 @@ export async function processWebhookEvent(
   const d = data as Record<string, unknown>;
 
   switch (eventType) {
+    /**
+     * Palremit money-flow webhooks.
+     * docs/palremit-webhook-ref.md:
+     * - deposit.successful (crypto + NGN)
+     * - withdraw.successful (crypto + NGN)
+     * - withdraw.rejected (crypto + NGN)
+     */
+    case 'deposit.successful': {
+      const currency = String(d.currency ?? '').trim().toUpperCase();
+      if (!currency) break;
+
+      // Fiat deposit is our onramp funding confirmation.
+      if (currency === 'NGN') {
+        const ref = pickString(d, ['reference', '_id']);
+        if (!ref) break;
+        const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
+        if (!onramp) break;
+        await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
+          receipt: { provider: 'palremit', eventType, data: d },
+        });
+        break;
+      }
+
+      // Crypto deposit can be our offramp deposit funding confirmation.
+      const destinationAddress = pickString(d, ['destination_address', 'destinationAddress']);
+      if (!destinationAddress) break;
+      if (!repos.offramp.findOfframpByDepositAddress) break;
+      const offramp = await repos.offramp.findOfframpByDepositAddress(destinationAddress);
+      if (!offramp) break;
+      await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_CONFIRMED', {
+        receipt: {
+          provider: 'palremit',
+          txId: d.tx_id ?? null,
+          txLink: d.tx_link ?? null,
+          confirmations: d.confirmations ?? null,
+          currency,
+          network: d.network ?? null,
+          amount: d.amount ?? null,
+          destinationAddress,
+          raw: d,
+        },
+        timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
+      });
+      break;
+    }
+
+    case 'withdraw.successful': {
+      const ref = pickString(d, ['reference', '_id']);
+      if (!ref) break;
+
+      const receipt = {
+        provider: 'palremit',
+        reference: ref,
+        destinationTxId: d.destination_tx_id ?? null,
+        destinationTxLink: d.destination_tx_link ?? null,
+        raw: d,
+      };
+
+      const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
+      if (offramp) {
+        await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
+          receipt: receipt as object,
+          timeline: { completedAt: new Date().toISOString(), provider: 'palremit' } as object,
+          lpReference: ref,
+        });
+        break;
+      }
+
+      const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
+      if (onramp) {
+        await repos.onramp.updateOnrampStatus(onramp.id, 'COMPLETED', {
+          receipt: receipt as object,
+        });
+      }
+      break;
+    }
+
+    case 'withdraw.rejected': {
+      const ref = pickString(d, ['reference', '_id']);
+      if (!ref) break;
+      const reason = pickString(d, ['status_message', 'statusMessage']) ?? 'PALREMIT_WITHDRAW_REJECTED';
+
+      const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
+      if (offramp) {
+        await repos.offramp.updateOfframpStatus(offramp.id, 'FAILED', {
+          failedReason: reason,
+          receipt: { provider: 'palremit', reference: ref, raw: d } as object,
+          lpReference: ref,
+        });
+        break;
+      }
+
+      const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
+      if (onramp) {
+        await repos.onramp.updateOnrampStatus(onramp.id, 'CRYPTO_FAILED', {
+          failedReason: reason,
+          receipt: { provider: 'palremit', reference: ref, raw: d } as object,
+        });
+      }
+      break;
+    }
+
     case 'user.created':
     case 'user.status_updated':
       // User created/updated by LP – we own user creation; optional sync if needed

@@ -20,6 +20,7 @@ export {
 export type { PalremitOnrampWithdrawResult } from '@/core/integrations/palremitOnramp';
 export {
   getPalremitOnrampRates,
+  getPalremitOnrampQuote,
   getPalremitOfframpRates,
   PALREMIT_NETWORK_TO_CHAIN,
   CHAIN_TO_PALREMIT_NETWORK,

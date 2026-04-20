@@ -38,6 +38,7 @@ const webhookRepos = {
   offramp: {
     findOfframpById: offrampRepo.findOfframpById,
     findOfframpByReferenceMatch: offrampRepo.findOfframpByReferenceMatch,
+    findOfframpByDepositAddress: offrampRepo.findOfframpByDepositAddress,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
   },
   highValueRequest: {

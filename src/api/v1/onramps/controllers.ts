@@ -18,6 +18,7 @@ import {
   createOnrampPalremitFiatDeposit,
   executePalremitOnrampCryptoWithdrawal,
   getPalremitOnrampRates,
+  getPalremitOnrampQuote,
 } from '@/core/integrations';
 import type { OnrampFee } from '@/types/onramp';
 import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
@@ -55,6 +56,9 @@ const repos = {
 
 const getRateFromPalremit = (from: string, to: string) =>
   getPalremitOnrampRates(palremitCurrency, from, to);
+
+const getQuoteFromPalremit = (from: string, to: string, amount: number) =>
+  getPalremitOnrampQuote(palremitCurrency, from, to, amount);
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
@@ -132,7 +136,7 @@ export async function createOnramp(
       raw,
       body,
       {
-        getRateFromPalremit,
+        getQuoteFromPalremit,
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
       }
     );

@@ -91,7 +91,8 @@ export async function findOnrampByReferenceMatch(ref: string): Promise<OnrampRow
   if (byId) return byId;
   const rows = await prisma.$queryRaw<OnrampRow[]>`
     SELECT * FROM "Onramp"
-    WHERE "depositInfo"->>'reference' = ${trimmed}
+    WHERE ("depositInfo"->>'reference' = ${trimmed})
+       OR ("receipt"->>'transactionHash' = ${trimmed})
     LIMIT 1
   `;
   return rows[0] ?? null;
