@@ -4,28 +4,24 @@
  * All requests are persisted to WebhookInboundLog (audit).
  */
 
-import type { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '@/utils';
-import { AppError } from '@/types';
-import { verifyPalremitWebhookSignature } from '@/services/webhookVerify';
-import { processWebhookEvent } from '@/core/webhooks';
-import { advanceOnrampIfFiatProcessed } from '@/core/onramps/advanceOnrampPayout';
-import { executePalremitOnrampCryptoWithdrawal } from '@/core/integrations';
-import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
-import * as userRepo from '@/db/repositories/user.repo';
-import * as onrampRepo from '@/db/repositories/onramp.repo';
-import * as offrampRepo from '@/db/repositories/offramp.repo';
-import * as highValueRequestRepo from '@/db/repositories/highValueRequest.repo';
-import {
-  createWebhookInboundLog,
-  truncateWebhookRawBody,
-  type WebhookInboundOutcome,
-} from '@/db/repositories/webhookInboundLog.repo';
-import { env } from '@/config/env';
-import { inboundWebhookPayloadSchema } from '@/api/v1/webhooks/schemas';
-import type { InboundWebhookPayload } from '@/types/webhook';
+import type { Request, Response, NextFunction } from "express";
+import { sendSuccess } from "@/utils";
+import { AppError } from "@/types";
+import { verifyPalremitWebhookSignature } from "@/services/webhookVerify";
+import { processWebhookEvent } from "@/core/webhooks";
+import { advanceOnrampIfFiatProcessed } from "@/core/onramps/advanceOnrampPayout";
+import { executePalremitOnrampCryptoWithdrawal } from "@/core/integrations";
+import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
+import * as userRepo from "@/db/repositories/user.repo";
+import * as onrampRepo from "@/db/repositories/onramp.repo";
+import * as offrampRepo from "@/db/repositories/offramp.repo";
+import * as highValueRequestRepo from "@/db/repositories/highValueRequest.repo";
+import { createWebhookInboundLog, truncateWebhookRawBody, type WebhookInboundOutcome } from "@/db/repositories/webhookInboundLog.repo";
+import { env } from "@/config/env";
+import { inboundWebhookPayloadSchema } from "@/api/v1/webhooks/schemas";
+import type { InboundWebhookPayload } from "@/types/webhook";
 
-const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature';
+const WEBHOOK_SIGNATURE_HEADER = "x-webhook-signature";
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
 
@@ -47,8 +43,7 @@ const webhookRepos = {
           updateOnrampStatus: onrampRepo.updateOnrampStatus,
         },
         onrampId,
-        (b, rid, receiveNet, destAddr) =>
-          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr)
+        (b, rid, receiveNet, destAddr) => executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr),
       );
     },
   },
@@ -67,7 +62,7 @@ const webhookRepos = {
 
 function getHeader(req: Request, name: string): string | undefined {
   const v = req.headers[name.toLowerCase()];
-  if (typeof v === 'string') return v;
+  if (typeof v === "string") return v;
   if (Array.isArray(v) && v[0]) return v[0];
   return undefined;
 }
@@ -80,7 +75,7 @@ async function logInbound(
     eventId?: string | null;
     payload?: unknown | null;
     errorMessage?: string | null;
-  }
+  },
 ): Promise<void> {
   try {
     await createWebhookInboundLog({
@@ -92,88 +87,68 @@ async function logInbound(
       errorMessage: opts.errorMessage,
     });
   } catch (e) {
-    console.error('[webhooks] failed to persist WebhookInboundLog', e);
+    console.error("[webhooks] failed to persist WebhookInboundLog", e);
   }
 }
 
 /**
  * req.body is Buffer (raw) when using express.raw for this route.
  */
-export async function handleInboundWebhook(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+export async function handleInboundWebhook(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const rawBody = req.body;
     if (!rawBody || !Buffer.isBuffer(rawBody)) {
-      await logInbound('invalid_buffer', {
-        rawBody: '',
-        errorMessage: 'Request body is not a raw buffer',
+      await logInbound("invalid_buffer", {
+        rawBody: "",
+        errorMessage: "Request body is not a raw buffer",
       });
-      next(new AppError('Invalid webhook body', 'INVALID_REQUEST', 400));
+      next(new AppError("Invalid webhook body", "INVALID_REQUEST", 400));
       return;
     }
 
-    const rawUtf8 = truncateWebhookRawBody(rawBody.toString('utf8'));
-    const skipSignatureVerify =
-      env.WEBHOOK_SKIP_SIGNATURE_VERIFY && env.NODE_ENV !== 'production';
+    const rawUtf8 = truncateWebhookRawBody(rawBody.toString("utf8"));
 
-    if (env.NODE_ENV === 'production' && env.WEBHOOK_SKIP_SIGNATURE_VERIFY) {
-      console.warn(
-        '[webhooks] WEBHOOK_SKIP_SIGNATURE_VERIFY is set but ignored in production'
-      );
+    const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
+
+    if (!signature) {
+      await logInbound("bad_signature", {
+        rawBody: rawUtf8,
+        errorMessage: "Missing X-Webhook-Signature header",
+      });
+      next(new AppError("Missing X-Webhook-Signature header", "INVALID_REQUEST", 400));
+      return;
     }
 
-    if (skipSignatureVerify) {
-      console.warn('[webhooks] Signature verification skipped (WEBHOOK_SKIP_SIGNATURE_VERIFY)');
-    }
-
-    if (!skipSignatureVerify) {
-      const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
-
-      if (!signature) {
-        await logInbound('bad_signature', {
-          rawBody: rawUtf8,
-          errorMessage: 'Missing X-Webhook-Signature header',
-        });
-        next(new AppError('Missing X-Webhook-Signature header', 'INVALID_REQUEST', 400));
-        return;
-      }
-
-      const secret = env.WEBHOOK_SECRET ?? env.PALREMIT_ACCESS_KEY;
-      if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
-        await logInbound('bad_signature', {
-          rawBody: rawUtf8,
-          errorMessage: 'HMAC verification failed',
-        });
-        next(new AppError('Invalid webhook signature', 'UNAUTHORIZED', 401));
-        return;
-      }
+    const secret = env.WEBHOOK_SECRET;
+    if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
+      await logInbound("bad_signature", {
+        rawBody: rawUtf8,
+        errorMessage: "HMAC verification failed",
+      });
+      next(new AppError("Invalid webhook signature", "UNAUTHORIZED", 401));
+      return;
     }
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(rawBody.toString('utf8'));
+      parsed = JSON.parse(rawBody.toString("utf8"));
     } catch {
-      await logInbound('bad_json', {
+      await logInbound("bad_json", {
         rawBody: rawUtf8,
-        errorMessage: 'JSON.parse failed',
+        errorMessage: "JSON.parse failed",
       });
-      next(new AppError('Invalid webhook JSON', 'INVALID_REQUEST', 400));
+      next(new AppError("Invalid webhook JSON", "INVALID_REQUEST", 400));
       return;
     }
 
     const result = inboundWebhookPayloadSchema.safeParse(parsed);
     if (!result.success) {
-      const message = result.error.errors
-        .map((e) => `${e.path.join('.')}: ${e.message}`)
-        .join('; ');
-      await logInbound('bad_schema', {
+      const message = result.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ");
+      await logInbound("bad_schema", {
         rawBody: rawUtf8,
         errorMessage: message,
       });
-      next(new AppError(message, 'INVALID_REQUEST', 400));
+      next(new AppError(message, "INVALID_REQUEST", 400));
       return;
     }
 
@@ -183,7 +158,7 @@ export async function handleInboundWebhook(
       await processWebhookEvent(webhookRepos, payload);
     } catch (handlerErr) {
       const msg = handlerErr instanceof Error ? handlerErr.message : String(handlerErr);
-      await logInbound('handler_error', {
+      await logInbound("handler_error", {
         rawBody: rawUtf8,
         eventType: payload.eventType,
         eventId: payload.eventId,
@@ -193,7 +168,7 @@ export async function handleInboundWebhook(
       throw handlerErr;
     }
 
-    await logInbound('processed', {
+    await logInbound("processed", {
       rawBody: rawUtf8,
       eventType: payload.eventType,
       eventId: payload.eventId,
