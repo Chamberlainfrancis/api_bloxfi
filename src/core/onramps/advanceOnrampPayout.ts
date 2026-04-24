@@ -47,7 +47,21 @@ export async function advanceOnrampIfFiatProcessed(
   executePalremitCryptoWithdrawal: ExecutePalremitOnrampWithdrawalFn
 ): Promise<void> {
   const row = await onrampRepo.findOnrampById(onrampId);
-  if (!row || row.status !== 'FIAT_PROCESSED') return;
+  if (!row) return;
+
+  // Allow retry if we set CRYPTO_INITIATED but never stored the Palremit prepare reference.
+  const receipt = row as unknown as { receipt?: unknown };
+  const receiptObj =
+    receipt.receipt != null && typeof receipt.receipt === 'object' && !Array.isArray(receipt.receipt)
+      ? (receipt.receipt as Record<string, unknown>)
+      : null;
+  const hasTxHash =
+    receiptObj != null &&
+    typeof receiptObj.transactionHash === 'string' &&
+    receiptObj.transactionHash.trim() !== '';
+
+  const eligible = row.status === 'FIAT_PROCESSED' || (row.status === 'CRYPTO_INITIATED' && !hasTxHash);
+  if (!eligible) return;
 
   const source = row.source as {
     amount?: number;
@@ -83,9 +97,13 @@ export async function advanceOnrampIfFiatProcessed(
     return;
   }
 
-  await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_INITIATED');
+  if (row.status !== 'CRYPTO_INITIATED') {
+    await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_INITIATED');
+  }
 
-  const result = await executePalremitCryptoWithdrawal(
+  let result: { prepareReference: string } | null = null;
+  try {
+    result = await executePalremitCryptoWithdrawal(
     {
       source: {
         amount: Number(source.amount),
@@ -105,7 +123,10 @@ export async function advanceOnrampIfFiatProcessed(
     row.requestId,
     receiveNet,
     destination.walletAddress
-  );
+    );
+  } catch {
+    result = null;
+  }
 
   if (!result) {
     await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_FAILED', {
