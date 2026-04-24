@@ -98,6 +98,41 @@ export async function findOnrampByReferenceMatch(ref: string): Promise<OnrampRow
   return rows[0] ?? null;
 }
 
+/**
+ * Fallback correlation for Palremit NGN deposit webhooks:
+ * match by virtual account number stored in depositInfo.wire.accountNumber and expected source amount.
+ *
+ * We scope to AWAITING_FUNDS to reduce collision risk.
+ */
+export async function findOnrampByFiatReceiverAccountAndAmount(params: {
+  receiverAccount: string;
+  amount: number;
+  currency?: string;
+}): Promise<OnrampRow | null> {
+  const receiverAccount = params.receiverAccount?.trim();
+  if (!receiverAccount) return null;
+  if (!Number.isFinite(params.amount)) return null;
+
+  const amount = Number(params.amount);
+  const currency = params.currency?.trim().toLowerCase();
+
+  const rows = await prisma.$queryRaw<OnrampRow[]>`
+    SELECT * FROM "Onramp"
+    WHERE status = 'AWAITING_FUNDS'
+      AND ("depositInfo"#>>'{wire,accountNumber}') = ${receiverAccount}
+      AND (
+        (${currency}::text IS NULL)
+        OR (LOWER("source"->>'currency') = ${currency})
+      )
+      AND (
+        ("source"->>'amount')::numeric = ${amount}
+      )
+    ORDER BY "createdAt" DESC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 export async function updateOnrampStatus(
   id: string,
   status: OnrampStatus,

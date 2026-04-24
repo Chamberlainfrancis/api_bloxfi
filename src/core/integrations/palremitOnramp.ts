@@ -41,8 +41,8 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
 
   const ref =
     pickStr(raw, ['reference', 'deposit_reference', 'depositReference', 'channel_reference', 'channelReference']) ??
-    pickStr(raw, ['id']) ??
     (payment ? pickStr(payment, ['reference', 'narration', 'narrative']) : undefined) ??
+    pickStr(raw, ['id']) ??
     bloxRequestId;
 
   const bankName =

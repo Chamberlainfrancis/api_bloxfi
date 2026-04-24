@@ -33,6 +33,7 @@ const webhookRepos = {
   onramp: {
     findOnrampById: onrampRepo.findOnrampById,
     findOnrampByReferenceMatch: onrampRepo.findOnrampByReferenceMatch,
+    findOnrampByFiatReceiverAccountAndAmount: onrampRepo.findOnrampByFiatReceiverAccountAndAmount,
     updateOnrampStatus: onrampRepo.updateOnrampStatus,
   },
   offramp: {

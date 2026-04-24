@@ -26,6 +26,11 @@ export interface WebhookRepos {
   onramp: {
     findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
     findOnrampByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
+    findOnrampByFiatReceiverAccountAndAmount?(params: {
+      receiverAccount: string;
+      amount: number;
+      currency?: string;
+    }): Promise<{ id: string; status: string } | null>;
     updateOnrampStatus(
       id: string,
       status: OnrampStatus,
@@ -137,8 +142,31 @@ export async function processWebhookEvent(
       // Fiat deposit is our onramp funding confirmation.
       if (currency === 'NGN') {
         const ref = pickString(d, ['reference', '_id']);
-        if (!ref) break;
-        const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
+        const receiverAccount = pickString(d, ['receiver_account', 'reciever_account', 'receiverAccount']);
+        const amountRaw = d.amount;
+        const amountNum =
+          typeof amountRaw === 'number'
+            ? amountRaw
+            : typeof amountRaw === 'string'
+              ? Number(amountRaw)
+              : NaN;
+
+        let onramp: { id: string; status: string } | null = null;
+        if (ref) {
+          onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
+        }
+        if (
+          !onramp &&
+          receiverAccount &&
+          Number.isFinite(amountNum) &&
+          repos.onramp.findOnrampByFiatReceiverAccountAndAmount
+        ) {
+          onramp = await repos.onramp.findOnrampByFiatReceiverAccountAndAmount({
+            receiverAccount,
+            amount: amountNum,
+            currency: 'NGN',
+          });
+        }
         if (!onramp) break;
         await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
           receipt: { provider: 'palremit', eventType, data: d },
