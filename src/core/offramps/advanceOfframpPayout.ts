@@ -8,7 +8,6 @@ import {
   buildPalremitFiatDestinationInformation,
   tryPalremitOfframpFiatPayout,
 } from '@/core/integrations/palremitOfframp';
-import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
 import type { OfframpStatus } from '@/types/offramp';
 
 export interface OfframpRepoAdvance {
@@ -86,10 +85,9 @@ export async function advanceOfframpIfDepositReady(
   if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) return;
 
   const sourceNetwork =
-    source.chain != null
-      ? CHAIN_TO_PALREMIT_NETWORK[String(source.chain).trim().toUpperCase()] ??
-        String(source.chain).trim().toUpperCase()
-      : deposit.network.toUpperCase();
+    source.chain != null && String(source.chain).trim() !== ''
+      ? String(source.chain).trim()
+      : deposit.network;
 
   const result = await tryPalremitOfframpFiatPayout(liquidityRequest, {
     offrampId: row.id,

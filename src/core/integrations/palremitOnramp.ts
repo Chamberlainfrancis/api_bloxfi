@@ -8,7 +8,6 @@ import {
   preparePalremitCryptoWithdrawal,
   confirmPalremitCryptoWithdrawal,
 } from '@/core/integrations/palremitLiquidity';
-import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { DepositInfo } from '@/types/onramp';
 
@@ -138,9 +137,8 @@ export async function executePalremitOnrampCryptoWithdrawal(
 ): Promise<PalremitOnrampWithdrawResult | null> {
   const fromCurrency = body.source.currency.trim().toUpperCase();
   const destCurrency = body.destination.currency.trim().toUpperCase();
-  const destNetwork =
-    CHAIN_TO_PALREMIT_NETWORK[body.destination.chain.trim().toUpperCase()] ??
-    body.destination.chain.trim().toUpperCase();
+  /** Must be a Palremit `network_code` from GET /coins/get_coin (validated at ramp creation). */
+  const destNetwork = body.destination.chain.trim();
 
   let appFee: number | undefined;
   let appFeeCurrency: string | undefined;

@@ -22,10 +22,15 @@ export {
   getPalremitOnrampRates,
   getPalremitOnrampQuote,
   getPalremitOfframpRates,
-  PALREMIT_NETWORK_TO_CHAIN,
-  CHAIN_TO_PALREMIT_NETWORK,
 } from '@/core/integrations/palremit';
 export type { PalremitCurrencyRequestFn } from '@/core/integrations/palremit';
+export {
+  UnsupportedPalremitNetworkError,
+  fetchPalremitNetworksForCoin,
+  resolvePalremitNetworkOrThrow,
+  palremitNetworkOptionsFromCoinData,
+} from '@/core/integrations/palremitCoinNetworks';
+export type { PalremitNetworkOption, PalremitRampChainField } from '@/core/integrations/palremitCoinNetworks';
 export {
   createPalremitCryptoAddressNewUser,
   createPalremitCryptoAddress,
@@ -36,6 +41,7 @@ export {
   confirmPalremitFiatWithdrawal,
   preparePalremitCryptoWithdrawal,
   confirmPalremitCryptoWithdrawal,
+  getPalremitCoin,
 } from '@/core/integrations/palremitLiquidity';
 export type {
   PalremitLiquidityRequestFn,
@@ -46,4 +52,5 @@ export type {
   PalremitCryptoDeposit,
   PalremitCreateFiatWithdrawalBody,
   PalremitPrepareCryptoWithdrawalBody,
+  PalremitGetCoinData,
 } from '@/core/integrations/palremitLiquidity';

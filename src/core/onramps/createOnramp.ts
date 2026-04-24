@@ -25,6 +25,15 @@ export interface CreateOnrampOptions {
     to: string,
     amount: number
   ) => Promise<{ conversionRate: string; conversion: number } | null>;
+  /**
+   * Resolve `destination.chain` to a Palremit `network_code` from GET /coins/get_coin.
+   * Must throw or return canonical code; invalid chain should fail ramp creation.
+   */
+  resolvePalremitNetwork: (
+    coinCode: string,
+    chainFromClient: string,
+    field: 'destination.chain'
+  ) => Promise<string>;
   /** Palremit `POST /deposits/create_fiat_deposit` → BloxFi deposit instructions. */
   createPalremitFiatDeposit: (params: {
     firstName: string;
@@ -164,6 +173,12 @@ export async function createOnramp(
   const wallet = await walletRepo.findExternalWalletByIdAndUser(dest.externalWalletId, userId);
   if (!wallet) throw new Error('WALLET_NOT_FOUND');
 
+  const destinationNetwork = await options.resolvePalremitNetwork(
+    dest.currency.trim().toUpperCase(),
+    dest.chain,
+    'destination.chain'
+  );
+
   const fromCurrency = src.currency.trim().toLowerCase();
   const toCurrency = dest.currency.trim().toLowerCase();
 
@@ -213,7 +228,7 @@ export async function createOnramp(
   const destinationPayload: OnrampDestination = {
     userId,
     currency: toCurrency,
-    chain: dest.chain,
+    chain: destinationNetwork,
     walletAddress: wallet.address,
     externalWalletId: dest.externalWalletId,
     amount: receiveNet,

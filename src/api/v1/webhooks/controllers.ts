@@ -9,6 +9,9 @@ import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
 import { verifyPalremitWebhookSignature } from '@/services/webhookVerify';
 import { processWebhookEvent } from '@/core/webhooks';
+import { advanceOnrampIfFiatProcessed } from '@/core/onramps/advanceOnrampPayout';
+import { executePalremitOnrampCryptoWithdrawal } from '@/core/integrations';
+import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 import * as userRepo from '@/db/repositories/user.repo';
 import * as onrampRepo from '@/db/repositories/onramp.repo';
 import * as offrampRepo from '@/db/repositories/offramp.repo';
@@ -24,6 +27,8 @@ import type { InboundWebhookPayload } from '@/types/webhook';
 
 const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature';
 
+const palremitLiquidity = createPalremitLiquidityAdapter();
+
 const webhookRepos = {
   user: {
     findUserById: userRepo.findUserById,
@@ -35,6 +40,17 @@ const webhookRepos = {
     findOnrampByReferenceMatch: onrampRepo.findOnrampByReferenceMatch,
     findOnrampByFiatReceiverAccountAndAmount: onrampRepo.findOnrampByFiatReceiverAccountAndAmount,
     updateOnrampStatus: onrampRepo.updateOnrampStatus,
+    advanceOnrampAfterFiatWebhook: async (onrampId: string) => {
+      await advanceOnrampIfFiatProcessed(
+        {
+          findOnrampById: onrampRepo.findOnrampById,
+          updateOnrampStatus: onrampRepo.updateOnrampStatus,
+        },
+        onrampId,
+        (b, rid, receiveNet, destAddr) =>
+          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr)
+      );
+    },
   },
   offramp: {
     findOfframpById: offrampRepo.findOfframpById,

@@ -20,6 +20,10 @@ import {
   getPalremitOnrampRates,
   getPalremitOnrampQuote,
 } from '@/core/integrations';
+import {
+  resolvePalremitNetworkOrThrow,
+  UnsupportedPalremitNetworkError,
+} from '@/core/integrations/palremitCoinNetworks';
 import type { OnrampFee } from '@/types/onramp';
 import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
 import {
@@ -137,6 +141,8 @@ export async function createOnramp(
       body,
       {
         getQuoteFromPalremit,
+        resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
+          resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
       }
     );
@@ -182,6 +188,21 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'PALREMIT_FIAT_DEPOSIT_FAILED') {
       next(new AppError('Palremit fiat deposit instructions failed', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof UnsupportedPalremitNetworkError) {
+      next(
+        new AppError(e.message, 'INVALID_REQUEST', 400, {
+          field: e.field,
+          coinCode: e.coinCode,
+          requestedChain: e.requestedChain,
+          validNetworkCodes: e.validNetworkCodes,
+        })
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {
+      next(new AppError('Palremit coin metadata unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     next(e);

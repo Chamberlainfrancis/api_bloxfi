@@ -26,41 +26,6 @@ export interface PalremitCurrencyRequestFn {
 }
 
 /**
- * Map Palremit network code to our chain (BloxFi spec).
- * Palremit: TRX, ETH, BSC, SOL, MATIC, etc.
- */
-export const PALREMIT_NETWORK_TO_CHAIN: Record<string, string> = {
-  TRX: 'TRON',
-  ETH: 'ETHEREUM',
-  /** BNB Smart Chain — LP `prepare_crypto_withdrawal` accepts `BNB` (and lists `BSC`; we use `BNB` for reliability). */
-  BNB: 'BNB_CHAIN',
-  BSC: 'BNB_CHAIN',
-  SOL: 'SOLANA',
-  SOLANA: 'SOLANA',
-  MATIC: 'POLYGON',
-  OPTIMISM: 'OPTIMISM',
-  CELO: 'CELO',
-  XLM: 'STELLAR',
-  BTC: 'BITCOIN',
-  TON: 'TON',
-};
-
-export const CHAIN_TO_PALREMIT_NETWORK: Record<string, string> = Object.fromEntries(
-  Object.entries(PALREMIT_NETWORK_TO_CHAIN).map(([k, v]) => [v, k])
-);
-
-// Common chain aliases seen in client payloads.
-CHAIN_TO_PALREMIT_NETWORK.BINANCE_SMART_CHAIN = 'BNB';
-CHAIN_TO_PALREMIT_NETWORK.BNB_CHAIN = 'BNB';
-CHAIN_TO_PALREMIT_NETWORK.BSC = 'BNB';
-CHAIN_TO_PALREMIT_NETWORK.TRON = 'TRX';
-CHAIN_TO_PALREMIT_NETWORK.SOLANA = 'SOLANA';
-CHAIN_TO_PALREMIT_NETWORK.BITCOIN = 'BTC';
-CHAIN_TO_PALREMIT_NETWORK.ETHEREUM = 'ETH';
-CHAIN_TO_PALREMIT_NETWORK.POLYGON = 'MATIC';
-CHAIN_TO_PALREMIT_NETWORK.STELLAR = 'XLM';
-
-/**
  * Fetch onramp rate from Palremit Currency API.
  * Uses POST /pairs/conversion with amount=1 to get rate for fromCurrency → toCurrency.
  * currencyRequest is injected (implemented by services/palremitClient).

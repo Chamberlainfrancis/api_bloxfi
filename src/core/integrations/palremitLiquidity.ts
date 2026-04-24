@@ -131,6 +131,49 @@ export async function createPalremitFiatDeposit(
     : null;
 }
 
+// --- Coin metadata (supported networks per asset) ---
+
+/** Row from `GET /coins/get_coin` → `data.network_list[]`. */
+export interface PalremitCoinNetworkListRow {
+  network_code: string;
+  network_name?: string;
+  network_coin?: string;
+  deposit_enabled?: boolean;
+  withdraw_enabled?: boolean;
+  depositEnabled?: boolean;
+  withdrawEnabled?: boolean;
+  [key: string]: unknown;
+}
+
+export interface PalremitGetCoinData {
+  coin_code?: string;
+  coin_name?: string;
+  network_list?: PalremitCoinNetworkListRow[];
+  [key: string]: unknown;
+}
+
+/**
+ * GET /coins/get_coin?coin_code=USDT — networks for withdrawals/deposits.
+ * https://liquidity-api.palremit.com/core/coins/get_coin
+ */
+export async function getPalremitCoin(
+  request: PalremitLiquidityRequestFn,
+  coinCode: string
+): Promise<PalremitGetCoinData | null> {
+  const code = coinCode?.trim().toUpperCase();
+  if (!code) return null;
+  const q = new URLSearchParams();
+  q.set('coin_code', code);
+  const res = await request<PalremitGetCoinData>(`/coins/get_coin?${q.toString()}`, {
+    method: 'GET',
+  });
+  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
+  const data = res.data.data;
+  return data != null && typeof data === 'object' && !Array.isArray(data)
+    ? (data as PalremitGetCoinData)
+    : null;
+}
+
 // --- Fiat withdrawal ---
 
 export interface PalremitCreateFiatWithdrawalBody {

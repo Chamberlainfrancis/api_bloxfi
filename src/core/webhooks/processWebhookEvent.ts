@@ -36,6 +36,11 @@ export interface WebhookRepos {
       status: OnrampStatus,
       updates?: { receipt?: object | null; failedReason?: string | null }
     ): Promise<unknown>;
+    /**
+     * After NGN `deposit.successful` sets FIAT_PROCESSED, run Palremit crypto payout (same as GET /onramps/:id).
+     * Optional so tests / non-Palremit webhooks skip I/O.
+     */
+    advanceOnrampAfterFiatWebhook?(onrampId: string): Promise<void>;
   };
   offramp: {
     findOfframpById(id: string): Promise<{ id: string; status?: string } | null>;
@@ -171,6 +176,13 @@ export async function processWebhookEvent(
         await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
           receipt: { provider: 'palremit', eventType, data: d },
         });
+        if (repos.onramp.advanceOnrampAfterFiatWebhook) {
+          try {
+            await repos.onramp.advanceOnrampAfterFiatWebhook(onramp.id);
+          } catch (e) {
+            console.error('[webhooks] advanceOnrampAfterFiatWebhook failed', onramp.id, e);
+          }
+        }
         break;
       }
 

@@ -13,7 +13,6 @@ import {
   listPalremitUserCryptoAddresses,
 } from '@/core/integrations/palremitLiquidity';
 import type { PalremitCryptoAddress } from '@/core/integrations/palremitLiquidity';
-import { CHAIN_TO_PALREMIT_NETWORK } from '@/core/integrations/palremit';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 
@@ -200,9 +199,8 @@ export async function createOfframpPalremitCryptoDeposit(
   depositBy: string
 ): Promise<PalremitOfframpDepositResult | null> {
   const fromCurrency = body.source.currency.trim().toUpperCase();
-  const sourceNetwork =
-    CHAIN_TO_PALREMIT_NETWORK[body.source.chain.trim().toUpperCase()] ??
-    body.source.chain.trim().toUpperCase();
+  /** Must be a Palremit `network_code` from GET /coins/get_coin (validated at ramp creation). */
+  const sourceNetwork = body.source.chain.trim();
 
   let channelUserId =
     (ctx.palremitChannelUserId?.trim() || '') ||

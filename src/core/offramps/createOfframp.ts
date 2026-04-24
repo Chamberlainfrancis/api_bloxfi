@@ -24,6 +24,14 @@ export interface CreateOfframpOptions {
     to: string,
     fromChain?: string
   ) => Promise<GetOfframpRatesResponse | null>;
+  /**
+   * Resolve `source.chain` to a Palremit `network_code` from GET /coins/get_coin.
+   */
+  resolvePalremitNetwork: (
+    coinCode: string,
+    chainFromClient: string,
+    field: 'source.chain'
+  ) => Promise<string>;
   createPalremitDeposit: (
     userContext: {
       userId: string;
@@ -156,9 +164,14 @@ export async function createOfframp(
   const wallet = await walletRepo.findExternalWalletByIdAndUser(src.externalWalletId, userId);
   if (!wallet) throw new Error('WALLET_NOT_FOUND');
 
+  const chain = await options.resolvePalremitNetwork(
+    src.currency.trim().toUpperCase(),
+    src.chain,
+    'source.chain'
+  );
+
   const fromCurrency = src.currency.trim().toLowerCase();
   const toCurrency = dest.currency.trim().toLowerCase();
-  const chain = src.chain.trim();
 
   if (!options.getRateFromPalremit) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
