@@ -5,18 +5,6 @@
 
 import { prisma } from '@/db/prisma/client';
 import type { BlockchainNetwork } from '@/types/wallet';
-import type { BlockchainNetwork as PrismaBlockchainNetwork } from '@generated/prisma';
-
-const CHAIN_MAP: Record<BlockchainNetwork, PrismaBlockchainNetwork> = {
-  POLYGON: 'POLYGON',
-  ETHEREUM: 'ETHEREUM',
-  BASE: 'BASE',
-  SOLANA: 'SOLANA',
-  ARBITRUM: 'ARBITRUM',
-  OPTIMISM: 'OPTIMISM',
-  AVALANCHE: 'AVALANCHE',
-  BNB_CHAIN: 'BNB_CHAIN',
-};
 
 export interface CreateExternalWalletData {
   userId: string;
@@ -42,7 +30,7 @@ export async function createExternalWallet(data: CreateExternalWalletData): Prom
     data: {
       userId: data.userId,
       address: data.address.trim(),
-      chain: CHAIN_MAP[data.chain],
+      chain: data.chain.trim(),
       name: data.name.trim(),
       referenceId: data.referenceId.trim(),
       active: data.active ?? true,
@@ -102,14 +90,14 @@ export async function listExternalWallets(params: ListExternalWalletsParams): Pr
   const where: {
     userId: string;
     createdAt?: { lt: Date };
-    chain?: PrismaBlockchainNetwork;
+    chain?: string;
     active?: boolean;
   } = { userId };
   if (createdBefore) {
     where.createdAt = { lt: createdBefore };
   }
   if (chain !== undefined) {
-    where.chain = CHAIN_MAP[chain];
+    where.chain = String(chain).trim();
   }
   if (active !== undefined) {
     where.active = active;

@@ -2,15 +2,8 @@
  * External wallet types per docs/bloxfi-liquidity-provider-integration-spec-v1.0.0.md §2.
  */
 
-export type BlockchainNetwork =
-  | 'POLYGON'
-  | 'ETHEREUM'
-  | 'BASE'
-  | 'SOLANA'
-  | 'ARBITRUM'
-  | 'OPTIMISM'
-  | 'AVALANCHE'
-  | 'BNB_CHAIN';
+/** Client-provided chain/network label. Not validated against DB. */
+export type BlockchainNetwork = string;
 
 export interface ExternalWallet {
   id: string;
