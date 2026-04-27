@@ -4,21 +4,10 @@
 
 import { z } from 'zod';
 
-const blockchainNetworkSchema = z.enum([
-  'POLYGON',
-  'ETHEREUM',
-  'BASE',
-  'SOLANA',
-  'ARBITRUM',
-  'OPTIMISM',
-  'AVALANCHE',
-  'BNB_CHAIN',
-]);
-
 /** POST /users/:userId/wallets/external body */
 export const addExternalWalletBodySchema = z.object({
   address: z.string().min(1, 'address is required'),
-  chain: blockchainNetworkSchema,
+  chain: z.string().min(1, 'chain is required'),
   name: z.string().min(1, 'name is required'),
   referenceId: z.string().min(1, 'referenceId is required'),
 });
@@ -27,7 +16,7 @@ export const addExternalWalletBodySchema = z.object({
 export const listExternalWalletsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   createdBefore: z.string().datetime({ message: 'createdBefore must be ISO 8601' }).optional(),
-  chain: blockchainNetworkSchema.optional(),
+  chain: z.string().optional(),
   active: z
     .string()
     .optional()

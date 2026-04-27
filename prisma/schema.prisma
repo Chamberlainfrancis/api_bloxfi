@@ -152,23 +152,13 @@ model KybDocument {
 
 // --- Feature 3: External Wallets (spec §2) ---
 
-enum BlockchainNetwork {
-  POLYGON
-  ETHEREUM
-  BASE
-  SOLANA
-  ARBITRUM
-  OPTIMISM
-  AVALANCHE
-  BNB_CHAIN
-}
-
 model ExternalWallet {
   id          String            @id @default(uuid())
   userId      String
   user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   address     String            // blockchain address
-  chain       BlockchainNetwork
+  /** Chain/network label provided by client (string). Do not validate against DB; validate at LP boundary. */
+  chain       String
   name        String
   referenceId String            // client reference for idempotency/correlation
   active      Boolean           @default(true)
