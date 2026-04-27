@@ -331,14 +331,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"address\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n  \"chain\": \"POLYGON\",\n  \"name\": \"My USDT wallet\",\n  \"referenceId\": \"ref-wallet-001\"\n}"
+              "raw": "{\n  \"address\": \"FawCgobstYZvJKXJxeVRDF7nf9HVdYTjRSP98kjWLTXB\",\n  \"chain\": \"TRX\",\n  \"name\": \"My USDT TRX wallet\",\n  \"referenceId\": \"ref-wallet-001\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/users/{{userId}}/wallets/external",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "wallets", "external"]
             },
-            "description": "chain: POLYGON, ETHEREUM, BASE, SOLANA, ARBITRUM, OPTIMISM, AVALANCHE, BNB_CHAIN. 201: id (auto-saved), userId, address, chain, name, referenceId, active, createdAt."
+            "description": "`chain` is an arbitrary string label stored as-is (e.g. TRX, BSC, ETH). 201: id (auto-saved), userId, address, chain, name, referenceId, active, createdAt."
           }
         },
         {

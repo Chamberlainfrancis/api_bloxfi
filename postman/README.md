@@ -87,7 +87,7 @@ BloxFi API
 9. **Get KYB Status** (optional).
 10. **Create Account (onramp)** — new `requestId`; user must be KYB-approved for the rail; `accountId` is auto-saved.
 11. **Create Account (offramp)** (optional) — new `requestId`; overwrites `accountId` in variables if successful.
-12. **Add External Wallet** — new `requestId`; `walletId` is auto-saved.
+12. **Add External Wallet** — new `requestId`; `walletId` is auto-saved. **Note:** wallet `chain` is now a **string** (e.g. `TRX`, `BSC`, `ETH`), not an enum.
 13. **Get Onramp Rates** (optional).
 14. **Create Onramp** — body uses `{{userId}}`, `{{accountId}}`, `{{walletId}}`; body `requestId` must match header; new `requestId`; `onrampId` is auto-saved. Expect **`AWAITING_FUNDS`** and LP **`depositInfo`** (server calls Palremit `create_fiat_deposit`; user must have **`businessInfo.email`**).
 15. **Webhook: onramp.fiat_processed** (optional mid-step: **Webhook: onramp.fiat_received**) — set `webhookSecret`, **no Bearer**; uses `{{onrampId}}`. **fiat_processed** is required before the API will send crypto on GET.

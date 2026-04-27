@@ -106,7 +106,7 @@ The API key must be 32 alphanumeric characters and exist in the database (use `n
 | **Users** | `POST /api/v1/users`, `GET /api/v1/users/:userId` |
 | **KYB**   | `POST .../kyb`, `POST .../kyb/documents`, `POST .../kyb/submissions`, `GET .../kyb/status` |
 | **Limits (user)** | `GET /api/v1/users/:userId/limits` |
-| **Wallets** | `POST/GET/PATCH/DELETE /api/v1/users/:userId/wallets/external` |
+| **Wallets** | `POST/GET/PATCH/DELETE /api/v1/users/:userId/wallets/external` — wallet `chain` is a **string** (e.g. `TRX`, `BSC`, `ETH`) |
 | **Accounts** | `POST/GET/DELETE /api/v1/users/:userId/accounts` |
 | **Onramps** | `GET /api/v1/onramps/rates`, `POST/GET /api/v1/onramps` |
 | **Offramps** | `GET /api/v1/offramps/rates`, `POST/GET /api/v1/offramps`, `POST .../cancel` |
