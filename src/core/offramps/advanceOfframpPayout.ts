@@ -48,10 +48,21 @@ export async function advanceOfframpIfDepositReady(
   offrampId: string
 ): Promise<void> {
   const row = await offrampRepo.findOfframpById(offrampId);
-  if (!row || row.status !== 'AWAITING_CRYPTO') return;
+  if (!row) return;
+
+  // Webhook-driven flows may already have moved the offramp past AWAITING_CRYPTO.
+  // As long as fiat hasn't been initiated yet, we can still attempt the payout.
+  const allowedStatuses = new Set<string>([
+    'AWAITING_CRYPTO',
+    'CRYPTO_PENDING',
+    'CRYPTO_RECEIVED',
+    'CRYPTO_CONFIRMED',
+  ]);
+  if (!allowedStatuses.has(row.status)) return;
 
   const timeline = (row.timeline as Record<string, unknown>) ?? {};
   if (timeline.fiatWithdrawalCompleted === true) return;
+  if (timeline.fiatWithdrawalReference != null) return;
 
   const deposit = row.depositInstructions as {
     address?: string;

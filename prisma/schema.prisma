@@ -21,9 +21,13 @@ model SchemaVersion {
 model WebhookInboundLog {
   id           String   @id @default(uuid())
   receivedAt   DateTime @default(now())
-  /** Truncated raw JSON body for storage caps. */
+  /**
+   * Truncated raw JSON body for storage caps.
+   */
   rawBody      String   @db.Text
-  /** invalid_buffer | bad_signature | bad_json | bad_schema | processed | handler_error */
+  /**
+   * invalid_buffer | bad_signature | bad_json | bad_schema | processed | handler_error
+   */
   outcome      String
   eventType    String?
   eventId      String?
@@ -51,69 +55,73 @@ enum KYBStatusEnum {
 }
 
 model User {
-  id                   String    @id @default(uuid())
-  type                 String    @default("business")
-  status               UserStatus @default(active)
-  businessInfo         Json      // BusinessInfo shape; unique normalized email also enforced via DB indexes (see migrations)
-  registeredAddress    Json      // Address shape
-  legalRepresentative  Json      // LegalRepresentative shape
-  metadata             Json?
-  /** Palremit Liquidity `channel_user_id` from §5.1; reused for §5.2 addresses (offramp). */
+  id                    String        @id @default(uuid())
+  type                  String        @default("business")
+  status                UserStatus    @default(active)
+  businessInfo          Json // BusinessInfo shape; unique normalized email also enforced via DB indexes (see migrations)
+  registeredAddress     Json // Address shape
+  legalRepresentative   Json // LegalRepresentative shape
+  metadata              Json?
+  /**
+   * Palremit Liquidity `channel_user_id` from §5.1; reused for §5.2 addresses (offramp).
+   */
   palremitChannelUserId String?
-  /** POST /users idempotency key (requestId header). */
-  creationRequestId    String?   @unique
-  /** Normalized businessInfo.email: lower(trim). Unique at DB + app layer. */
-  businessEmailNorm    String?   @unique
-  kybStatus            KYBStatusEnum @default(not_started)
-  approvedRails        String[]  @default([])
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  /**
+   * POST /users idempotency key (requestId header).
+   */
+  creationRequestId     String?       @unique
+  /**
+   * Normalized businessInfo.email: lower(trim). Unique at DB + app layer.
+   */
+  businessEmailNorm     String?       @unique
+  kybStatus             KYBStatusEnum @default(not_started)
+  approvedRails         String[]      @default([])
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  kybInfo              KybInfo?
-  kybSubmissions       KybSubmission[]
-  kybRailStatuses      KybRailStatus[]
-  kybDocuments         KybDocument[]
-  externalWallets      ExternalWallet[]
-  accounts             Account[]
-  onramps              Onramp[]
-  offramps             Offramp[]
-  highValueRequests    HighValueRequest[]
-
-  @@index([id])
+  kybInfo           KybInfo?
+  kybSubmissions    KybSubmission[]
+  kybRailStatuses   KybRailStatus[]
+  kybDocuments      KybDocument[]
+  externalWallets   ExternalWallet[]
+  accounts          Account[]
+  onramps           Onramp[]
+  offramps          Offramp[]
+  highValueRequests HighValueRequest[]
 }
 
 model KybInfo {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  businessDetails   Json?    // BusinessDetails shape
-  beneficialOwners  Json?    // BeneficialOwner[] shape
-  directors         Json?    // Director[] shape
-  updatedAt         DateTime @updatedAt
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessDetails  Json? // BusinessDetails shape
+  beneficialOwners Json? // BeneficialOwner[] shape
+  directors        Json? // Director[] shape
+  updatedAt        DateTime @updatedAt
 }
 
 model KybSubmission {
   id                      String    @id @default(uuid())
   userId                  String
   user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rails                   String[]   // e.g. ["USD", "EUR", "GBP"]
-  priority                String?    // e.g. "standard"
-  status                  String     // e.g. "under_review"
-  submittedAt             DateTime   @default(now())
+  rails                   String[] // e.g. ["USD", "EUR", "GBP"]
+  priority                String? // e.g. "standard"
+  status                  String // e.g. "under_review"
+  submittedAt             DateTime  @default(now())
   estimatedCompletionDate DateTime?
 
   @@index([userId])
 }
 
 model KybRailStatus {
-  id          String    @id @default(uuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rail        String    // e.g. "USD", "EUR"
-  status      String    // approved, under_review, etc.
-  approvedAt  DateTime?
-  submittedAt DateTime?
-  capabilities String[] @default([]) // e.g. ["onramp", "offramp"]
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rail         String // e.g. "USD", "EUR"
+  status       String // approved, under_review, etc.
+  approvedAt   DateTime?
+  submittedAt  DateTime?
+  capabilities String[]  @default([]) // e.g. ["onramp", "offramp"]
 
   @@unique([userId, rail])
   @@index([userId])
@@ -122,29 +130,27 @@ model KybRailStatus {
 // --- Feature 2: File Upload & KYB Documents (spec §1.4, §1.5) ---
 
 model File {
-  id         String   @id @default(uuid())
-  filename   String   // original filename
-  size       Int      // bytes
-  mimeType   String   // application/pdf, image/jpeg, image/png
-  storagePath String  // S3 object key (e.g. uploads/uuid_filename.pdf)
-  uploadedAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  filename    String // original filename
+  size        Int // bytes
+  mimeType    String // application/pdf, image/jpeg, image/png
+  storagePath String // S3 object key (e.g. uploads/uuid_filename.pdf)
+  uploadedAt  DateTime @default(now())
 
   kybDocuments KybDocument[]
-
-  @@index([id])
 }
 
 model KybDocument {
-  id             String   @id @default(uuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fileId         String
-  file           File     @relation(fields: [fileId], references: [id], onDelete: Restrict)
-  type           String   // CERTIFICATE_OF_INCORPORATION, DIRECTOR_ID, etc.
-  subType        String?  // e.g. PASSPORT for DIRECTOR_ID
-  status         String   @default("pending_review") // pending_review, approved, rejected
-  metadata       Json?    // issuedCountry, issueDate, expiryDate, documentNumber, ownerName
-  uploadedAt     DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId     String
+  file       File     @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  type       String // CERTIFICATE_OF_INCORPORATION, DIRECTOR_ID, etc.
+  subType    String? // e.g. PASSPORT for DIRECTOR_ID
+  status     String   @default("pending_review") // pending_review, approved, rejected
+  metadata   Json? // issuedCountry, issueDate, expiryDate, documentNumber, ownerName
+  uploadedAt DateTime @default(now())
 
   @@index([userId])
   @@index([fileId])
@@ -153,17 +159,19 @@ model KybDocument {
 // --- Feature 3: External Wallets (spec §2) ---
 
 model ExternalWallet {
-  id          String            @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  address     String            // blockchain address
-  /** Chain/network label provided by client (string). Do not validate against DB; validate at LP boundary. */
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address     String // blockchain address
+  /**
+   * Chain/network label provided by client (string). Do not validate against DB; validate at LP boundary.
+   */
   chain       String
   name        String
-  referenceId String            // client reference for idempotency/correlation
-  active      Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime?         // null until first update
+  referenceId String // client reference for idempotency/correlation
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime? // null until first update
 
   @@unique([userId, address, chain])
   @@index([userId])
@@ -173,17 +181,17 @@ model ExternalWallet {
 // --- Feature 4: Accounts / Fiat (spec §3) ---
 
 model Account {
-  id              String   @id @default(uuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  railType        String   // onramp | offramp
-  currency        String
-  paymentRail     String   // ach, wire, pix, spei, etc.
-  accountType     String   // us, brazil, colombia, argentina, mexico, africa
-  accountHolder   Json     // AccountHolder shape
-  regionDetails   Json     // Region-specific details (us/brazil/etc. shape; mask in list)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  railType      String // onramp | offramp
+  currency      String
+  paymentRail   String // ach, wire, pix, spei, etc.
+  accountType   String // us, brazil, colombia, argentina, mexico, africa
+  accountHolder Json // AccountHolder shape
+  regionDetails Json // Region-specific details (us/brazil/etc. shape; mask in list)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, railType])
@@ -209,20 +217,20 @@ enum OnrampStatusEnum {
 }
 
 model Onramp {
-  id                String           @id @default(uuid())
-  requestId         String           @unique // idempotency
-  userId            String
-  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status            OnrampStatusEnum  @default(CREATED)
-  source            Json             // OnrampSource shape
-  destination       Json             // OnrampDestination shape
-  quoteInformation  Json             // QuoteInformation shape
-  depositInfo       Json?             // DepositInfo shape (when CREATED)
-  receipt           Json?             // Receipt shape (when COMPLETED)
-  developerFee      Json?            // { amount, currency }
-  failedReason      String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id               String           @id @default(uuid())
+  requestId        String           @unique // idempotency
+  userId           String
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           OnrampStatusEnum @default(CREATED)
+  source           Json // OnrampSource shape
+  destination      Json // OnrampDestination shape
+  quoteInformation Json // QuoteInformation shape
+  depositInfo      Json? // DepositInfo shape (when CREATED)
+  receipt          Json? // Receipt shape (when COMPLETED)
+  developerFee     Json? // { amount, currency }
+  failedReason     String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([userId])
   @@index([userId, status])
@@ -251,23 +259,23 @@ enum OfframpStatusEnum {
 }
 
 model Offramp {
-  id                   String            @id @default(uuid())
-  requestId            String            @unique // idempotency
-  userId               String
-  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status               OfframpStatusEnum  @default(CREATED)
-  source               Json              // OfframpSource shape (crypto)
-  destination          Json              // OfframpDestination shape (fiat)
-  rateInformation      Json              // RateInformation shape
-  depositInstructions  Json?             // DepositInstructions (where to send crypto)
-  timeline             Json?             // Timeline shape
-  fees                 Json?             // OfframpFees shape
-  receipt              Json?             // { transactionHash? }
-  refundDetails        Json?             // RefundDetails when cancelled
-  failedReason         String?
-  lpReference          String?           // LP order reference (e.g. Palremit reference)
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  id                  String            @id @default(uuid())
+  requestId           String            @unique // idempotency
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status              OfframpStatusEnum @default(CREATED)
+  source              Json // OfframpSource shape (crypto)
+  destination         Json // OfframpDestination shape (fiat)
+  rateInformation     Json // RateInformation shape
+  depositInstructions Json? // DepositInstructions (where to send crypto)
+  timeline            Json? // Timeline shape
+  fees                Json? // OfframpFees shape
+  receipt             Json? // { transactionHash? }
+  refundDetails       Json? // RefundDetails when cancelled
+  failedReason        String?
+  lpReference         String? // LP order reference (e.g. Palremit reference)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   @@index([userId])
   @@index([userId, status])
@@ -284,17 +292,17 @@ enum HighValueRequestStatusEnum {
 }
 
 model HighValueRequest {
-  id           String                     @id @default(uuid())
-  requestId    String                     @unique // idempotency
-  userId       String
-  user         User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status       HighValueRequestStatusEnum @default(pending)
-  currency     String?
+  id             String                     @id @default(uuid())
+  requestId      String                     @unique // idempotency
+  userId         String
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         HighValueRequestStatusEnum @default(pending)
+  currency       String?
   requestedLimit String?
-  reason       String?
-  reviewedAt   DateTime?
-  createdAt    DateTime                   @default(now())
-  updatedAt    DateTime                   @updatedAt
+  reason         String?
+  reviewedAt     DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
 
   @@index([userId])
   @@index([userId, status])
@@ -302,14 +310,14 @@ model HighValueRequest {
 
 // Partner/API keys: min 32 chars per spec; store hash only; support sandbox/production and rotation.
 model ApiKey {
-  id        String   @id @default(uuid())
-  keyHash   String   @unique // SHA-256 of the raw key; never store plaintext
-  keyPrefix String   // First 8 chars for display/logging (e.g. "blxfi_ab")
-  partnerId String   // Client/partner identifier
+  id          String   @id @default(uuid())
+  keyHash     String   @unique // SHA-256 of the raw key; never store plaintext
+  keyPrefix   String // First 8 chars for display/logging (e.g. "blxfi_ab")
+  partnerId   String // Client/partner identifier
   environment String // "sandbox" | "production"
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([keyHash, isActive])
 }

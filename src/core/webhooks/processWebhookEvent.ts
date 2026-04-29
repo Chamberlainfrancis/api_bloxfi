@@ -57,6 +57,11 @@ export interface WebhookRepos {
         lpReference?: string | null;
       }
     ): Promise<unknown>;
+    /**
+     * Optional hook to advance offramp fiat payout after a confirmed crypto deposit webhook.
+     * Implemented in HTTP layer to perform I/O (Palremit withdrawal) and keep this core pure.
+     */
+    advanceOfframpAfterCryptoWebhook?(offrampId: string): Promise<void>;
   };
   highValueRequest: {
     findHighValueRequestById(id: string): Promise<{ id: string } | null>;
@@ -206,6 +211,13 @@ export async function processWebhookEvent(
         },
         timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
       });
+      if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
+        try {
+          await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
+        } catch (e) {
+          console.error('[webhooks] advanceOfframpAfterCryptoWebhook failed', offramp.id, e);
+        }
+      }
       break;
     }
 

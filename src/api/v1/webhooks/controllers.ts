@@ -10,12 +10,14 @@ import { AppError } from "@/types";
 import { verifyPalremitWebhookSignature } from "@/services/webhookVerify";
 import { processWebhookEvent } from "@/core/webhooks";
 import { advanceOnrampIfFiatProcessed } from "@/core/onramps/advanceOnrampPayout";
+import { advanceOfframpIfDepositReady } from "@/core/offramps/advanceOfframpPayout";
 import { executePalremitOnrampCryptoWithdrawal } from "@/core/integrations";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import * as userRepo from "@/db/repositories/user.repo";
 import * as onrampRepo from "@/db/repositories/onramp.repo";
 import * as offrampRepo from "@/db/repositories/offramp.repo";
 import * as highValueRequestRepo from "@/db/repositories/highValueRequest.repo";
+import * as accountRepo from "@/db/repositories/account.repo";
 import { createWebhookInboundLog, truncateWebhookRawBody, type WebhookInboundOutcome } from "@/db/repositories/webhookInboundLog.repo";
 import { env } from "@/config/env";
 import { inboundWebhookPayloadSchema } from "@/api/v1/webhooks/schemas";
@@ -52,6 +54,17 @@ const webhookRepos = {
     findOfframpByReferenceMatch: offrampRepo.findOfframpByReferenceMatch,
     findOfframpByDepositAddress: offrampRepo.findOfframpByDepositAddress,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
+    advanceOfframpAfterCryptoWebhook: async (offrampId: string) => {
+      await advanceOfframpIfDepositReady(
+        {
+          findOfframpById: offrampRepo.findOfframpById,
+          updateOfframpStatus: offrampRepo.updateOfframpStatus,
+        },
+        { findAccountByIdAndUser: accountRepo.findAccountByIdAndUser },
+        palremitLiquidity,
+        offrampId,
+      );
+    },
   },
   highValueRequest: {
     findHighValueRequestById: highValueRequestRepo.findHighValueRequestById,
