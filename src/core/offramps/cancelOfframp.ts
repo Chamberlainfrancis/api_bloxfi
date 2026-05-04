@@ -26,6 +26,7 @@ export interface OfframpRepoGetAndUpdate {
   findOfframpById(id: string): Promise<{
     id: string;
     requestId: string;
+    txnRef: string | null;
     userId: string;
     status: string;
     source: unknown;
@@ -53,6 +54,7 @@ export interface OfframpRepoGetAndUpdate {
 function rowToTransferDetails(row: {
   id: string;
   requestId: string;
+  txnRef: string | null;
   status: string;
   source: unknown;
   destination: unknown;
@@ -69,6 +71,7 @@ function rowToTransferDetails(row: {
   return {
     id: row.id,
     requestId: row.requestId,
+    txnRef: row.txnRef ?? '',
     status: row.status as OfframpStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

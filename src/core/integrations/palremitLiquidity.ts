@@ -18,12 +18,15 @@ export interface PalremitCreateCryptoAddressNewUserBody {
   last_name: string;
   currency: string;
   network?: string;
+  /** BloxFi transaction ref (OFF-…); Palremit must echo as webhook data.txnRef */
+  txn_ref?: string;
 }
 
 export interface PalremitCreateCryptoAddressBody {
   channel_user_id: string;
   currency: string;
   network?: string;
+  txn_ref?: string;
 }
 
 export interface PalremitCryptoAddress {
@@ -114,6 +117,8 @@ export interface PalremitCreateFiatDepositBody {
   currency: string;
   /** Palremit expects string amount (e.g. fiat minor units or decimal string per LP contract). */
   amount: string;
+  /** BloxFi transaction ref (ON-…); Palremit must echo as webhook data.txnRef */
+  txn_ref?: string;
 }
 
 export async function createPalremitFiatDeposit(
@@ -218,6 +223,8 @@ export interface PalremitPrepareCryptoWithdrawalBody {
   destination_token?: string;
   app_fee?: number;
   app_fee_currency?: string;
+  /** BloxFi transaction ref (ON-…); Palremit must echo as webhook data.txnRef */
+  txn_ref?: string;
 }
 
 export async function preparePalremitCryptoWithdrawal(

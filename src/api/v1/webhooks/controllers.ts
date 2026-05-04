@@ -19,6 +19,8 @@ import * as offrampRepo from "@/db/repositories/offramp.repo";
 import * as highValueRequestRepo from "@/db/repositories/highValueRequest.repo";
 import * as accountRepo from "@/db/repositories/account.repo";
 import { createWebhookInboundLog, truncateWebhookRawBody, type WebhookInboundOutcome } from "@/db/repositories/webhookInboundLog.repo";
+import { tryClaimWebhookDedupe } from "@/db/repositories/webhookDedupe.repo";
+import { buildPalremitWebhookDedupeKey } from "@/core/webhooks/buildWebhookDedupeKey";
 import { env } from "@/config/env";
 import { inboundWebhookPayloadSchema } from "@/api/v1/webhooks/schemas";
 import type { InboundWebhookPayload } from "@/types/webhook";
@@ -35,8 +37,7 @@ const webhookRepos = {
   },
   onramp: {
     findOnrampById: onrampRepo.findOnrampById,
-    findOnrampByReferenceMatch: onrampRepo.findOnrampByReferenceMatch,
-    findOnrampByFiatReceiverAccountAndAmount: onrampRepo.findOnrampByFiatReceiverAccountAndAmount,
+    findOnrampByTxnRef: onrampRepo.findOnrampByTxnRef,
     updateOnrampStatus: onrampRepo.updateOnrampStatus,
     advanceOnrampAfterFiatWebhook: async (onrampId: string) => {
       await advanceOnrampIfFiatProcessed(
@@ -45,14 +46,14 @@ const webhookRepos = {
           updateOnrampStatus: onrampRepo.updateOnrampStatus,
         },
         onrampId,
-        (b, rid, receiveNet, destAddr) => executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr),
+        (b, rid, receiveNet, destAddr, txnRef) =>
+          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr, txnRef),
       );
     },
   },
   offramp: {
     findOfframpById: offrampRepo.findOfframpById,
-    findOfframpByReferenceMatch: offrampRepo.findOfframpByReferenceMatch,
-    findOfframpByDepositAddress: offrampRepo.findOfframpByDepositAddress,
+    findOfframpByTxnRef: offrampRepo.findOfframpByTxnRef,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
     advanceOfframpAfterCryptoWebhook: async (offrampId: string) => {
       await advanceOfframpIfDepositReady(
@@ -166,6 +167,20 @@ export async function handleInboundWebhook(req: Request, res: Response, next: Ne
     }
 
     const payload: InboundWebhookPayload = result.data;
+
+    const dataObj = payload.data as Record<string, unknown>;
+    const dedupeKey = buildPalremitWebhookDedupeKey(payload.eventType, dataObj);
+    const claimed = await tryClaimWebhookDedupe("palremit", dedupeKey);
+    if (!claimed) {
+      await logInbound("duplicate", {
+        rawBody: rawUtf8,
+        eventType: payload.eventType,
+        eventId: payload.eventId,
+        payload,
+      });
+      sendSuccess(res, { received: true, eventId: payload.eventId, duplicate: true }, 200);
+      return;
+    }
 
     try {
       await processWebhookEvent(webhookRepos, payload);

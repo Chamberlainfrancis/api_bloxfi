@@ -4,6 +4,7 @@
  */
 
 import { applyOnrampFee } from '@/core/payments';
+import { generateOnrampTxnRef } from '@/utils/txnRef';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -15,6 +16,7 @@ import type {
   DepositInfo,
   DeveloperFeeAmount,
   OnrampTransferDetails,
+  Receipt,
 } from '@/types/onramp';
 
 const QUOTE_EXPIRY_MINUTES = 30;
@@ -43,12 +45,15 @@ export interface CreateOnrampOptions {
     amount: number;
     bloxRequestId: string;
     depositByIso: string;
-  }) => Promise<DepositInfo | null>;
+    txnRef: string;
+  }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
 }
 
 export interface OnrampRepoCreate {
   createOnramp(data: {
     requestId: string;
+    txnRef: string;
+    providerRefs?: object | null;
     userId: string;
     status: OnrampStatus;
     source: object;
@@ -61,6 +66,7 @@ export interface OnrampRepoCreate {
   }): Promise<{
     id: string;
     requestId: string;
+    txnRef: string | null;
     userId: string;
     status: string;
     source: unknown;
@@ -245,7 +251,9 @@ export async function createOnramp(
   }
   const { first: firstName, last: lastName } = namesForPalremitFiatDeposit(businessInfo);
 
-  const depositInfo = await options.createPalremitFiatDeposit({
+  const txnRef = generateOnrampTxnRef();
+
+  const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
     lastName,
     email,
@@ -253,13 +261,18 @@ export async function createOnramp(
     amount: grossFiat,
     bloxRequestId: requestId,
     depositByIso: expiresAt.toISOString(),
+    txnRef,
   });
-  if (!depositInfo) {
+  if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
   }
 
+  const { depositInfo, providerRefs } = fiatResult;
+
   const row = await onrampRepo.createOnramp({
     requestId,
+    txnRef,
+    providerRefs,
     userId,
     status: 'AWAITING_FUNDS',
     source: sourcePayload,
@@ -274,6 +287,7 @@ export async function createOnramp(
   const transferDetails: OnrampTransferDetails = {
     id: row.id,
     requestId: row.requestId,
+    txnRef: row.txnRef ?? txnRef,
     status: row.status as OnrampStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -281,7 +295,7 @@ export async function createOnramp(
     destination: row.destination as OnrampDestination,
     quoteInformation: row.quoteInformation as QuoteInformation,
     depositInfo: (row.depositInfo as DepositInfo) ?? null,
-    receipt: row.receipt ? (row.receipt as { transactionHash: string }) : null,
+    receipt: row.receipt ? (row.receipt as Receipt) : null,
     developerFee: (row.developerFee as DeveloperFeeAmount) ?? null,
     failedReason: row.failedReason ?? null,
   };

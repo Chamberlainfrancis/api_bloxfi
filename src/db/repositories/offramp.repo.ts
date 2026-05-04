@@ -34,6 +34,8 @@ function toPrismaStatus(s: OfframpStatus): (typeof STATUS_VALUES)[number] {
 
 export interface CreateOfframpData {
   requestId: string;
+  txnRef: string;
+  providerRefs?: object | null;
   userId: string;
   status: OfframpStatus;
   source: object;
@@ -51,6 +53,8 @@ export interface CreateOfframpData {
 export interface OfframpRow {
   id: string;
   requestId: string;
+  txnRef: string | null;
+  providerRefs: unknown;
   userId: string;
   status: string;
   source: unknown;
@@ -71,6 +75,8 @@ export async function createOfframp(data: CreateOfframpData): Promise<OfframpRow
   const row = await prisma.offramp.create({
     data: {
       requestId: data.requestId,
+      txnRef: data.txnRef,
+      providerRefs: data.providerRefs === undefined || data.providerRefs === null ? undefined : (data.providerRefs as object),
       userId: data.userId,
       status: toPrismaStatus(data.status as OfframpStatus),
       source: data.source as object,
@@ -102,28 +108,13 @@ export async function findOfframpByRequestId(requestId: string): Promise<Offramp
   return row as OfframpRow | null;
 }
 
-/** Match BloxFi id, requestId, or stored lpReference (Palremit / BloxFi correlation). */
-export async function findOfframpByReferenceMatch(ref: string): Promise<OfframpRow | null> {
-  const trimmed = ref?.trim();
-  if (!trimmed) return null;
-  const row = await prisma.offramp.findFirst({
-    where: {
-      OR: [{ id: trimmed }, { requestId: trimmed }, { lpReference: trimmed }],
-    },
+export async function findOfframpByTxnRef(txnRef: string): Promise<OfframpRow | null> {
+  const t = txnRef?.trim();
+  if (!t) return null;
+  const row = await prisma.offramp.findUnique({
+    where: { txnRef: t },
   });
   return row as OfframpRow | null;
-}
-
-/** Find offramp by crypto deposit address stored in depositInstructions JSON. */
-export async function findOfframpByDepositAddress(address: string): Promise<OfframpRow | null> {
-  const trimmed = address?.trim();
-  if (!trimmed) return null;
-  const rows = await prisma.$queryRaw<OfframpRow[]>`
-    SELECT * FROM "Offramp"
-    WHERE LOWER("depositInstructions"->>'address') = LOWER(${trimmed})
-    LIMIT 1
-  `;
-  return rows[0] ?? null;
 }
 
 export async function updateOfframpStatus(
@@ -137,8 +128,18 @@ export async function updateOfframpStatus(
     refundDetails?: object | null;
     failedReason?: string | null;
     lpReference?: string | null;
+    providerRefs?: object | null;
   }
 ): Promise<OfframpRow | null> {
+  const existing = await prisma.offramp.findUnique({ where: { id } });
+  const mergedProviderRefs =
+    updates?.providerRefs !== undefined && existing
+      ? ({
+          ...((existing.providerRefs as object) ?? {}),
+          ...(updates.providerRefs as object),
+        } as object)
+      : undefined;
+
   const row = await prisma.offramp.update({
     where: { id },
     data: {
@@ -154,9 +155,10 @@ export async function updateOfframpStatus(
       }),
       ...(updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
       ...(updates?.lpReference !== undefined && { lpReference: updates.lpReference }),
+      ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },
   });
-  return row as OfframpRow;
+  return row as OfframpRow | null;
 }
 
 export interface ListOfframpsParams {

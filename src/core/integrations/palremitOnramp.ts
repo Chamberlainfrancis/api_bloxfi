@@ -94,6 +94,16 @@ export function mapPalremitFiatDepositResponseToDepositInfo(
   };
 }
 
+function providerRefsFromFiatDepositRaw(raw: Record<string, unknown>): Record<string, unknown> {
+  return {
+    palremitFiatDeposit: {
+      id: raw.id,
+      reference: raw.reference,
+      channel_reference: raw.channel_reference,
+    },
+  };
+}
+
 export async function createOnrampPalremitFiatDeposit(
   liquidityRequest: PalremitLiquidityRequestFn,
   params: {
@@ -104,23 +114,29 @@ export async function createOnrampPalremitFiatDeposit(
     amount: number;
     bloxRequestId: string;
     depositByIso: string;
+    txnRef: string;
   }
-): Promise<DepositInfo | null> {
+): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const data = await createPalremitFiatDeposit(liquidityRequest, {
     first_name: params.firstName,
     last_name: params.lastName,
     email: params.email,
     currency: params.currency.toUpperCase(),
     amount: String(params.amount),
+    txn_ref: params.txnRef,
   });
   if (!data) return null;
-  return mapPalremitFiatDepositResponseToDepositInfo(
+  const depositInfo = mapPalremitFiatDepositResponseToDepositInfo(
     data,
     params.bloxRequestId,
     params.depositByIso,
     params.amount,
     params.currency.toUpperCase()
   );
+  return {
+    depositInfo,
+    providerRefs: providerRefsFromFiatDepositRaw(data),
+  };
 }
 
 export interface PalremitOnrampWithdrawResult {
@@ -133,7 +149,8 @@ export async function executePalremitOnrampCryptoWithdrawal(
   body: Omit<CreateOnrampRequest, 'requestId'>,
   _requestId: string,
   receiveNetCryptoAmount: number,
-  destinationAddress: string
+  destinationAddress: string,
+  txnRef: string
 ): Promise<PalremitOnrampWithdrawResult | null> {
   const fromCurrency = body.source.currency.trim().toUpperCase();
   const destCurrency = body.destination.currency.trim().toUpperCase();
@@ -159,6 +176,7 @@ export async function executePalremitOnrampCryptoWithdrawal(
     destination_token: 'default',
     app_fee: appFee,
     app_fee_currency: appFeeCurrency,
+    txn_ref: txnRef,
   });
   if (!prepared?.reference) return null;
 

@@ -85,7 +85,12 @@ export interface DepositInfo {
 }
 
 export interface Receipt {
-  transactionHash: string;
+  transactionHash?: string;
+  txnRef?: string;
+  palremitPrepareReference?: string;
+  destinationTxId?: string;
+  awaitingWebhookConfirmation?: boolean;
+  provider?: string;
 }
 
 export interface DeveloperFeeAmount {
@@ -96,6 +101,8 @@ export interface DeveloperFeeAmount {
 export interface OnrampTransferDetails {
   id: string;
   requestId: string;
+  /** BloxFi primary transaction id (ON-…); echoed by Palremit as webhook data.txnRef */
+  txnRef: string;
   status: OnrampStatus;
   createdAt: string;
   updatedAt: string;

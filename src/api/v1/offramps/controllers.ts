@@ -158,7 +158,7 @@ export async function createOfframp(
         getRateFromPalremit,
         resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
-        createPalremitDeposit: (userCtx, b, rid, depositBy) =>
+        createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(
             palremitLiquidity,
             userCtx,
@@ -168,7 +168,8 @@ export async function createOfframp(
             },
             b,
             rid,
-            depositBy
+            depositBy,
+            txnRef
           ),
       }
     );

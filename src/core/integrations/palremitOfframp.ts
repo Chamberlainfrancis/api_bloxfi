@@ -17,10 +17,11 @@ import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 
 export interface PalremitOfframpDepositResult {
-  /** Correlation: BloxFi offramp requestId (fiat withdrawal reference prefix). */
+  /** Legacy label; fiat withdrawal uses txnRef as Palremit reference. */
   correlationId: string;
   depositInstructions: DepositInstructions;
   channelAddressId?: string;
+  providerRefs: Record<string, unknown>;
 }
 
 function mapCryptoAddressToDepositInstructions(
@@ -110,7 +111,8 @@ async function resolveExistingUserCryptoDepositAddress(
   liquidityRequest: PalremitLiquidityRequestFn,
   channelUserId: string,
   currency: string,
-  network: string
+  network: string,
+  txnRef: string
 ): Promise<PalremitCryptoAddress | null> {
   const listed = await listPalremitUserCryptoAddresses(liquidityRequest, channelUserId);
   const fromList = listed ? pickMatchingUserCryptoAddress(listed, currency, network) : null;
@@ -121,6 +123,7 @@ async function resolveExistingUserCryptoDepositAddress(
       channel_user_id: channelUserId,
       currency,
       network,
+      txn_ref: txnRef,
     });
     if (created?.address) return created;
     return null;
@@ -196,7 +199,8 @@ export async function createOfframpPalremitCryptoDeposit(
   persistence: PalremitOfframpUserPersistence,
   body: Omit<CreateOfframpRequest, 'requestId'>,
   requestId: string,
-  depositBy: string
+  depositBy: string,
+  txnRef: string
 ): Promise<PalremitOfframpDepositResult | null> {
   const fromCurrency = body.source.currency.trim().toUpperCase();
   /** Must be a Palremit `network_code` from GET /coins/get_coin (validated at ramp creation). */
@@ -221,7 +225,8 @@ export async function createOfframpPalremitCryptoDeposit(
         liquidityRequest,
         channelUserId,
         fromCurrency,
-        sourceNetwork
+        sourceNetwork,
+        txnRef
       );
     } catch (e) {
       if (!isHttp404(e)) throw e;
@@ -236,6 +241,7 @@ export async function createOfframpPalremitCryptoDeposit(
       last_name: names.last_name,
       currency: fromCurrency,
       network: sourceNetwork,
+      txn_ref: txnRef,
     });
     if (!created?.address || !created.channel_user_id) {
       addr = created;
@@ -253,7 +259,8 @@ export async function createOfframpPalremitCryptoDeposit(
             liquidityRequest,
             winner,
             fromCurrency,
-            sourceNetwork
+            sourceNetwork,
+            txnRef
           );
         } else {
           addr = created;
@@ -265,13 +272,20 @@ export async function createOfframpPalremitCryptoDeposit(
   if (!addr?.address) return null;
 
   return {
-    correlationId: requestId,
+    correlationId: txnRef,
     depositInstructions: mapCryptoAddressToDepositInstructions(
       addr,
       body.source.amount,
       depositBy
     ),
     channelAddressId: addr.channel_address_id,
+    providerRefs: {
+      palremitCryptoAddress: {
+        channel_address_id: addr.channel_address_id,
+        channel_user_id: addr.channel_user_id,
+        address: addr.address,
+      },
+    },
   };
 }
 
@@ -317,6 +331,8 @@ export async function tryPalremitOfframpFiatPayout(
   params: {
     offrampId: string;
     requestId: string;
+    /** BloxFi OFF-… ref; Palremit requires this as create_withdrawal.reference */
+    txnRef: string;
     expectedCryptoAmount: number;
     depositAddress: string;
     sourceCurrency: string;
@@ -347,9 +363,8 @@ export async function tryPalremitOfframpFiatPayout(
   });
   if (!match) return null;
 
-  const reference = `WTH-OFF-${params.offrampId.slice(0, 8)}-${params.requestId.slice(0, 8)}`;
   const created = await createPalremitFiatWithdrawal(liquidityRequest, {
-    reference,
+    reference: params.txnRef,
     destination_amount: params.destinationAmount,
     destination_currency: params.destinationCurrency.toUpperCase(),
     destination_type: 'bank_account',

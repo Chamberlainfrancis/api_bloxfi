@@ -1,7 +1,6 @@
 /**
  * Core: process inbound webhook events from LPs / Palremit. Update state via repository interfaces.
- * BloxFi-shaped: user.*, kyb.*, onramp.*, offramp.*, …
- * Palremit §4 ramp webhooks are not used (partner flows use §5–§6 only).
+ * Money-flow events (§5–§6): match strictly on payload `data.txnRef` ↔ DB `txnRef` (no heuristics).
  * No Express/Prisma; receives repos via DI.
  */
 
@@ -10,6 +9,7 @@ import type { OnrampStatus } from '@/types/onramp';
 import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
+import { isOnrampTxnRef, isOfframpTxnRef } from '@/utils/txnRef';
 
 export interface WebhookRepos {
   user: {
@@ -25,27 +25,21 @@ export interface WebhookRepos {
   };
   onramp: {
     findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
-    findOnrampByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
-    findOnrampByFiatReceiverAccountAndAmount?(params: {
-      receiverAccount: string;
-      amount: number;
-      currency?: string;
-    }): Promise<{ id: string; status: string } | null>;
+    findOnrampByTxnRef(txnRef: string): Promise<{ id: string; status: string } | null>;
     updateOnrampStatus(
       id: string,
       status: OnrampStatus,
-      updates?: { receipt?: object | null; failedReason?: string | null }
+      updates?: {
+        receipt?: object | null;
+        failedReason?: string | null;
+        providerRefs?: object | null;
+      }
     ): Promise<unknown>;
-    /**
-     * After NGN `deposit.successful` sets FIAT_PROCESSED, run Palremit crypto payout (same as GET /onramps/:id).
-     * Optional so tests / non-Palremit webhooks skip I/O.
-     */
     advanceOnrampAfterFiatWebhook?(onrampId: string): Promise<void>;
   };
   offramp: {
     findOfframpById(id: string): Promise<{ id: string; status?: string } | null>;
-    findOfframpByReferenceMatch(ref: string): Promise<{ id: string; status: string } | null>;
-    findOfframpByDepositAddress?(address: string): Promise<{ id: string; status: string } | null>;
+    findOfframpByTxnRef(txnRef: string): Promise<{ id: string; status: string } | null>;
     updateOfframpStatus(
       id: string,
       status: OfframpStatus,
@@ -55,12 +49,9 @@ export interface WebhookRepos {
         failedReason?: string | null;
         refundDetails?: object | null;
         lpReference?: string | null;
+        providerRefs?: object | null;
       }
     ): Promise<unknown>;
-    /**
-     * Optional hook to advance offramp fiat payout after a confirmed crypto deposit webhook.
-     * Implemented in HTTP layer to perform I/O (Palremit withdrawal) and keep this core pure.
-     */
     advanceOfframpAfterCryptoWebhook?(offrampId: string): Promise<void>;
   };
   highValueRequest: {
@@ -69,20 +60,6 @@ export interface WebhookRepos {
     updateHighValueRequestStatus(id: string, status: HighValueRequestStatus): Promise<unknown>;
   };
 }
-
-const ONRAMP_STATUS_MAP: Record<string, OnrampStatus> = {
-  CREATED: 'CREATED',
-  AWAITING_FUNDS: 'AWAITING_FUNDS',
-  FIAT_PENDING: 'FIAT_PENDING',
-  FIAT_PROCESSED: 'FIAT_PROCESSED',
-  CRYPTO_INITIATED: 'CRYPTO_INITIATED',
-  CRYPTO_PENDING: 'CRYPTO_PENDING',
-  COMPLETED: 'COMPLETED',
-  FIAT_FAILED: 'FIAT_FAILED',
-  FIAT_RETURNED: 'FIAT_RETURNED',
-  CRYPTO_FAILED: 'CRYPTO_FAILED',
-  EXPIRED: 'EXPIRED',
-};
 
 const OFFRAMP_STATUS_MAP: Record<string, OfframpStatus> = {
   CREATED: 'CREATED',
@@ -103,20 +80,8 @@ const OFFRAMP_STATUS_MAP: Record<string, OfframpStatus> = {
   EXPIRED: 'EXPIRED',
 };
 
-function toOnrampStatus(s: string): OnrampStatus {
-  return ONRAMP_STATUS_MAP[s] ?? 'CREATED';
-}
-
 function toOfframpStatus(s: string): OfframpStatus {
   return OFFRAMP_STATUS_MAP[s] ?? 'CREATED';
-}
-
-function pickString(d: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = d[key];
-    if (typeof value === 'string' && value.trim() !== '') return value;
-  }
-  return undefined;
 }
 
 function toKybStatus(s: string): KYBStatus {
@@ -125,6 +90,12 @@ function toKybStatus(s: string): KYBStatus {
     return v as KYBStatus;
   }
   return 'under_review';
+}
+
+/** Require Palremit to send `data.txnRef` (contract). */
+function requireTxnRef(d: Record<string, unknown>): string | null {
+  const v = d.txnRef;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
 /**
@@ -138,48 +109,27 @@ export async function processWebhookEvent(
   const d = data as Record<string, unknown>;
 
   switch (eventType) {
-    /**
-     * Palremit money-flow webhooks.
-     * docs/palremit-webhook-ref.md:
-     * - deposit.successful (crypto + NGN)
-     * - withdraw.successful (crypto + NGN)
-     * - withdraw.rejected (crypto + NGN)
-     */
     case 'deposit.successful': {
+      const txnRef = requireTxnRef(d);
+      if (!txnRef) break;
+
       const currency = String(d.currency ?? '').trim().toUpperCase();
       if (!currency) break;
 
-      // Fiat deposit is our onramp funding confirmation.
       if (currency === 'NGN') {
-        const ref = pickString(d, ['reference', '_id']);
-        const receiverAccount = pickString(d, ['receiver_account', 'reciever_account', 'receiverAccount']);
-        const amountRaw = d.amount;
-        const amountNum =
-          typeof amountRaw === 'number'
-            ? amountRaw
-            : typeof amountRaw === 'string'
-              ? Number(amountRaw)
-              : NaN;
-
-        let onramp: { id: string; status: string } | null = null;
-        if (ref) {
-          onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
-        }
-        if (
-          !onramp &&
-          receiverAccount &&
-          Number.isFinite(amountNum) &&
-          repos.onramp.findOnrampByFiatReceiverAccountAndAmount
-        ) {
-          onramp = await repos.onramp.findOnrampByFiatReceiverAccountAndAmount({
-            receiverAccount,
-            amount: amountNum,
-            currency: 'NGN',
-          });
-        }
+        if (!isOnrampTxnRef(txnRef)) break;
+        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
         if (!onramp) break;
+        if (!['AWAITING_FUNDS', 'FIAT_PENDING'].includes(onramp.status)) break;
+
         await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
           receipt: { provider: 'palremit', eventType, data: d },
+          providerRefs: {
+            webhookDepositSuccessful: {
+              reference: d.reference,
+              id: d.id,
+            },
+          },
         });
         if (repos.onramp.advanceOnrampAfterFiatWebhook) {
           try {
@@ -191,12 +141,11 @@ export async function processWebhookEvent(
         break;
       }
 
-      // Crypto deposit can be our offramp deposit funding confirmation.
-      const destinationAddress = pickString(d, ['destination_address', 'destinationAddress']);
-      if (!destinationAddress) break;
-      if (!repos.offramp.findOfframpByDepositAddress) break;
-      const offramp = await repos.offramp.findOfframpByDepositAddress(destinationAddress);
+      if (!isOfframpTxnRef(txnRef)) break;
+      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
       if (!offramp) break;
+      if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED'].includes(offramp.status)) break;
+
       await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_CONFIRMED', {
         receipt: {
           provider: 'palremit',
@@ -206,10 +155,16 @@ export async function processWebhookEvent(
           currency,
           network: d.network ?? null,
           amount: d.amount ?? null,
-          destinationAddress,
           raw: d,
         },
         timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
+        providerRefs: {
+          webhookDepositSuccessful: {
+            reference: d.reference,
+            id: d.id,
+            tx_id: d.tx_id,
+          },
+        },
       });
       if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
         try {
@@ -221,73 +176,147 @@ export async function processWebhookEvent(
       break;
     }
 
+    case 'deposit.transaction.confirmation': {
+      const txnRef = requireTxnRef(d);
+      if (!txnRef || !isOfframpTxnRef(txnRef)) break;
+      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+      if (!offramp) break;
+      const allowed = ['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED', 'CRYPTO_CONFIRMED'];
+      if (!allowed.includes(offramp.status)) break;
+
+      await repos.offramp.updateOfframpStatus(offramp.id, toOfframpStatus(offramp.status), {
+        receipt: {
+          provider: 'palremit',
+          eventType,
+          confirmations: d.confirmations ?? null,
+          tx_id: d.tx_id ?? null,
+          raw: d,
+        },
+        providerRefs: {
+          webhookDepositConfirmation: { id: d.id, tx_id: d.tx_id },
+        },
+      });
+      break;
+    }
+
+    case 'deposit.address.created': {
+      const txnRef = requireTxnRef(d);
+      if (!txnRef || !isOfframpTxnRef(txnRef)) break;
+      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+      if (!offramp) break;
+
+      await repos.offramp.updateOfframpStatus(offramp.id, toOfframpStatus(offramp.status), {
+        providerRefs: {
+          webhookDepositAddressCreated: {
+            channel_address_id: d.channel_address_id,
+            address: d.address,
+          },
+        },
+      });
+      break;
+    }
+
     case 'withdraw.successful': {
-      const ref = pickString(d, ['reference', '_id']);
-      if (!ref) break;
+      const txnRef = requireTxnRef(d);
+      if (!txnRef) break;
 
       const receipt = {
         provider: 'palremit',
-        reference: ref,
+        reference: d.reference,
         destinationTxId: d.destination_tx_id ?? null,
         destinationTxLink: d.destination_tx_link ?? null,
         raw: d,
       };
 
-      const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
-      if (offramp) {
-        await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
-          receipt: receipt as object,
-          timeline: { completedAt: new Date().toISOString(), provider: 'palremit' } as object,
-          lpReference: ref,
+      if (isOnrampTxnRef(txnRef)) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
+        if (!onramp) break;
+        if (onramp.status !== 'CRYPTO_PENDING') break;
+
+        await repos.onramp.updateOnrampStatus(onramp.id, 'COMPLETED', {
+          receipt: {
+            ...receipt,
+            txnRef,
+            transactionHash: typeof d.destination_tx_id === 'string' ? d.destination_tx_id : undefined,
+            destinationTxId: d.destination_tx_id ?? undefined,
+            awaitingWebhookConfirmation: false,
+          },
+          providerRefs: {
+            webhookWithdrawSuccessful: { id: d._id, reference: d.reference },
+          },
         });
         break;
       }
 
-      const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
-      if (onramp) {
-        await repos.onramp.updateOnrampStatus(onramp.id, 'COMPLETED', {
+      if (isOfframpTxnRef(txnRef)) {
+        const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+        if (!offramp) break;
+        if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+
+        await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
           receipt: receipt as object,
+          timeline: { completedAt: new Date().toISOString(), provider: 'palremit' } as object,
+          lpReference: typeof d.reference === 'string' ? d.reference : txnRef,
+          providerRefs: {
+            webhookWithdrawSuccessful: { id: d._id, reference: d.reference },
+          },
         });
+        break;
       }
       break;
     }
 
     case 'withdraw.rejected': {
-      const ref = pickString(d, ['reference', '_id']);
-      if (!ref) break;
-      const reason = pickString(d, ['status_message', 'statusMessage']) ?? 'PALREMIT_WITHDRAW_REJECTED';
+      const txnRef = requireTxnRef(d);
+      if (!txnRef) break;
 
-      const offramp = await repos.offramp.findOfframpByReferenceMatch(ref);
-      if (offramp) {
-        await repos.offramp.updateOfframpStatus(offramp.id, 'FAILED', {
+      const reason =
+        typeof d.status_message === 'string' && d.status_message.trim() !== ''
+          ? d.status_message.trim()
+          : 'PALREMIT_WITHDRAW_REJECTED';
+
+      if (isOnrampTxnRef(txnRef)) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
+        if (!onramp) break;
+        if (onramp.status !== 'CRYPTO_PENDING') break;
+
+        await repos.onramp.updateOnrampStatus(onramp.id, 'CRYPTO_FAILED', {
           failedReason: reason,
-          receipt: { provider: 'palremit', reference: ref, raw: d } as object,
-          lpReference: ref,
+          receipt: { provider: 'palremit', reference: d.reference, raw: d } as object,
+          providerRefs: { webhookWithdrawRejected: { id: d._id } },
         });
         break;
       }
 
-      const onramp = await repos.onramp.findOnrampByReferenceMatch(ref);
-      if (onramp) {
-        await repos.onramp.updateOnrampStatus(onramp.id, 'CRYPTO_FAILED', {
+      if (isOfframpTxnRef(txnRef)) {
+        const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+        if (!offramp) break;
+        if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+
+        await repos.offramp.updateOfframpStatus(offramp.id, 'FAILED', {
           failedReason: reason,
-          receipt: { provider: 'palremit', reference: ref, raw: d } as object,
+          receipt: { provider: 'palremit', reference: d.reference, raw: d } as object,
+          lpReference: typeof d.reference === 'string' ? d.reference : txnRef,
+          providerRefs: { webhookWithdrawRejected: { id: d._id } },
         });
+        break;
       }
       break;
     }
 
     case 'user.created':
     case 'user.status_updated':
-      // User created/updated by LP – we own user creation; optional sync if needed
       break;
 
     case 'kyb.status_updated':
     case 'kyb.approved':
     case 'kyb.rejected': {
-      const userId = pickString(d, ['userId', 'userld']);
+      const userId =
+        typeof d.userId === 'string' && d.userId.trim() !== '' ? d.userId.trim() : undefined;
       if (!userId) break;
-      const kybStatus = (d.kybStatus as string) || (eventType === 'kyb.approved' ? 'approved' : eventType === 'kyb.rejected' ? 'rejected' : undefined);
+      const kybStatus =
+        (d.kybStatus as string) ||
+        (eventType === 'kyb.approved' ? 'approved' : eventType === 'kyb.rejected' ? 'rejected' : undefined);
       const rails = (d.rails as string[] | undefined) ?? [];
       const approvedRails = eventType === 'kyb.approved' ? rails : undefined;
       const existing = await repos.user.findUserById(userId);
@@ -299,10 +328,19 @@ export async function processWebhookEvent(
           });
         }
         if (rails.length > 0) {
-          const status = eventType === 'kyb.rejected' ? 'rejected' : eventType === 'kyb.approved' ? 'approved' : (kybStatus ?? 'under_review');
+          const status =
+            eventType === 'kyb.rejected'
+              ? 'rejected'
+              : eventType === 'kyb.approved'
+                ? 'approved'
+                : kybStatus ?? 'under_review';
           await repos.user.updateKybRailStatuses(
             userId,
-            rails.map((rail) => ({ rail, status, approvedAt: eventType === 'kyb.approved' ? new Date() : undefined }))
+            rails.map((rail) => ({
+              rail,
+              status,
+              approvedAt: eventType === 'kyb.approved' ? new Date() : undefined,
+            }))
           );
         }
       }
@@ -310,7 +348,6 @@ export async function processWebhookEvent(
     }
 
     case 'document.reviewed':
-      // Document review outcome – could update KybDocument status if we have repo
       break;
 
     case 'wallet.created':
@@ -319,7 +356,6 @@ export async function processWebhookEvent(
     case 'account.created':
     case 'account.updated':
     case 'account.deleted':
-      // LP-notified changes; we own wallet/account CRUD – optional sync
       break;
 
     case 'onramp.created':
@@ -328,7 +364,8 @@ export async function processWebhookEvent(
     case 'onramp.fiat_received':
     case 'onramp.fiat_processed':
     case 'onramp.crypto_initiated': {
-      const onrampId = pickString(d, ['onrampId', 'onrampld']);
+      const onrampId =
+        typeof d.onrampId === 'string' && d.onrampId.trim() !== '' ? d.onrampId.trim() : undefined;
       if (!onrampId) break;
       const existing = await repos.onramp.findOnrampById(onrampId);
       if (!existing) break;
@@ -344,7 +381,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'onramp.completed': {
-      const onrampId = pickString(d, ['onrampId', 'onrampld']);
+      const onrampId =
+        typeof d.onrampId === 'string' && d.onrampId.trim() !== '' ? d.onrampId.trim() : undefined;
       if (!onrampId) break;
       const existing = await repos.onramp.findOnrampById(onrampId);
       if (existing) {
@@ -356,7 +394,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'onramp.failed': {
-      const onrampId = pickString(d, ['onrampId', 'onrampld']);
+      const onrampId =
+        typeof d.onrampId === 'string' && d.onrampId.trim() !== '' ? d.onrampId.trim() : undefined;
       if (!onrampId) break;
       const existing = await repos.onramp.findOnrampById(onrampId);
       if (existing) {
@@ -371,7 +410,8 @@ export async function processWebhookEvent(
     case 'offramp.created':
       break;
     case 'offramp.crypto_received': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -385,7 +425,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.crypto_confirmed': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -394,7 +435,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.fee_processed': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -403,7 +445,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.fiat_initiated': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -414,7 +457,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.completed': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -425,7 +469,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.failed': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -437,7 +482,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.cancelled': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -448,7 +494,8 @@ export async function processWebhookEvent(
       break;
     }
     case 'offramp.refunded': {
-      const offrampId = pickString(d, ['offrampId', 'offrampld']);
+      const offrampId =
+        typeof d.offrampId === 'string' && d.offrampId.trim() !== '' ? d.offrampId.trim() : undefined;
       if (!offrampId) break;
       const existing = await repos.offramp.findOfframpById(offrampId);
       if (existing) {
@@ -468,24 +515,35 @@ export async function processWebhookEvent(
     case 'limit.reached':
       break;
     case 'high_value_request.approved': {
-      const id = (d.requestId ?? d.highValueRequestId ?? d.id) as string | undefined;
+      const id =
+        (typeof d.requestId === 'string' && d.requestId.trim() !== '' ? d.requestId.trim() : undefined) ??
+        (typeof d.highValueRequestId === 'string' && d.highValueRequestId.trim() !== ''
+          ? d.highValueRequestId.trim()
+          : undefined) ??
+        (typeof d.id === 'string' && d.id.trim() !== '' ? d.id.trim() : undefined);
       if (!id) break;
-      const row = await repos.highValueRequest.findHighValueRequestById(id).catch(() => null)
-        ?? await repos.highValueRequest.findHighValueRequestByRequestId(id).catch(() => null);
+      const row =
+        (await repos.highValueRequest.findHighValueRequestById(id).catch(() => null)) ??
+        (await repos.highValueRequest.findHighValueRequestByRequestId(id).catch(() => null));
       if (row) await repos.highValueRequest.updateHighValueRequestStatus(row.id, 'approved');
       break;
     }
     case 'high_value_request.rejected': {
-      const id = (d.requestId ?? d.highValueRequestId ?? d.id) as string | undefined;
+      const id =
+        (typeof d.requestId === 'string' && d.requestId.trim() !== '' ? d.requestId.trim() : undefined) ??
+        (typeof d.highValueRequestId === 'string' && d.highValueRequestId.trim() !== ''
+          ? d.highValueRequestId.trim()
+          : undefined) ??
+        (typeof d.id === 'string' && d.id.trim() !== '' ? d.id.trim() : undefined);
       if (!id) break;
-      const row = await repos.highValueRequest.findHighValueRequestById(id).catch(() => null)
-        ?? await repos.highValueRequest.findHighValueRequestByRequestId(id).catch(() => null);
+      const row =
+        (await repos.highValueRequest.findHighValueRequestById(id).catch(() => null)) ??
+        (await repos.highValueRequest.findHighValueRequestByRequestId(id).catch(() => null));
       if (row) await repos.highValueRequest.updateHighValueRequestStatus(row.id, 'rejected');
       break;
     }
 
     default:
-      // Unknown eventType – no-op
       break;
   }
 }

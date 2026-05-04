@@ -3,6 +3,7 @@
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
+import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
   CreateOfframpResponse,
@@ -42,13 +43,20 @@ export interface CreateOfframpOptions {
     },
     body: Omit<CreateOfframpRequest, 'requestId'>,
     requestId: string,
-    depositBy: string
-  ) => Promise<{ depositInstructions: DepositInstructions; correlationId: string } | null>;
+    depositBy: string,
+    txnRef: string
+  ) => Promise<{
+    depositInstructions: DepositInstructions;
+    correlationId: string;
+    providerRefs: Record<string, unknown>;
+  } | null>;
 }
 
 export interface OfframpRepoCreate {
   createOfframp(data: {
     requestId: string;
+    txnRef: string;
+    providerRefs?: object | null;
     userId: string;
     status: OfframpStatus;
     source: object;
@@ -64,6 +72,7 @@ export interface OfframpRepoCreate {
   }): Promise<{
     id: string;
     requestId: string;
+    txnRef: string | null;
     userId: string;
     status: string;
     source: unknown;
@@ -239,6 +248,8 @@ export async function createOfframp(
     createdAt: new Date().toISOString(),
   };
 
+  const txnRef = generateOfframpTxnRef();
+
   const palremitDeposit = await options.createPalremitDeposit(
     {
       userId: user.id,
@@ -249,7 +260,8 @@ export async function createOfframp(
     },
     body,
     requestId,
-    depositBy
+    depositBy,
+    txnRef
   );
   if (!palremitDeposit) {
     throw new Error('PALREMIT_DEPOSIT_ADDRESS_FAILED');
@@ -257,6 +269,8 @@ export async function createOfframp(
 
   const row = await offrampRepo.createOfframp({
     requestId,
+    txnRef,
+    providerRefs: palremitDeposit.providerRefs,
     userId,
     status: 'AWAITING_CRYPTO',
     source: sourcePayload,
@@ -268,12 +282,13 @@ export async function createOfframp(
     receipt: null,
     refundDetails: null,
     failedReason: null,
-    lpReference: palremitDeposit.correlationId,
+    lpReference: txnRef,
   });
 
   const transferDetails: OfframpTransferDetails = {
     id: row.id,
     requestId: row.requestId,
+    txnRef: row.txnRef ?? txnRef,
     status: row.status as OfframpStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

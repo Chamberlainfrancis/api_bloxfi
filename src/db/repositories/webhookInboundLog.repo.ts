@@ -12,6 +12,7 @@ export type WebhookInboundOutcome =
   | 'bad_json'
   | 'bad_schema'
   | 'processed'
+  | 'duplicate'
   | 'handler_error';
 
 export function truncateWebhookRawBody(raw: string): string {

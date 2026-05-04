@@ -37,6 +37,14 @@ model WebhookInboundLog {
   @@index([receivedAt])
 }
 
+/** First-seen idempotency key per inbound webhook delivery (Palremit may retry). */
+model WebhookDedupe {
+  id         String   @id @default(uuid())
+  provider   String
+  dedupeKey  String   @unique
+  createdAt  DateTime @default(now())
+}
+
 // --- Feature 1: User Creation & KYB (spec §1) ---
 
 enum UserStatus {
@@ -219,6 +227,10 @@ enum OnrampStatusEnum {
 model Onramp {
   id               String           @id @default(uuid())
   requestId        String           @unique // idempotency
+  /** BloxFi primary transaction id (ON-…); sent to Palremit; echoed as webhook data.txnRef */
+  txnRef           String?          @unique
+  /** Palremit / channel identifiers for audit (fiat deposit id, withdrawal ref, etc.) */
+  providerRefs     Json?
   userId           String
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   status           OnrampStatusEnum @default(CREATED)
@@ -261,6 +273,10 @@ enum OfframpStatusEnum {
 model Offramp {
   id                  String            @id @default(uuid())
   requestId           String            @unique // idempotency
+  /** BloxFi primary transaction id (OFF-…); Palremit fiat withdrawal reference; echoed as webhook data.txnRef */
+  txnRef              String?           @unique
+  /** Palremit / channel identifiers for audit */
+  providerRefs        Json?
   userId              String
   user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   status              OfframpStatusEnum @default(CREATED)
@@ -273,7 +289,7 @@ model Offramp {
   receipt             Json? // { transactionHash? }
   refundDetails       Json? // RefundDetails when cancelled
   failedReason        String?
-  lpReference         String? // LP order reference (e.g. Palremit reference)
+  lpReference         String? // Legacy Palremit reference (mirror of txnRef for fiat withdrawal when applicable)
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 

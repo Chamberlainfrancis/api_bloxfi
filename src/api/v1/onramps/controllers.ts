@@ -219,8 +219,8 @@ export async function getOnramp(
     await onrampCore.advanceOnrampIfFiatProcessed(
       { findOnrampById: repos.onramp.findOnrampById, updateOnrampStatus: onrampRepo.updateOnrampStatus },
       onrampId,
-      (b, rid, receiveNet, destAddr) =>
-        executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr)
+      (b, rid, receiveNet, destAddr, txnRef) =>
+        executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr, txnRef)
     );
     const result = await onrampCore.getOnramp(repos.onramp, onrampId);
     if (!result) {

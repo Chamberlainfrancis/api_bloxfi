@@ -14,6 +14,7 @@ export interface OfframpRepoAdvance {
   findOfframpById(id: string): Promise<{
     id: string;
     requestId: string;
+    txnRef: string | null;
     userId: string;
     status: string;
     source: unknown;
@@ -48,7 +49,7 @@ export async function advanceOfframpIfDepositReady(
   offrampId: string
 ): Promise<void> {
   const row = await offrampRepo.findOfframpById(offrampId);
-  if (!row) return;
+  if (!row?.txnRef) return;
 
   // Webhook-driven flows may already have moved the offramp past AWAITING_CRYPTO.
   // As long as fiat hasn't been initiated yet, we can still attempt the payout.
@@ -103,6 +104,7 @@ export async function advanceOfframpIfDepositReady(
   const result = await tryPalremitOfframpFiatPayout(liquidityRequest, {
     offrampId: row.id,
     requestId: row.requestId,
+    txnRef: row.txnRef,
     expectedCryptoAmount: expectedAmount,
     depositAddress: deposit.address,
     sourceCurrency: deposit.currency.toUpperCase(),
