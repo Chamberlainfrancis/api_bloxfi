@@ -15,8 +15,7 @@ const HEADER_RESET = 'X-RateLimit-Reset';
  * Key: rateLimit:{identifier} where identifier = userId or apiKeyId or IP.
  */
 export function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const user = req.user;
-  const identifier = user?.userId ?? user?.apiKeyId ?? req.ip ?? 'anonymous';
+  const identifier = req.ip ?? 'anonymous';
   const key = `rateLimit:${identifier}`;
   const now = Math.floor(Date.now() / 1000);
   const redis = getRedis();
