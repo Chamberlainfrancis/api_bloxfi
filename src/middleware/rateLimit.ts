@@ -12,11 +12,10 @@ const HEADER_RESET = 'X-RateLimit-Reset';
 /**
  * Redis-backed rate limit (fixed window, INCR + EXPIRE). No sorted sets (zset).
  * Sets X-RateLimit-* headers; returns standard error when exceeded.
- * Key: rateLimit:{identifier} where identifier = userId or apiKeyId or IP.
+ * Key: rateLimit:{identifier} where identifier = IP.
  */
 export function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const user = req.user;
-  const identifier = user?.userId ?? user?.apiKeyId ?? req.ip ?? 'anonymous';
+  const identifier = req.ip ?? 'anonymous';
   const key = `rateLimit:${identifier}`;
   const now = Math.floor(Date.now() / 1000);
   const redis = getRedis();

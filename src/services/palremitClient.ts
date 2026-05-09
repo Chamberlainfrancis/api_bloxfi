@@ -108,9 +108,9 @@ export async function palremitLiquidityRequest<T = unknown>(
 ): Promise<HttpResponse<T>> {
   const base = liquidityBase();
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`;
-  const headers = {
+  const headers: Record<string, string> = {
     Authorization: liquidityBearerAuthHeader(),
-    ...options.headers,
+    ...(options.headers ?? {}),
   };
   const method = options.method ?? 'GET';
   try {
