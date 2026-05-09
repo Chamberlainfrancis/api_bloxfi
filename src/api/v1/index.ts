@@ -7,6 +7,7 @@ import { onrampsRouter } from '@/api/v1/onramps/routes';
 import { offrampsRouter } from '@/api/v1/offramps/routes';
 import { limitsRouter } from '@/api/v1/limits/routes';
 import { networksRouter } from '@/api/v1/networks/routes';
+import { coinsRouter } from '@/api/v1/coins/routes';
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.use(walletsRouter);
 router.use(accountsRouter);
 router.use('/onramps', onrampsRouter);
 router.use('/offramps', offrampsRouter);
+router.use(coinsRouter);
 router.use(networksRouter);
 router.use(limitsRouter);
 

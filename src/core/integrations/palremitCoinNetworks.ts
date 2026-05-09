@@ -1,9 +1,10 @@
 /**
- * Palremit networks for a coin — sourced only from GET /coins/get_coin (no static chain mapping).
+ * Palremit networks for a coin — prefer GET /v1/coins/get_coin_network_list; fallback GET /v1/coins/get_coin.
+ * See [Liquidity Orchestrator — Coins](https://liquidity.palremit.com/docs#tag/coins).
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
-import { getPalremitCoin } from '@/core/integrations/palremitLiquidity';
+import { getPalremitCoin, getPalremitCoinNetworkList } from '@/core/integrations/palremitLiquidity';
 
 export type PalremitRampChainField = 'source.chain' | 'destination.chain';
 
@@ -22,7 +23,7 @@ export class UnsupportedPalremitNetworkError extends Error {
 }
 
 export interface PalremitNetworkOption {
-  /** Palremit `network_code` (e.g. BSC, ETH, TRX) — use this in ramp `chain` fields. */
+  /** Chain id from Palremit (`network_code` or `network_name`, e.g. BSC, TRC20) — use in ramp `chain` fields. */
   code: string;
   name?: string;
   depositEnabled?: boolean;
@@ -41,7 +42,46 @@ function rowWithdrawEnabled(row: Record<string, unknown>): boolean | undefined {
   return undefined;
 }
 
-/** Parse `data.network_list` from get_coin response. */
+/**
+ * Orchestrator rows use `network_code` and/or `network_name` as the chain id.
+ * Live `get_coin_network_list` often omits `network_code` and puts BSC/TRC20/… in `network_name` only.
+ */
+function rowToNetworkOption(row: Record<string, unknown>): PalremitNetworkOption | null {
+  let code = typeof row.network_code === 'string' ? row.network_code.trim() : '';
+  if (!code) {
+    code = typeof row.network_name === 'string' ? row.network_name.trim() : '';
+  }
+  if (!code) return null;
+  let name: string | undefined;
+  if (typeof row.network_display_name === 'string' && row.network_display_name.trim()) {
+    name = row.network_display_name.trim();
+  } else if (typeof row.network_name === 'string') {
+    const nn = row.network_name.trim();
+    if (nn && nn.toUpperCase() !== code.toUpperCase()) name = nn;
+  }
+  return {
+    code,
+    name,
+    depositEnabled: rowDepositEnabled(row),
+    withdrawEnabled: rowWithdrawEnabled(row),
+  };
+}
+
+/** Parse `data` array from GET /v1/coins/get_coin_network_list. */
+export function palremitNetworkOptionsFromCoinNetworkList(
+  rows: unknown[] | null | undefined
+): PalremitNetworkOption[] {
+  if (!rows?.length) return [];
+  const out: PalremitNetworkOption[] = [];
+  for (const item of rows) {
+    if (item == null || typeof item !== 'object' || Array.isArray(item)) continue;
+    const opt = rowToNetworkOption(item as Record<string, unknown>);
+    if (opt) out.push(opt);
+  }
+  return out;
+}
+
+/** Parse `data.network_list` from GET /v1/coins/get_coin (fallback). */
 export function palremitNetworkOptionsFromCoinData(
   data: Record<string, unknown> | null | undefined
 ): PalremitNetworkOption[] {
@@ -49,16 +89,8 @@ export function palremitNetworkOptionsFromCoinData(
   const out: PalremitNetworkOption[] = [];
   for (const item of data.network_list) {
     if (item == null || typeof item !== 'object' || Array.isArray(item)) continue;
-    const row = item as Record<string, unknown>;
-    const code = row.network_code;
-    if (typeof code !== 'string' || !code.trim()) continue;
-    const name = row.network_name;
-    out.push({
-      code: code.trim(),
-      name: typeof name === 'string' ? name : undefined,
-      depositEnabled: rowDepositEnabled(row),
-      withdrawEnabled: rowWithdrawEnabled(row),
-    });
+    const opt = rowToNetworkOption(item as Record<string, unknown>);
+    if (opt) out.push(opt);
   }
   return out;
 }
@@ -67,6 +99,10 @@ export async function fetchPalremitNetworksForCoin(
   request: PalremitLiquidityRequestFn,
   coinCode: string
 ): Promise<PalremitNetworkOption[] | null> {
+  const listRows = await getPalremitCoinNetworkList(request, coinCode);
+  if (listRows?.length) {
+    return palremitNetworkOptionsFromCoinNetworkList(listRows);
+  }
   const data = await getPalremitCoin(request, coinCode);
   if (!data) return null;
   return palremitNetworkOptionsFromCoinData(data as Record<string, unknown>);

@@ -1,144 +1,24 @@
 /**
- * Palremit Liquidity API integration. Partner ramps use §5 (deposits) + §6 (withdrawals) only —
- * docs/palremit_integration_guide.md (§4 ramp API is not used).
+ * Palremit Liquidity Orchestrator — /v1/provisioned-accounts, /v1/deposits, /v1/withdrawals.
+ * Coin catalogue — `/v1/coins/*` ([docs — Coins](https://liquidity.palremit.com/docs#tag/coins)):
+ * `get_all_coins`, `get_coin`, `get_coin_network_list`, etc. All use **LegacyEnvelope** `{ status, message, data }`.
+ * Those routes are **security: []** in OpenAPI; we still send our Bearer secret when calling the orchestrator.
  */
 
-/** Liquidity API request function (injected; implemented by services). */
+/** Request function: HTTP status + parsed JSON body */
 export interface PalremitLiquidityRequestFn {
-  <T>(path: string, options?: { method?: string; body?: unknown }): Promise<{
-    status: number;
-    data: { status: string; message?: string; data: T | null };
-  }>;
+  <T = unknown>(
+    path: string,
+    options?: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    }
+  ): Promise<{ status: number; data: T }>;
 }
 
-// --- Crypto deposits (§5) ---
+// --- Coin metadata (unchanged contract: legacy envelope) ---
 
-export interface PalremitCreateCryptoAddressNewUserBody {
-  first_name: string;
-  last_name: string;
-  currency: string;
-  network?: string;
-  /** BloxFi transaction ref (OFF-…); Palremit must echo as webhook data.txnRef */
-  txn_ref?: string;
-}
-
-export interface PalremitCreateCryptoAddressBody {
-  channel_user_id: string;
-  currency: string;
-  network?: string;
-  txn_ref?: string;
-}
-
-export interface PalremitCryptoAddress {
-  currency: string;
-  address: string;
-  network: string;
-  channel?: string;
-  channel_user_id?: string;
-  channel_address_id?: string;
-  status?: string;
-  createdAt?: string;
-}
-
-export async function createPalremitCryptoAddressNewUser(
-  request: PalremitLiquidityRequestFn,
-  body: PalremitCreateCryptoAddressNewUserBody
-): Promise<PalremitCryptoAddress | null> {
-  const res = await request<PalremitCryptoAddress>('/deposits/create_crypto_address_new_user', {
-    method: 'POST',
-    body,
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-export async function createPalremitCryptoAddress(
-  request: PalremitLiquidityRequestFn,
-  body: PalremitCreateCryptoAddressBody
-): Promise<PalremitCryptoAddress | null> {
-  const res = await request<PalremitCryptoAddress>('/deposits/create_crypto_address', {
-    method: 'POST',
-    body,
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-/** §5.4 List existing deposit addresses for a Palremit crypto user (reuse before create). */
-export async function listPalremitUserCryptoAddresses(
-  request: PalremitLiquidityRequestFn,
-  channelUserId: string
-): Promise<PalremitCryptoAddress[] | null> {
-  const q = new URLSearchParams();
-  q.set('channel_user_id', channelUserId.trim());
-  const res = await request<PalremitCryptoAddress[]>(
-    `/deposits/get_user_crypto_addresses?${q.toString()}`,
-    { method: 'GET' }
-  );
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  const data = res.data.data;
-  return Array.isArray(data) ? data : null;
-}
-
-export interface PalremitCryptoDeposit {
-  tx_id?: string;
-  source_address?: string;
-  destination_address?: string;
-  currency: string;
-  amount: number;
-  network: string;
-  confirmations?: number;
-  status: string;
-  createdAt?: string;
-}
-
-export async function listPalremitCryptoDeposits(
-  request: PalremitLiquidityRequestFn,
-  params?: { currency?: string; network?: string; status?: string; limit?: number; page?: number }
-): Promise<PalremitCryptoDeposit[] | null> {
-  const q = new URLSearchParams();
-  if (params?.currency) q.set('currency', params.currency);
-  if (params?.network) q.set('network', params.network);
-  if (params?.status) q.set('status', params.status);
-  if (params?.limit != null) q.set('limit', String(params.limit));
-  if (params?.page != null) q.set('page', String(params.page));
-  const res = await request<PalremitCryptoDeposit[]>(`/deposits/get_crypto_deposits?${q.toString()}`, {
-    method: 'GET',
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data;
-}
-
-/** LP fiat deposit instructions (user wires fiat before crypto payout). */
-export interface PalremitCreateFiatDepositBody {
-  first_name: string;
-  last_name: string;
-  email: string;
-  currency: string;
-  /** Palremit expects string amount (e.g. fiat minor units or decimal string per LP contract). */
-  amount: string;
-  /** BloxFi transaction ref (ON-…); Palremit must echo as webhook data.txnRef */
-  txn_ref?: string;
-}
-
-export async function createPalremitFiatDeposit(
-  request: PalremitLiquidityRequestFn,
-  body: PalremitCreateFiatDepositBody
-): Promise<Record<string, unknown> | null> {
-  const res = await request<Record<string, unknown>>('/deposits/create_fiat_deposit', {
-    method: 'POST',
-    body,
-  });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  const data = res.data.data;
-  return data != null && typeof data === 'object' && !Array.isArray(data)
-    ? (data as Record<string, unknown>)
-    : null;
-}
-
-// --- Coin metadata (supported networks per asset) ---
-
-/** Row from `GET /coins/get_coin` → `data.network_list[]`. */
 export interface PalremitCoinNetworkListRow {
   network_code: string;
   network_name?: string;
@@ -158,8 +38,7 @@ export interface PalremitGetCoinData {
 }
 
 /**
- * GET /coins/get_coin?coin_code=USDT — networks for withdrawals/deposits.
- * https://liquidity-api.palremit.com/core/coins/get_coin
+ * GET /v1/coins/get_coin?coin_code=USDT
  */
 export async function getPalremitCoin(
   request: PalremitLiquidityRequestFn,
@@ -169,9 +48,10 @@ export async function getPalremitCoin(
   if (!code) return null;
   const q = new URLSearchParams();
   q.set('coin_code', code);
-  const res = await request<PalremitGetCoinData>(`/coins/get_coin?${q.toString()}`, {
-    method: 'GET',
-  });
+  const res = await request<PalremitEnvelopeBody<PalremitGetCoinData>>(
+    `/v1/coins/get_coin?${q.toString()}`,
+    { method: 'GET' }
+  );
   if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
   const data = res.data.data;
   return data != null && typeof data === 'object' && !Array.isArray(data)
@@ -179,71 +59,163 @@ export async function getPalremitCoin(
     : null;
 }
 
-// --- Fiat withdrawal ---
-
-export interface PalremitCreateFiatWithdrawalBody {
-  reference: string;
-  destination_amount: number;
-  destination_currency: string;
-  destination_type: string;
-  destination_information: Record<string, string>;
-  app_fee?: number;
-  app_fee_currency?: string;
+/**
+ * GET /v1/coins/get_all_coins — `data` is an array of coin summary objects.
+ */
+export async function listPalremitAllCoins(
+  request: PalremitLiquidityRequestFn
+): Promise<unknown[] | null> {
+  const res = await request<PalremitEnvelopeBody<unknown>>('/v1/coins/get_all_coins', { method: 'GET' });
+  if (res.status !== 200 || res.data.status !== 'success' || res.data.data == null) return null;
+  const d = res.data.data;
+  return Array.isArray(d) ? d : null;
 }
 
-export async function createPalremitFiatWithdrawal(
+/**
+ * GET /v1/coins/get_coin_network_list?coin_code=USDT — `data` is an array of networks with `network_code`.
+ */
+export async function getPalremitCoinNetworkList(
   request: PalremitLiquidityRequestFn,
-  body: PalremitCreateFiatWithdrawalBody
-): Promise<{ reference: string; status: string; createdAt?: string } | null> {
-  const res = await request('/withdrawals/create_withdrawal', { method: 'POST', body });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data as { reference: string; status: string; createdAt?: string };
+  coinCode: string
+): Promise<unknown[] | null> {
+  const code = coinCode?.trim().toUpperCase();
+  if (!code) return null;
+  const q = new URLSearchParams();
+  q.set('coin_code', code);
+  const res = await request<PalremitEnvelopeBody<unknown>>(
+    `/v1/coins/get_coin_network_list?${q.toString()}`,
+    { method: 'GET' }
+  );
+  if (res.status !== 200 || res.data.status !== 'success' || res.data.data == null) return null;
+  const d = res.data.data;
+  return Array.isArray(d) ? d : null;
 }
 
-export async function confirmPalremitFiatWithdrawal(
+interface PalremitEnvelopeBody<T> {
+  status: string;
+  message?: string;
+  data?: T | null;
+}
+
+// --- Provisioned accounts (deposits intake) ---
+
+export type PalremitDepositProvisionMode = 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' | 'CRYPTO_DEPOSIT';
+
+export interface PalremitProvisionedAccount {
+  id: string;
+  client_reference: string;
+  asset: string;
+  mode: string;
+  network: string | null;
+  state: string;
+  deposit_instructions?: PalremitDepositInstructions | null;
+  failure_reason?: unknown;
+  created_at?: string;
+  last_state_transition_at?: string;
+  [key: string]: unknown;
+}
+
+export type PalremitDepositInstructions =
+  | {
+      kind: 'fiat_account';
+      account_number: string;
+      bank_code: string;
+      bank_name: string;
+      account_holder_name: string;
+      [key: string]: unknown;
+    }
+  | {
+      kind: 'crypto_address';
+      address: string;
+      network: string;
+      memo: string | null;
+      [key: string]: unknown;
+    };
+
+export async function provisionPalremitDepositAccount(
   request: PalremitLiquidityRequestFn,
-  reference: string
-): Promise<{ reference: string; status: string } | null> {
-  const res = await request('/withdrawals/confirm_withdrawal', {
+  body: Record<string, unknown>,
+  idempotencyKey: string
+): Promise<{ account: PalremitProvisionedAccount; httpStatus: number } | null> {
+  const res = await request<PalremitProvisionedAccount>('/v1/provisioned-accounts', {
     method: 'POST',
-    body: { reference },
+    body,
+    headers: { 'Idempotency-Key': idempotencyKey },
   });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data as { reference: string; status: string };
+  if (![200, 201, 202].includes(res.status)) return null;
+  const acc = res.data as PalremitProvisionedAccount;
+  if (!acc?.id) return null;
+  return { account: acc, httpStatus: res.status };
 }
 
-// --- Crypto withdrawal ---
-
-export interface PalremitPrepareCryptoWithdrawalBody {
-  source_amount: number;
-  source_currency: string;
-  destination_currency: string;
-  destination_network: string;
-  destination_address: string;
-  destination_token?: string;
-  app_fee?: number;
-  app_fee_currency?: string;
-  /** BloxFi transaction ref (ON-…); Palremit must echo as webhook data.txnRef */
-  txn_ref?: string;
-}
-
-export async function preparePalremitCryptoWithdrawal(
+export async function getPalremitProvisionedAccount(
   request: PalremitLiquidityRequestFn,
-  body: PalremitPrepareCryptoWithdrawalBody
-): Promise<{ reference: string; status: string; createdAt?: string } | null> {
-  const res = await request('/withdrawals/prepare_crypto_withdrawal', { method: 'POST', body });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data as { reference: string; status: string; createdAt?: string };
+  id: string
+): Promise<PalremitProvisionedAccount | null> {
+  const trimmed = id?.trim();
+  if (!trimmed) return null;
+  const res = await request<PalremitProvisionedAccount>(`/v1/provisioned-accounts/${trimmed}`, {
+    method: 'GET',
+  });
+  if (res.status !== 200) return null;
+  return res.data as PalremitProvisionedAccount;
 }
 
-export async function confirmPalremitCryptoWithdrawal(
+export async function listPalremitProvisionedAccounts(
   request: PalremitLiquidityRequestFn,
-  reference: string
-): Promise<{ reference: string; status: string } | null> {
-  const res = await request('/withdrawals/withdraw_to_crypto_address', {
+  query: Record<string, string | undefined>
+): Promise<PalremitProvisionedAccount[] | null> {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) {
+    if (v != null && v !== '') q.set(k, v);
+  }
+  const qs = q.toString();
+  const path = qs ? `/v1/provisioned-accounts?${qs}` : '/v1/provisioned-accounts';
+  const res = await request<{ items: PalremitProvisionedAccount[] }>(path, { method: 'GET' });
+  if (res.status !== 200) return null;
+  const items = (res.data as { items?: PalremitProvisionedAccount[] })?.items;
+  return Array.isArray(items) ? items : null;
+}
+
+// --- Deposits (read lifecycle) ---
+
+export async function getPalremitDepositById(
+  request: PalremitLiquidityRequestFn,
+  depositId: string
+): Promise<Record<string, unknown> | null> {
+  const id = depositId?.trim();
+  if (!id) return null;
+  const res = await request<Record<string, unknown>>(`/v1/deposits/${id}`, { method: 'GET' });
+  if (res.status !== 200) return null;
+  return res.data as Record<string, unknown>;
+}
+
+// --- Withdrawals ---
+
+export interface PalremitWithdrawalCreateResult {
+  id: string;
+  client_reference: string;
+  state: string;
+  raw: unknown;
+}
+
+export async function createPalremitWithdrawal(
+  request: PalremitLiquidityRequestFn,
+  body: Record<string, unknown>,
+  idempotencyKey: string
+): Promise<PalremitWithdrawalCreateResult | null> {
+  const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
     method: 'POST',
-    body: { reference },
+    body,
+    headers: { 'Idempotency-Key': idempotencyKey },
   });
-  if (res.status !== 200 || res.data.status !== 'success' || !res.data.data) return null;
-  return res.data.data as { reference: string; status: string };
+  if (res.status !== 202) return null;
+  const wrap = res.data as { data?: Record<string, unknown> };
+  const d = wrap?.data;
+  if (!d || typeof d !== 'object') return null;
+  const id = typeof d.id === 'string' ? d.id : '';
+  const clientRef = typeof d.client_reference === 'string' ? d.client_reference : '';
+  const state = typeof d.state === 'string' ? d.state : '';
+  if (!id || !clientRef) return null;
+  return { id, client_reference: clientRef, state, raw: wrap };
 }

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `create_fiat_deposit`).\n\n**Webhooks:** `POST /api/v1/webhooks` uses **no Bearer auth**; set `webhookSecret` (same as `PALREMIT_ACCESS_KEY` or `WEBHOOK_SECRET`) and run the pre-request script to set `X-Webhook-Signature` (HMAC-SHA256).\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit staging:** **Onramp** — `POST /onramps` calls LP fiat deposit; first status is **`AWAITING_FUNDS`**. After fiat clears, LP/your stack should emit **`onramp.fiat_processed`** (see Webhooks folder); then **`GET /onramps/:onrampId`** runs Palremit crypto withdrawal and can reach **`COMPLETED`**. **Offramp** — `POST /offramps` returns a crypto deposit address (**`AWAITING_CRYPTO`**); **`GET /offramps/:id`** lists LP deposits and may start fiat payout.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `offrampId`, `highValueRequestId`.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -12,10 +12,17 @@
     { "key": "accountId", "value": "" },
     { "key": "walletId", "value": "" },
     { "key": "onrampId", "value": "" },
+    { "key": "onrampTxnRef", "value": "", "description": "Auto-set by Create Onramp (transferDetails.txnRef)" },
     { "key": "offrampId", "value": "" },
+    { "key": "offrampTxnRef", "value": "", "description": "Auto-set by Create Offramp (transferDetails.txnRef)" },
+    { "key": "palremitProvisionedAccountId", "value": "", "description": "UUID: Onramp/Offramp.providerRefs.palremitOrchestrator.provisionedAccountId (from DB after create)" },
+    { "key": "onrampFiatAssetCode", "value": "USD", "description": "Fiat asset in deposit.credited; must match Create Onramp source.currency" },
+    { "key": "offrampCryptoAssetCode", "value": "USDT", "description": "Crypto asset in deposit.credited; must match Create Offramp source.currency" },
+    { "key": "offrampCryptoNetwork", "value": "POLYGON", "description": "Network in deposit.credited; must match Create Offramp source.chain" },
+    { "key": "networksCoinCode", "value": "USDT", "description": "Coin for GET /api/v1/networks?coin=… (e.g. USDT, USDC)" },
     { "key": "highValueRequestId", "value": "" },
     { "key": "requestId", "value": "705f1f8b-a080-467c-b683-174eca409928" },
-    { "key": "webhookSecret", "value": "", "description": "PALREMIT_ACCESS_KEY or WEBHOOK_SECRET — used to sign POST /api/v1/webhooks" }
+    { "key": "webhookSecret", "value": "", "description": "WEBHOOK_SECRET — used to sign POST /api/v1/webhooks" }
   ],
   "auth": {
     "type": "bearer",
@@ -557,8 +564,50 @@
       ]
     },
     {
+      "name": "Coins",
+      "description": "Palremit [Coins](https://liquidity.palremit.com/docs#tag/coins) catalogue via BloxFi. Upstream: `GET /v1/coins/get_all_coins`.",
+      "item": [
+        {
+          "name": "List all coins",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/coins",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "coins"]
+            },
+            "description": "**200:** `coins[]` with `coin_code`, `coin_name`, `coin_icon`, `withdrawal_all_enabled`, `withdrawal_fee`, `deposit_minimum` when present. **502** if Palremit unavailable. Bearer **`apiKey`**."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Networks",
+      "description": "Networks per asset: BloxFi calls Palremit `GET /v1/coins/get_coin_network_list`, then falls back to `get_coin`. Use each item’s **`code`** for onramp **`destination.chain`**, offramp **`source.chain`**, and wallet **`chain`**.",
+      "item": [
+        {
+          "name": "List networks for coin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/networks?coin={{networksCoinCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "networks"],
+              "query": [
+                { "key": "coin", "value": "{{networksCoinCode}}" },
+                { "key": "coinCode", "value": "USDT", "disabled": true, "description": "Alias for coin; enable one of coin / coinCode" }
+              ]
+            },
+            "description": "**Query:** `coin` or `coinCode` (required). **200:** `coinCode`, `networks` (`code`, `name`, `depositEnabled`, `withdrawEnabled`). **400** if coin missing. **502** if Palremit coin metadata fails. Bearer **`apiKey`**."
+          }
+        }
+      ]
+    },
+    {
       "name": "Onramps",
-      "description": "Fiat → crypto (Palremit). Needs `userId`, `accountId`, `walletId`, and **user `businessInfo.email`** (plus names from KYB / legal name for LP `create_fiat_deposit`). **Create Onramp** → status **`AWAITING_FUNDS`**, `depositInfo` from LP. Then **`onramp.fiat_processed`** webhook → **Get Onramp** to execute crypto payout (Palremit §6.2).",
+      "description": "Fiat → crypto (Palremit Orchestrator). Needs `userId`, `accountId`, `walletId`, **`businessInfo.email`**. **Create Onramp** → **`AWAITING_FUNDS`**. Set **`palremitProvisionedAccountId`** from DB, then **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** for crypto payout.",
       "item": [
         {
           "name": "Get Onramp Rates",
@@ -603,6 +652,10 @@
                   "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
                   "    pm.collectionVariables.set('onrampId', j.data.transferDetails.id);",
                   "    console.log('Saved onrampId: ' + j.data.transferDetails.id);",
+                  "    if (j.data.transferDetails.txnRef) {",
+                  "        pm.collectionVariables.set('onrampTxnRef', j.data.transferDetails.txnRef);",
+                  "        console.log('Saved onrampTxnRef: ' + j.data.transferDetails.txnRef);",
+                  "    }",
                   "    if (j.data.transferDetails.status !== 'AWAITING_FUNDS') {",
                   "        console.warn('Expected transferDetails.status AWAITING_FUNDS after create; got: ' + j.data.transferDetails.status);",
                   "    }",
@@ -627,7 +680,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "onramps"]
             },
-            "description": "Body.requestId must match requestId header. **502** if Palremit `POST /deposits/create_fiat_deposit` fails; **422** if user has no `businessInfo.email`.\n\n**201:** `transferType` ONRAMP. Expect **`transferDetails.status` = `AWAITING_FUNDS`**, `depositInfo` from LP, `receipt` null. Then send **Webhook: onramp.fiat_processed** (or update status) and call **Get Onramp** to trigger crypto withdrawal. New `requestId` each create."
+            "description": "Body.requestId must match requestId header. **502** if Palremit provision fails; **422** if user has no `businessInfo.email`.\n\n**201:** **`AWAITING_FUNDS`**, `depositInfo`, `txnRef` saved as **`onrampTxnRef`**. Then orchestrator **`deposit.credited`** webhook (see Webhooks) → **Get Onramp**."
           }
         },
         {
@@ -661,14 +714,14 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "onramps", "{{onrampId}}"]
             },
-            "description": "200: transferType, transferDetails. **Side effect:** if status is **`FIAT_PROCESSED`**, server may call Palremit prepare/confirm crypto withdrawal and move to **`COMPLETED`** (or **`CRYPTO_FAILED`**). Poll after fiat webhook."
+            "description": "200: transferDetails. **Side effect:** if **`FIAT_PROCESSED`**, advances Palremit **`POST /v1/withdrawals`** (crypto). Poll after **`deposit.credited`** webhook."
           }
         }
       ]
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). Need userId, accountId, walletId. **Create Offramp** returns crypto **depositInstructions**; status **`AWAITING_CRYPTO`**. **Get Offramp** lists LP crypto deposits and may create/confirm fiat withdrawal (**`FIAT_PENDING`**+).",
+      "description": "Crypto → fiat (Palremit). **Create Offramp** → **`AWAITING_CRYPTO`** + deposit address. After real crypto + **`deposit.credited`** (crypto), **Get Offramp** may create fiat withdrawal (**`FIAT_PENDING`**). Set **`palremitProvisionedAccountId`** from DB for webhook tests.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -714,6 +767,10 @@
                   "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
                   "    pm.collectionVariables.set('offrampId', j.data.transferDetails.id);",
                   "    console.log('Saved offrampId: ' + j.data.transferDetails.id);",
+                  "    if (j.data.transferDetails.txnRef) {",
+                  "        pm.collectionVariables.set('offrampTxnRef', j.data.transferDetails.txnRef);",
+                  "        console.log('Saved offrampTxnRef: ' + j.data.transferDetails.txnRef);",
+                  "    }",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -769,7 +826,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "offramps", "{{offrampId}}"]
             },
-            "description": "200: transferType, transferDetails. **Side effect:** when status is **AWAITING_CRYPTO**, server may list Palremit crypto deposits and start fiat withdrawal (**FIAT_PENDING**). Poll after user sends crypto."
+            "description": "200: transferDetails. **Side effect:** when **`CRYPTO_CONFIRMED`**, may start fiat withdrawal. Requires **`deposit.credited`** webhook from Palremit first."
           }
         },
         {
@@ -870,7 +927,7 @@
     },
     {
       "name": "Webhooks",
-      "description": "Inbound LP webhooks at `POST /api/v1/webhooks`. **No Bearer auth** (separate Express mount). Server verifies `X-Webhook-Signature`: HMAC-SHA256 using `WEBHOOK_SECRET` or `PALREMIT_ACCESS_KEY`. Set collection variable **`webhookSecret`** to that value. Use **minified** JSON body so signature matches canonical `JSON.stringify(JSON.parse(body))`, or sign the exact raw UTF-8 (server accepts either).\n\n**Onramp E2E:** run **Create Onramp** first so `{{onrampId}}` is set; then **onramp.fiat_processed** (required before **Get Onramp** will pay crypto). Optional: **onramp.fiat_received** sets `FIAT_PENDING`.",
+      "description": "`POST /api/v1/webhooks` — no Bearer auth. **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator uses **`event_id`**, **`event_type`**, **`occurred_at`**, **`data`**; scripts set **`X-Liquidity-Event-Id`** (new UUID per send, dedupe) and sign the **exact** JSON string with HMAC-SHA256 → **`X-Webhook-Signature`**.\n\n**Onramp:** **Create Onramp** → set **`palremitProvisionedAccountId`** from DB → **deposit.credited (onramp fiat)** → **Get Onramp**. **Offramp:** **Create Offramp** → same prov id + **deposit.credited (offramp crypto)** → **Get Offramp**.",
       "item": [
         {
           "name": "Inbound webhook (BloxFi-shaped)",
@@ -882,7 +939,7 @@
                   "const CryptoJS = require('crypto-js');",
                   "const secret = pm.collectionVariables.get('webhookSecret');",
                   "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
-                  "if (!secret) { console.warn('Set collection variable webhookSecret to PALREMIT_ACCESS_KEY or WEBHOOK_SECRET'); }",
+                  "if (!secret) { console.warn('Set collection variable webhookSecret to WEBHOOK_SECRET'); }",
                   "else if (raw) {",
                   "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
                   "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
@@ -907,21 +964,52 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "webhooks"]
             },
-            "description": "Generic example (`onramp.completed`). Edit `eventType` and `data` for other events. If `require('crypto-js')` fails, compute HMAC-SHA256 hex of the **exact** raw body and set `X-Webhook-Signature` manually."
+            "description": "Generic BloxFi envelope (`eventId`, `eventType`, `timestamp`, `data`). Edit body for internal events. Sign raw body with **`webhookSecret`**."
           }
         },
         {
-          "name": "Webhook: onramp.fiat_received",
+          "name": "Palremit: deposit.credited (onramp fiat)",
           "event": [
             {
               "listen": "prerequest",
               "script": {
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    var r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
                   "const secret = pm.collectionVariables.get('webhookSecret');",
-                  "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
-                  "if (!secret) { console.warn('Set collection variable webhookSecret'); }",
-                  "else if (raw) {",
+                  "const txnRef = pm.collectionVariables.get('onrampTxnRef');",
+                  "const provId = pm.collectionVariables.get('palremitProvisionedAccountId');",
+                  "const fiatCode = (pm.collectionVariables.get('onrampFiatAssetCode') || 'USD').trim();",
+                  "if (!txnRef || !provId) { console.warn('Need onrampTxnRef (Create Onramp) and palremitProvisionedAccountId (DB)'); }",
+                  "const depId = 'postman-dep-' + uuidv4().slice(0, 8);",
+                  "const eventId = uuidv4();",
+                  "const payload = {",
+                  "  event_id: eventId,",
+                  "  event_type: 'deposit.credited',",
+                  "  occurred_at: new Date().toISOString(),",
+                  "  data: {",
+                  "    client_reference: txnRef,",
+                  "    deposit: {",
+                  "      id: depId,",
+                  "      provisioned_account_id: provId,",
+                  "      state: 'credited',",
+                  "      mode: 'FIAT_DEPOSIT',",
+                  "      asset: { code: fiatCode },",
+                  "      network: ''",
+                  "    }",
+                  "  }",
+                  "};",
+                  "const raw = JSON.stringify(payload);",
+                  "pm.request.body.raw = raw;",
+                  "pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+                  "pm.request.headers.upsert({ key: 'X-Liquidity-Event-Id', value: uuidv4() });",
+                  "if (!secret) { console.warn('Set webhookSecret'); }",
+                  "else {",
                   "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
                   "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
                   "}"
@@ -938,28 +1026,60 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"eventId\":\"postman-onramp-fiat-received\",\"eventType\":\"onramp.fiat_received\",\"timestamp\":\"2025-01-01T12:00:00.000Z\",\"data\":{\"onrampId\":\"{{onrampId}}\"}}"
+              "raw": "{}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/webhooks",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "webhooks"]
             },
-            "description": "Sets onramp status to **FIAT_PENDING**. Requires `{{onrampId}}` (run **Create Onramp** first)."
+            "description": "Orchestrator **`deposit.credited`** for onramp: **`mode`** `FIAT_DEPOSIT*`, asset = **`onrampFiatAssetCode`** (match **Create Onramp** `source.currency`). Requires **`onrampTxnRef`**, **`palremitProvisionedAccountId`**."
           }
         },
         {
-          "name": "Webhook: onramp.fiat_processed",
+          "name": "Palremit: deposit.credited (offramp crypto)",
           "event": [
             {
               "listen": "prerequest",
               "script": {
                 "exec": [
                   "const CryptoJS = require('crypto-js');",
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    var r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
                   "const secret = pm.collectionVariables.get('webhookSecret');",
-                  "const raw = pm.request.body && pm.request.body.mode === 'raw' ? pm.request.body.raw : '';",
-                  "if (!secret) { console.warn('Set collection variable webhookSecret'); }",
-                  "else if (raw) {",
+                  "const txnRef = pm.collectionVariables.get('offrampTxnRef');",
+                  "const provId = pm.collectionVariables.get('palremitProvisionedAccountId');",
+                  "const asset = (pm.collectionVariables.get('offrampCryptoAssetCode') || 'USDT').trim();",
+                  "const network = (pm.collectionVariables.get('offrampCryptoNetwork') || 'POLYGON').trim();",
+                  "if (!txnRef || !provId) { console.warn('Need offrampTxnRef (Create Offramp) and palremitProvisionedAccountId (DB)'); }",
+                  "const depId = 'postman-dep-' + uuidv4().slice(0, 8);",
+                  "const eventId = uuidv4();",
+                  "const payload = {",
+                  "  event_id: eventId,",
+                  "  event_type: 'deposit.credited',",
+                  "  occurred_at: new Date().toISOString(),",
+                  "  data: {",
+                  "    client_reference: txnRef,",
+                  "    deposit: {",
+                  "      id: depId,",
+                  "      provisioned_account_id: provId,",
+                  "      state: 'credited',",
+                  "      mode: 'CRYPTO_DEPOSIT',",
+                  "      asset: { code: asset },",
+                  "      network: network",
+                  "    }",
+                  "  }",
+                  "};",
+                  "const raw = JSON.stringify(payload);",
+                  "pm.request.body.raw = raw;",
+                  "pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+                  "pm.request.headers.upsert({ key: 'X-Liquidity-Event-Id', value: uuidv4() });",
+                  "if (!secret) { console.warn('Set webhookSecret'); }",
+                  "else {",
                   "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
                   "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
                   "}"
@@ -976,14 +1096,79 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"eventId\":\"postman-onramp-fiat-processed\",\"eventType\":\"onramp.fiat_processed\",\"timestamp\":\"2025-01-01T12:00:00.000Z\",\"data\":{\"onrampId\":\"{{onrampId}}\"}}"
+              "raw": "{}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/webhooks",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "webhooks"]
             },
-            "description": "Sets onramp status to **FIAT_PROCESSED**. Then **Get Onramp** runs Palremit crypto withdrawal. Requires `{{onrampId}}`."
+            "description": "Orchestrator **`deposit.credited`** for offramp: **`CRYPTO_DEPOSIT`**, asset/network must match **Create Offramp** `source`. Then **Get Offramp**."
+          }
+        },
+        {
+          "name": "Palremit: withdrawal.successful (onramp crypto)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    var r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "const secret = pm.collectionVariables.get('webhookSecret');",
+                  "const txnRef = pm.collectionVariables.get('onrampTxnRef');",
+                  "if (!txnRef) { console.warn('Need onrampTxnRef'); }",
+                  "const wid = 'postman-wd-' + uuidv4().slice(0, 8);",
+                  "const eventId = uuidv4();",
+                  "const payload = {",
+                  "  event_id: eventId,",
+                  "  event_type: 'withdrawal.successful',",
+                  "  occurred_at: new Date().toISOString(),",
+                  "  data: {",
+                  "    withdrawal: {",
+                  "      id: wid,",
+                  "      client_reference: txnRef,",
+                  "      state: 'successful',",
+                  "      mode: 'CRYPTO_WITHDRAWAL',",
+                  "      provider_external_ref: '0x' + uuidv4().replace(/-/g, '').slice(0, 40)",
+                  "    }",
+                  "  }",
+                  "};",
+                  "const raw = JSON.stringify(payload);",
+                  "pm.request.body.raw = raw;",
+                  "pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+                  "pm.request.headers.upsert({ key: 'X-Liquidity-Event-Id', value: uuidv4() });",
+                  "if (!secret) { console.warn('Set webhookSecret'); }",
+                  "else {",
+                  "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+                  "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "webhooks"]
+            },
+            "description": "After onramp reaches **`CRYPTO_PENDING`** and Palremit completes payout. If DB has **`palremitWithdrawalId`**, it must match **`withdrawal.id`** or this is ignored."
           }
         }
       ]

@@ -1,6 +1,6 @@
 /**
- * Webhook controller: verify Palremit signature (§7.2), parse payload, delegate to core.
- * No business logic; core processes events via repos.
+ * Webhook controller: verify Palremit HMAC (`X-Webhook-Signature`), parse payload, delegate to core.
+ * Orchestrator deliveries dedupe on `X-Liquidity-Event-Id` when present.
  * All requests are persisted to WebhookInboundLog (audit).
  */
 
@@ -169,7 +169,10 @@ export async function handleInboundWebhook(req: Request, res: Response, next: Ne
     const payload: InboundWebhookPayload = result.data;
 
     const dataObj = payload.data as Record<string, unknown>;
-    const dedupeKey = buildPalremitWebhookDedupeKey(payload.eventType, dataObj);
+    const liquidityEventId = getHeader(req, "x-liquidity-event-id")?.trim();
+    const dedupeKey = liquidityEventId
+      ? `palremit:liquidity:${liquidityEventId}`
+      : buildPalremitWebhookDedupeKey(payload.eventType, dataObj);
     const claimed = await tryClaimWebhookDedupe("palremit", dedupeKey);
     if (!claimed) {
       await logInbound("duplicate", {

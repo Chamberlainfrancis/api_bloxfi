@@ -1,7 +1,7 @@
 /**
  * Advance onramp after fiat is confirmed:
- * if status is FIAT_PROCESSED, execute Palremit §6.2 crypto withdrawal.
- * Completion to COMPLETED is driven by webhook `withdraw.successful` (data.txnRef) after on-chain send.
+ * if status is FIAT_PROCESSED, execute Palremit orchestrator crypto withdrawal (`POST /v1/withdrawals`).
+ * Completion to COMPLETED is driven by webhook `withdrawal.successful` (`client_reference` = txnRef) after on-chain send.
  */
 
 import type { OnrampStatus } from '@/types/onramp';
@@ -17,6 +17,7 @@ export interface OnrampRepoAdvance {
     destination: unknown;
     developerFee: unknown;
     receipt: unknown;
+    providerRefs: unknown;
   } | null>;
   updateOnrampStatus(
     id: string,
@@ -42,7 +43,11 @@ export interface ExecutePalremitOnrampWithdrawalFn {
     receiveNetCryptoAmount: number,
     destinationAddress: string,
     txnRef: string
-  ): Promise<{ prepareReference: string } | null>;
+  ): Promise<{
+    withdrawalId: string;
+    rawWithdrawalRequest: Record<string, unknown>;
+    rawWithdrawalResponse: unknown;
+  } | null>;
 }
 
 export async function advanceOnrampIfFiatProcessed(
@@ -56,14 +61,14 @@ export async function advanceOnrampIfFiatProcessed(
   const receipt = row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
     ? (row.receipt as Record<string, unknown>)
     : null;
-  const hasPrepareRef =
+  const hasWithdrawalId =
     receipt != null &&
-    typeof receipt.palremitPrepareReference === 'string' &&
-    receipt.palremitPrepareReference.trim() !== '';
+    typeof receipt.palremitWithdrawalId === 'string' &&
+    receipt.palremitWithdrawalId.trim() !== '';
 
   const eligible =
     row.status === 'FIAT_PROCESSED' ||
-    ((row.status === 'CRYPTO_INITIATED' || row.status === 'CRYPTO_PENDING') && !hasPrepareRef);
+    ((row.status === 'CRYPTO_INITIATED' || row.status === 'CRYPTO_PENDING') && !hasWithdrawalId);
 
   if (!eligible) return;
 
@@ -105,7 +110,11 @@ export async function advanceOnrampIfFiatProcessed(
     await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_INITIATED');
   }
 
-  let result: { prepareReference: string } | null = null;
+  let result: {
+    withdrawalId: string;
+    rawWithdrawalRequest: Record<string, unknown>;
+    rawWithdrawalResponse: unknown;
+  } | null = null;
   try {
     result = await executePalremitCryptoWithdrawal(
       {
@@ -140,15 +149,30 @@ export async function advanceOnrampIfFiatProcessed(
     return;
   }
 
+  const orch =
+    row.providerRefs != null &&
+    typeof row.providerRefs === 'object' &&
+    !Array.isArray(row.providerRefs)
+      ? (row.providerRefs as Record<string, unknown>).palremitOrchestrator
+      : null;
+  const orchObj =
+    orch != null && typeof orch === 'object' && !Array.isArray(orch)
+      ? (orch as Record<string, unknown>)
+      : {};
+
   await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_PENDING', {
     receipt: {
       txnRef: row.txnRef,
-      palremitPrepareReference: result.prepareReference,
+      palremitWithdrawalId: result.withdrawalId,
       awaitingWebhookConfirmation: true,
     },
     providerRefs: {
-      palremitCryptoWithdrawalPrepare: {
-        reference: result.prepareReference,
+      palremitOrchestrator: {
+        ...orchObj,
+        palremitWithdrawalId: result.withdrawalId,
+        withdrawalStatus: 'pending',
+        rawCryptoWithdrawalRequest: result.rawWithdrawalRequest,
+        rawCryptoWithdrawalResponse: result.rawWithdrawalResponse,
       },
     },
   });

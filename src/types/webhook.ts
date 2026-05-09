@@ -1,7 +1,7 @@
 /**
- * Inbound webhook payloads: BloxFi-shaped (spec) or Palremit { event, data }.
- * Partner Palremit flows use §5–§6 APIs; BloxFi-shaped `onramp.*` / `offramp.*` webhooks still apply.
- * Palremit verification: X-Webhook-Signature (HMAC-SHA256 of JSON payload).
+ * Inbound webhook payloads: BloxFi-shaped (spec), Palremit legacy `{ event, data }`,
+ * or Palremit Liquidity Orchestrator `{ event_id, event_type, occurred_at, data }`.
+ * Palremit verification: `X-Webhook-Signature` (HMAC-SHA256). Dedupe on `X-Liquidity-Event-Id` when present.
  */
 
 export type WebhookEventType =

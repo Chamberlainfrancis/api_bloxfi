@@ -1,6 +1,6 @@
 /**
- * Core: process inbound webhook events from LPs / Palremit. Update state via repository interfaces.
- * Money-flow events (§5–§6): match strictly on payload `data.txnRef` ↔ DB `txnRef` (no heuristics).
+ * Core: process inbound webhook events from LPs / Palremit Liquidity Orchestrator.
+ * Money-flow events: strict match on `client_reference` ↔ `txnRef` and `provisioned_account_id` ↔ stored id.
  * No Express/Prisma; receives repos via DI.
  */
 
@@ -25,7 +25,13 @@ export interface WebhookRepos {
   };
   onramp: {
     findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
-    findOnrampByTxnRef(txnRef: string): Promise<{ id: string; status: string } | null>;
+    findOnrampByTxnRef(txnRef: string): Promise<{
+      id: string;
+      status: string;
+      txnRef: string | null;
+      providerRefs: unknown;
+      source: unknown;
+    } | null>;
     updateOnrampStatus(
       id: string,
       status: OnrampStatus,
@@ -33,13 +39,22 @@ export interface WebhookRepos {
         receipt?: object | null;
         failedReason?: string | null;
         providerRefs?: object | null;
+        depositInfo?: object | null;
       }
     ): Promise<unknown>;
     advanceOnrampAfterFiatWebhook?(onrampId: string): Promise<void>;
   };
   offramp: {
     findOfframpById(id: string): Promise<{ id: string; status?: string } | null>;
-    findOfframpByTxnRef(txnRef: string): Promise<{ id: string; status: string } | null>;
+    findOfframpByTxnRef(txnRef: string): Promise<{
+      id: string;
+      status: string;
+      txnRef: string | null;
+      providerRefs: unknown;
+      source: unknown;
+      depositInstructions: unknown;
+      timeline: unknown;
+    } | null>;
     updateOfframpStatus(
       id: string,
       status: OfframpStatus,
@@ -50,6 +65,7 @@ export interface WebhookRepos {
         refundDetails?: object | null;
         lpReference?: string | null;
         providerRefs?: object | null;
+        depositInstructions?: object | null;
       }
     ): Promise<unknown>;
     advanceOfframpAfterCryptoWebhook?(offrampId: string): Promise<void>;
@@ -92,10 +108,13 @@ function toKybStatus(s: string): KYBStatus {
   return 'under_review';
 }
 
-/** Require Palremit to send `data.txnRef` (contract). */
-function requireTxnRef(d: Record<string, unknown>): string | null {
-  const v = d.txnRef;
-  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+function getPalremitOrchestrator(providerRefs: unknown): Record<string, unknown> | null {
+  if (providerRefs == null || typeof providerRefs !== 'object' || Array.isArray(providerRefs)) {
+    return null;
+  }
+  const o = (providerRefs as Record<string, unknown>).palremitOrchestrator;
+  if (o == null || typeof o !== 'object' || Array.isArray(o)) return null;
+  return o as Record<string, unknown>;
 }
 
 /**
@@ -109,25 +128,52 @@ export async function processWebhookEvent(
   const d = data as Record<string, unknown>;
 
   switch (eventType) {
-    case 'deposit.successful': {
-      const txnRef = requireTxnRef(d);
-      if (!txnRef) break;
+    case 'deposit.credited': {
+      const clientRef =
+        typeof d.client_reference === 'string' ? d.client_reference.trim() : '';
+      const depositObj = d.deposit;
+      if (!clientRef || depositObj == null || typeof depositObj !== 'object' || Array.isArray(depositObj)) {
+        break;
+      }
+      const dep = depositObj as Record<string, unknown>;
+      const provId =
+        typeof dep.provisioned_account_id === 'string' ? dep.provisioned_account_id.trim() : '';
+      const depState = typeof dep.state === 'string' ? dep.state.toLowerCase() : '';
+      const depMode = typeof dep.mode === 'string' ? dep.mode : '';
+      if (!provId || depState !== 'credited') break;
 
-      const currency = String(d.currency ?? '').trim().toUpperCase();
-      if (!currency) break;
+      const assetObj = dep.asset;
+      const assetCode =
+        assetObj != null && typeof assetObj === 'object' && !Array.isArray(assetObj)
+          ? String((assetObj as { code?: unknown }).code ?? '')
+              .trim()
+              .toUpperCase()
+          : '';
+      const depNetwork =
+        typeof dep.network === 'string' && dep.network.trim() !== '' ? dep.network.trim() : '';
 
-      if (currency === 'NGN') {
-        if (!isOnrampTxnRef(txnRef)) break;
-        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
+      if (isOnrampTxnRef(clientRef)) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
         if (!['AWAITING_FUNDS', 'FIAT_PENDING'].includes(onramp.status)) break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== provId) break;
+        if (!depMode.startsWith('FIAT_DEPOSIT')) break;
+        const src = onramp.source as { currency?: string };
+        const wantAsset = (src.currency ?? '').trim().toUpperCase();
+        if (assetCode && wantAsset && assetCode !== wantAsset) break;
 
+        const depId = typeof dep.id === 'string' ? dep.id.trim() : '';
         await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
-          receipt: { provider: 'palremit', eventType, data: d },
+          receipt: { provider: 'palremit', eventType, deposit: dep, client_reference: clientRef },
           providerRefs: {
-            webhookDepositSuccessful: {
-              reference: d.reference,
-              id: d.id,
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              palremitDepositId: depId || undefined,
+              depositStatus: 'credited',
+              rawDepositCreditedPayload: d,
             },
           },
         });
@@ -141,165 +187,269 @@ export async function processWebhookEvent(
         break;
       }
 
-      if (!isOfframpTxnRef(txnRef)) break;
-      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
-      if (!offramp) break;
-      if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED'].includes(offramp.status)) break;
+      if (isOfframpTxnRef(clientRef)) {
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
+        if (!offramp) break;
+        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED'].includes(offramp.status)) break;
+        if (depMode !== 'CRYPTO_DEPOSIT') break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== provId) break;
+        const src = offramp.source as { currency?: string; chain?: string };
+        if (assetCode && (src.currency ?? '').trim().toUpperCase() !== assetCode) break;
+        const wantNet = (src.chain ?? '').trim().toUpperCase();
+        if (depNetwork && wantNet && depNetwork.toUpperCase() !== wantNet) break;
 
-      await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_CONFIRMED', {
-        receipt: {
-          provider: 'palremit',
-          txId: d.tx_id ?? null,
-          txLink: d.tx_link ?? null,
-          confirmations: d.confirmations ?? null,
-          currency,
-          network: d.network ?? null,
-          amount: d.amount ?? null,
-          raw: d,
-        },
-        timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
-        providerRefs: {
-          webhookDepositSuccessful: {
-            reference: d.reference,
-            id: d.id,
-            tx_id: d.tx_id,
+        const depId = typeof dep.id === 'string' ? dep.id.trim() : '';
+        await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_CONFIRMED', {
+          receipt: { provider: 'palremit', eventType, deposit: dep, client_reference: clientRef },
+          timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              palremitDepositId: depId || undefined,
+              depositStatus: 'credited',
+              rawDepositCreditedPayload: d,
+            },
           },
-        },
-      });
-      if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
-        try {
-          await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
-        } catch (e) {
-          console.error('[webhooks] advanceOfframpAfterCryptoWebhook failed', offramp.id, e);
+        });
+        if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
+          try {
+            await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
+          } catch (e) {
+            console.error('[webhooks] advanceOfframpAfterCryptoWebhook failed', offramp.id, e);
+          }
         }
       }
       break;
     }
 
-    case 'deposit.transaction.confirmation': {
-      const txnRef = requireTxnRef(d);
-      if (!txnRef || !isOfframpTxnRef(txnRef)) break;
-      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
-      if (!offramp) break;
-      const allowed = ['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED', 'CRYPTO_CONFIRMED'];
-      if (!allowed.includes(offramp.status)) break;
+    case 'withdrawal.successful': {
+      const withdrawalObj = d.withdrawal;
+      if (
+        withdrawalObj == null ||
+        typeof withdrawalObj !== 'object' ||
+        Array.isArray(withdrawalObj)
+      ) {
+        break;
+      }
+      const w = withdrawalObj as Record<string, unknown>;
+      const clientRef =
+        typeof w.client_reference === 'string' ? w.client_reference.trim() : '';
+      const wstate = typeof w.state === 'string' ? w.state.toLowerCase() : '';
+      const wmode = typeof w.mode === 'string' ? w.mode : '';
+      if (!clientRef || wstate !== 'successful') break;
 
-      await repos.offramp.updateOfframpStatus(offramp.id, toOfframpStatus(offramp.status), {
-        receipt: {
-          provider: 'palremit',
-          eventType,
-          confirmations: d.confirmations ?? null,
-          tx_id: d.tx_id ?? null,
-          raw: d,
-        },
-        providerRefs: {
-          webhookDepositConfirmation: { id: d.id, tx_id: d.tx_id },
-        },
-      });
-      break;
-    }
-
-    case 'deposit.address.created': {
-      const txnRef = requireTxnRef(d);
-      if (!txnRef || !isOfframpTxnRef(txnRef)) break;
-      const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
-      if (!offramp) break;
-
-      await repos.offramp.updateOfframpStatus(offramp.id, toOfframpStatus(offramp.status), {
-        providerRefs: {
-          webhookDepositAddressCreated: {
-            channel_address_id: d.channel_address_id,
-            address: d.address,
-          },
-        },
-      });
-      break;
-    }
-
-    case 'withdraw.successful': {
-      const txnRef = requireTxnRef(d);
-      if (!txnRef) break;
-
-      const receipt = {
-        provider: 'palremit',
-        reference: d.reference,
-        destinationTxId: d.destination_tx_id ?? null,
-        destinationTxLink: d.destination_tx_link ?? null,
-        raw: d,
-      };
-
-      if (isOnrampTxnRef(txnRef)) {
-        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
+      if (isOnrampTxnRef(clientRef)) {
+        if (wmode !== 'CRYPTO_WITHDRAWAL') break;
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
         if (onramp.status !== 'CRYPTO_PENDING') break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const wid = typeof w.id === 'string' ? w.id.trim() : '';
+        const expectedWid =
+          typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
+        if (expectedWid && wid && expectedWid !== wid) break;
+
+        const destTx =
+          typeof w.provider_external_ref === 'string'
+            ? w.provider_external_ref
+            : typeof w.settlement_reference === 'string'
+              ? w.settlement_reference
+              : undefined;
 
         await repos.onramp.updateOnrampStatus(onramp.id, 'COMPLETED', {
           receipt: {
-            ...receipt,
-            txnRef,
-            transactionHash: typeof d.destination_tx_id === 'string' ? d.destination_tx_id : undefined,
-            destinationTxId: d.destination_tx_id ?? undefined,
+            provider: 'palremit',
+            eventType,
+            withdrawal: w,
+            transactionHash: destTx,
             awaitingWebhookConfirmation: false,
           },
           providerRefs: {
-            webhookWithdrawSuccessful: { id: d._id, reference: d.reference },
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              withdrawalStatus: 'successful',
+              rawWithdrawalSuccessfulPayload: d,
+            },
           },
         });
         break;
       }
 
-      if (isOfframpTxnRef(txnRef)) {
-        const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+      if (isOfframpTxnRef(clientRef)) {
+        if (wmode !== 'FIAT_WITHDRAWAL') break;
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
         if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const wid = typeof w.id === 'string' ? w.id.trim() : '';
+        const expectedWid =
+          typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
+        if (expectedWid && wid && expectedWid !== wid) break;
 
+        const prevTimeline =
+          offramp.timeline != null && typeof offramp.timeline === 'object' && !Array.isArray(offramp.timeline)
+            ? (offramp.timeline as Record<string, unknown>)
+            : {};
         await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
-          receipt: receipt as object,
-          timeline: { completedAt: new Date().toISOString(), provider: 'palremit' } as object,
-          lpReference: typeof d.reference === 'string' ? d.reference : txnRef,
+          receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
+          timeline: {
+            ...prevTimeline,
+            completedAt: new Date().toISOString(),
+            fiatWithdrawalCompleted: true,
+          } as object,
+          lpReference: wid || clientRef,
           providerRefs: {
-            webhookWithdrawSuccessful: { id: d._id, reference: d.reference },
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              withdrawalStatus: 'successful',
+              rawWithdrawalSuccessfulPayload: d,
+            },
           },
         });
-        break;
       }
       break;
     }
 
-    case 'withdraw.rejected': {
-      const txnRef = requireTxnRef(d);
-      if (!txnRef) break;
+    case 'withdrawal.failed': {
+      const withdrawalObj = d.withdrawal;
+      if (
+        withdrawalObj == null ||
+        typeof withdrawalObj !== 'object' ||
+        Array.isArray(withdrawalObj)
+      ) {
+        break;
+      }
+      const w = withdrawalObj as Record<string, unknown>;
+      const clientRef =
+        typeof w.client_reference === 'string' ? w.client_reference.trim() : '';
+      const wstate = typeof w.state === 'string' ? w.state.toLowerCase() : '';
+      const wmode = typeof w.mode === 'string' ? w.mode : '';
+      if (!clientRef || wstate !== 'failed') break;
 
+      const fail = w.failure_reason;
       const reason =
-        typeof d.status_message === 'string' && d.status_message.trim() !== ''
-          ? d.status_message.trim()
-          : 'PALREMIT_WITHDRAW_REJECTED';
+        fail != null &&
+        typeof fail === 'object' &&
+        !Array.isArray(fail) &&
+        typeof (fail as { message?: unknown }).message === 'string' &&
+        (fail as { message: string }).message.trim() !== ''
+          ? (fail as { message: string }).message.trim()
+          : 'PALREMIT_WITHDRAW_FAILED';
 
-      if (isOnrampTxnRef(txnRef)) {
-        const onramp = await repos.onramp.findOnrampByTxnRef(txnRef);
+      if (isOnrampTxnRef(clientRef)) {
+        if (wmode !== 'CRYPTO_WITHDRAWAL') break;
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
         if (onramp.status !== 'CRYPTO_PENDING') break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const wid = typeof w.id === 'string' ? w.id.trim() : '';
+        const expectedWid =
+          typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
+        if (expectedWid && wid && expectedWid !== wid) break;
 
         await repos.onramp.updateOnrampStatus(onramp.id, 'CRYPTO_FAILED', {
           failedReason: reason,
-          receipt: { provider: 'palremit', reference: d.reference, raw: d } as object,
-          providerRefs: { webhookWithdrawRejected: { id: d._id } },
+          receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              withdrawalStatus: 'failed',
+              rawWithdrawalFailedPayload: d,
+            },
+          },
         });
         break;
       }
 
-      if (isOfframpTxnRef(txnRef)) {
-        const offramp = await repos.offramp.findOfframpByTxnRef(txnRef);
+      if (isOfframpTxnRef(clientRef)) {
+        if (wmode !== 'FIAT_WITHDRAWAL') break;
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
         if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const wid = typeof w.id === 'string' ? w.id.trim() : '';
+        const expectedWid =
+          typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
+        if (expectedWid && wid && expectedWid !== wid) break;
 
         await repos.offramp.updateOfframpStatus(offramp.id, 'FAILED', {
           failedReason: reason,
-          receipt: { provider: 'palremit', reference: d.reference, raw: d } as object,
-          lpReference: typeof d.reference === 'string' ? d.reference : txnRef,
-          providerRefs: { webhookWithdrawRejected: { id: d._id } },
+          receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
+          lpReference: wid || clientRef,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              withdrawalStatus: 'failed',
+              rawWithdrawalFailedPayload: d,
+            },
+          },
+        });
+      }
+      break;
+    }
+
+    case 'provisioned_account.failed': {
+      const accountObj = d.account;
+      if (accountObj == null || typeof accountObj !== 'object' || Array.isArray(accountObj)) {
+        break;
+      }
+      const account = accountObj as Record<string, unknown>;
+      const clientRef =
+        typeof account.client_reference === 'string' ? account.client_reference.trim() : '';
+      const accId = typeof account.id === 'string' ? account.id.trim() : '';
+      const mode = typeof account.mode === 'string' ? account.mode : '';
+      if (!clientRef || !accId) break;
+
+      const msg =
+        account.failure_reason != null &&
+        typeof account.failure_reason === 'object' &&
+        !Array.isArray(account.failure_reason) &&
+        typeof (account.failure_reason as { message?: unknown }).message === 'string'
+          ? String((account.failure_reason as { message: string }).message).trim()
+          : 'PALREMIT_PROVISION_FAILED';
+
+      if (isOnrampTxnRef(clientRef) && mode.startsWith('FIAT_DEPOSIT')) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
+        if (!onramp) break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        if (!['AWAITING_FUNDS', 'FIAT_PENDING', 'CREATED'].includes(onramp.status)) break;
+        await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_FAILED', {
+          failedReason: msg,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              depositStatus: 'failed',
+              rawProvisionFailedPayload: d,
+            },
+          },
         });
         break;
+      }
+
+      if (isOfframpTxnRef(clientRef) && mode === 'CRYPTO_DEPOSIT') {
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
+        if (!offramp) break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING'].includes(offramp.status)) break;
+        await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_FAILED', {
+          failedReason: msg,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              depositStatus: 'failed',
+              rawProvisionFailedPayload: d,
+            },
+          },
+        });
       }
       break;
     }

@@ -5,7 +5,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
-  JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+  /**
+   * Simple Bearer auth for our API: `Authorization: Bearer <API_KEY>`.
+   * Keep this secret and rotate as needed.
+   */
+  API_KEY: z.string().min(16, "API_KEY is required"),
   API_KEY_HEADER: z.string().default("Authorization"),
   CORS_ORIGINS: z.string().optional(),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().min(1).default(60),
@@ -17,11 +21,12 @@ const envSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
-  // Palremit only: liquidity (deposits, withdrawals, ramp) and currency (rates). Required for ramps.
-  PALREMIT_LIQUIDITY_URL: z.string().url("PALREMIT_LIQUIDITY_URL is required"),
-  PALREMIT_ACCESS_KEY: z.string().min(1, "PALREMIT_ACCESS_KEY is required"),
+  // Palremit Liquidity Orchestrator (new-liquidity-api): Bearer secret + /v1/* deposits & withdrawals.
+  PALREMIT_LIQUIDITY_URL: z.string().url().optional(),
+  /** One-time secret from tenant signup / rotate. */
+  PALREMIT_LIQUIDITY_SECRET: z.string().min(1, "PALREMIT_LIQUIDITY_SECRET is required"),
   PALREMIT_CURRENCY_URL: z.string().url().optional(),
-  // Inbound Palremit webhooks: optional override for HMAC; defaults to PALREMIT_ACCESS_KEY (integration guide §7.2)
+  /** HMAC for inbound orchestrator webhooks (`X-Webhook-Signature`). */
   WEBHOOK_SECRET: z.string().min(1, "WEBHOOK_SECRET is required"),
 });
 

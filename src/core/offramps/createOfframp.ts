@@ -1,5 +1,5 @@
 /**
- * Core: create offramp. Palremit §5.2 deposit address + §6.1 fiat payout after crypto is received (see advanceOfframpPayout).
+ * Core: create offramp. Palremit crypto provision + fiat withdrawal after `deposit.credited` (see advanceOfframpPayout).
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
@@ -26,7 +26,7 @@ export interface CreateOfframpOptions {
     fromChain?: string
   ) => Promise<GetOfframpRatesResponse | null>;
   /**
-   * Resolve `source.chain` to a Palremit `network_code` from GET /coins/get_coin.
+   * Resolve `source.chain` to a Palremit `network_code` from GET /v1/coins/get_coin_network_list (fallback get_coin).
    */
   resolvePalremitNetwork: (
     coinCode: string,
@@ -38,8 +38,7 @@ export interface CreateOfframpOptions {
       userId: string;
       businessInfo: unknown;
       legalRepresentative: unknown;
-      metadata: unknown;
-      palremitChannelUserId: string | null;
+      email: string;
     },
     body: Omit<CreateOfframpRequest, 'requestId'>,
     requestId: string,
@@ -95,8 +94,6 @@ export interface UserRepoForOfframp {
     id: string;
     businessInfo: unknown;
     legalRepresentative: unknown;
-    metadata: unknown;
-    palremitChannelUserId: string | null;
   } | null>;
 }
 
@@ -250,15 +247,28 @@ export async function createOfframp(
 
   const txnRef = generateOfframpTxnRef();
 
+  const email = userDisplay(user).email.trim();
+  if (!email) {
+    throw new Error('USER_EMAIL_REQUIRED_FOR_OFFRAMP');
+  }
+
+  /** Palremit provision must use the same canonical `network_code` as rates (not raw client chain). */
+  const bodyForPalremit: Omit<CreateOfframpRequest, 'requestId'> = {
+    ...body,
+    source: {
+      ...body.source,
+      chain,
+    },
+  };
+
   const palremitDeposit = await options.createPalremitDeposit(
     {
       userId: user.id,
       businessInfo: user.businessInfo,
       legalRepresentative: user.legalRepresentative,
-      metadata: user.metadata,
-      palremitChannelUserId: user.palremitChannelUserId ?? null,
+      email,
     },
-    body,
+    bodyForPalremit,
     requestId,
     depositBy,
     txnRef
@@ -285,10 +295,12 @@ export async function createOfframp(
     lpReference: txnRef,
   });
 
+  const ref = row.txnRef ?? txnRef;
   const transferDetails: OfframpTransferDetails = {
     id: row.id,
     requestId: row.requestId,
-    txnRef: row.txnRef ?? txnRef,
+    txnRef: ref,
+    clientReference: ref,
     status: row.status as OfframpStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

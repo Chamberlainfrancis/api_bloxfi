@@ -1,5 +1,5 @@
 /**
- * Offramp controllers. Palremit §5 deposits + §6.1 fiat withdrawal; idempotency: duplicate requestId → 409.
+ * Offramp controllers. Palremit Liquidity Orchestrator deposits + withdrawals; idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -159,18 +159,7 @@ export async function createOfframp(
         resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
-          createOfframpPalremitCryptoDeposit(
-            palremitLiquidity,
-            userCtx,
-            {
-              setPalremitChannelUserIdIfAbsent: userRepo.setPalremitChannelUserIdIfAbsent,
-              getPalremitChannelUserId: userRepo.getPalremitChannelUserId,
-            },
-            b,
-            rid,
-            depositBy,
-            txnRef
-          ),
+          createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
       }
     );
     sendSuccess(res, result, 201);
@@ -199,6 +188,10 @@ export async function createOfframp(
     }
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
       next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'USER_EMAIL_REQUIRED_FOR_OFFRAMP') {
+      next(new AppError('User business email is required for offramp', 'UNPROCESSABLE_ENTITY', 422));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_DEPOSIT_ADDRESS_FAILED') {

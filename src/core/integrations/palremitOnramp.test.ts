@@ -1,28 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { mapPalremitFiatDepositResponseToDepositInfo } from '@/core/integrations/palremitOnramp';
+import { mapOrchestratorFiatInstructionsToDepositInfo } from '@/core/integrations/palremitOnramp';
 
-describe('palremitOnramp.mapPalremitFiatDepositResponseToDepositInfo', () => {
-  it('prefers payment_information.reference/narration over id (webhook correlation)', () => {
-    const raw = {
-      id: 'some-internal-id',
-      bank_name: 'Kuda Microfinance Bank',
+describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
+  it('maps fiat_account instructions to DepositInfo', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '7000746820',
       bank_code: '090267',
-      address: '7000746820',
-      account_name: 'Palremit-BloxFi Test Corp',
-      payment_information: {
-        narration: 'PR17770175955141299',
-      },
-    } as Record<string, unknown>;
+      bank_name: 'Kuda Microfinance Bank',
+      account_holder_name: 'Palremit-BloxFi Test Corp',
+    };
 
-    const depositInfo = mapPalremitFiatDepositResponseToDepositInfo(
-      raw,
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
       'blox-request-id',
       '2026-04-24T08:27:35.726Z',
       20000,
       'NGN'
     );
 
-    expect(depositInfo.reference).toBe('PR17770175955141299');
+    expect(depositInfo.wire?.accountNumber).toBe('7000746820');
+    expect(depositInfo.bankName).toBe('Kuda Microfinance Bank');
+    expect(depositInfo.beneficiary.name).toBe('Palremit-BloxFi Test Corp');
   });
 });
-

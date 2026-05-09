@@ -16,6 +16,13 @@ export interface HttpResponse<T = unknown> {
   data: T;
 }
 
+export type HttpError<T = unknown> = Error & {
+  status: number;
+  statusCode: number;
+  data: T;
+  headers?: Record<string, string>;
+};
+
 /**
  * Send HTTP request and parse JSON response. Throws on non-2xx or network error.
  */
@@ -54,12 +61,11 @@ export async function httpRequest<T = unknown>(
     }
     clearTimeout(timeout);
     if (!res.ok) {
-      const err = new Error(`HTTP ${res.status}: ${res.statusText}`) as Error & {
-        status: number;
-        data: T;
-      };
+      const err = new Error(`HTTP ${res.status}: ${res.statusText}`) as HttpError<T>;
       err.status = res.status;
+      err.statusCode = res.status;
       err.data = data;
+      err.headers = outHeaders;
       throw err;
     }
     return { status: res.status, headers: outHeaders, data };

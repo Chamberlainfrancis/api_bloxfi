@@ -1,146 +1,41 @@
 /**
- * Palremit offramp: §5.2 crypto deposit address + §6.1.3–6.1.4 fiat withdrawal after deposit is seen.
- * docs/palremit_integration_guide.md
+ * Palremit offramp: provision crypto address via /v1/provisioned-accounts; fiat payout via /v1/withdrawals.
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
-  createPalremitCryptoAddress,
-  createPalremitCryptoAddressNewUser,
-  createPalremitFiatWithdrawal,
-  confirmPalremitFiatWithdrawal,
-  listPalremitCryptoDeposits,
-  listPalremitUserCryptoAddresses,
+  createPalremitWithdrawal,
+  getPalremitProvisionedAccount,
+  listPalremitProvisionedAccounts,
+  provisionPalremitDepositAccount,
+  type PalremitDepositInstructions,
 } from '@/core/integrations/palremitLiquidity';
-import type { PalremitCryptoAddress } from '@/core/integrations/palremitLiquidity';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 
-export interface PalremitOfframpDepositResult {
-  /** Legacy label; fiat withdrawal uses txnRef as Palremit reference. */
-  correlationId: string;
-  depositInstructions: DepositInstructions;
-  channelAddressId?: string;
-  providerRefs: Record<string, unknown>;
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function mapCryptoAddressToDepositInstructions(
-  addr: { address: string; currency: string; network: string; channel_address_id?: string },
+function mapCryptoInstructionsToDepositInstructions(
+  instr: PalremitDepositInstructions,
   amount: number,
-  depositBy: string
-): DepositInstructions {
+  depositBy: string,
+  currencyUpper: string
+): DepositInstructions | null {
+  if (instr.kind !== 'crypto_address' || !instr.address) return null;
   return {
-    address: addr.address,
+    address: instr.address,
     amount: String(amount),
-    currency: addr.currency,
-    network: addr.network,
+    currency: currencyUpper,
+    network: String(instr.network ?? ''),
     depositBy,
-    instruction: `Send exactly ${amount} ${addr.currency} on ${addr.network} to the address above by ${depositBy}`,
+    instruction: `Send exactly ${amount} ${currencyUpper} on ${instr.network} to the address above by ${depositBy}`,
   };
 }
 
-function getPalremitChannelUserIdFromMetadata(metadata: unknown): string | undefined {
-  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
-  const m = metadata as Record<string, unknown>;
-  const v = m.palremitChannelUserId ?? m.palremit_channel_user_id;
-  return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
-}
-
-function isHttp404(e: unknown): boolean {
-  return (
-    e instanceof Error &&
-    'status' in e &&
-    typeof (e as { status: unknown }).status === 'number' &&
-    (e as { status: number }).status === 404
-  );
-}
-
-function isHttp400(e: unknown): boolean {
-  return (
-    e instanceof Error &&
-    'status' in e &&
-    typeof (e as { status: unknown }).status === 'number' &&
-    (e as { status: number }).status === 400
-  );
-}
-
-/** Palremit LP returns 400 when an address already exists for currency+network. */
-function isCryptoAddressAlreadyExistsError(e: unknown): boolean {
-  if (!isHttp400(e)) return false;
-  const data = (e as { data?: unknown }).data;
-  const msg =
-    typeof data === 'object' &&
-    data !== null &&
-    'message' in data &&
-    typeof (data as { message: unknown }).message === 'string'
-      ? (data as { message: string }).message
-      : '';
-  return /already generated|address already/i.test(msg);
-}
-
-function normalizeToken(s: string): string {
-  return s.trim().toUpperCase();
-}
-
-/** LP may label Polygon as MATIC or POLYGON — treat as equivalent for matching. */
-function networksMatch(expected: string, fromLp: string): boolean {
-  const e = normalizeToken(expected);
-  const f = normalizeToken(fromLp);
-  if (e === f) return true;
-  const poly = new Set(['POLYGON', 'MATIC']);
-  return poly.has(e) && poly.has(f);
-}
-
-function pickMatchingUserCryptoAddress(
-  rows: PalremitCryptoAddress[],
-  currency: string,
-  network: string
-): PalremitCryptoAddress | null {
-  const c = normalizeToken(currency);
-  const found = rows.find(
-    (a) => normalizeToken(a.currency) === c && networksMatch(network, a.network)
-  );
-  return found ?? null;
-}
-
-/**
- * §5.2: For an existing channel user, LP allows one address per currency+network.
- * List first, then create; on "already generated" 400, list again and reuse.
- */
-async function resolveExistingUserCryptoDepositAddress(
-  liquidityRequest: PalremitLiquidityRequestFn,
-  channelUserId: string,
-  currency: string,
-  network: string,
-  txnRef: string
-): Promise<PalremitCryptoAddress | null> {
-  const listed = await listPalremitUserCryptoAddresses(liquidityRequest, channelUserId);
-  const fromList = listed ? pickMatchingUserCryptoAddress(listed, currency, network) : null;
-  if (fromList?.address) return fromList;
-
-  try {
-    const created = await createPalremitCryptoAddress(liquidityRequest, {
-      channel_user_id: channelUserId,
-      currency,
-      network,
-      txn_ref: txnRef,
-    });
-    if (created?.address) return created;
-    return null;
-  } catch (e) {
-    if (isCryptoAddressAlreadyExistsError(e)) {
-      const again = await listPalremitUserCryptoAddresses(liquidityRequest, channelUserId);
-      const retry = again ? pickMatchingUserCryptoAddress(again, currency, network) : null;
-      if (retry?.address) return retry;
-      throw e;
-    }
-    if (isHttp404(e)) return null;
-    throw e;
-  }
-}
-
-/** Names for Palremit §5.1 `create_crypto_address_new_user`. */
-function namesForPalremitNewUser(ctx: {
+/** Names for Palremit crypto provision `kyc_input.provider_extras`. */
+function namesForPalremitCryptoProvision(ctx: {
   businessInfo: unknown;
   legalRepresentative: unknown;
 }): { first_name: string; last_name: string } {
@@ -179,117 +74,145 @@ function namesForPalremitNewUser(ctx: {
   return { first_name: 'Customer', last_name: 'User' };
 }
 
-export interface PalremitOfframpUserPersistence {
-  setPalremitChannelUserIdIfAbsent: (userId: string, channelUserId: string) => Promise<boolean>;
-  getPalremitChannelUserId: (userId: string) => Promise<string | null>;
+async function pollProvisionedUntilActiveOrFailed(
+  request: PalremitLiquidityRequestFn,
+  accountId: string,
+  opts: { maxAttempts: number; delayMs: number }
+): Promise<{ account: Awaited<ReturnType<typeof getPalremitProvisionedAccount>>; failed: boolean }> {
+  for (let i = 0; i < opts.maxAttempts; i++) {
+    const acc = await getPalremitProvisionedAccount(request, accountId);
+    const st = acc?.state?.toLowerCase() ?? '';
+    if (st === 'active') return { account: acc, failed: false };
+    if (st === 'failed') return { account: acc, failed: true };
+    await sleep(opts.delayMs);
+  }
+  const last = await getPalremitProvisionedAccount(request, accountId);
+  return { account: last, failed: last?.state?.toLowerCase() === 'failed' };
+}
+
+export interface PalremitOfframpDepositResult {
+  correlationId: string;
+  depositInstructions: DepositInstructions;
+  providerRefs: Record<string, unknown>;
 }
 
 /**
- * §5.2 crypto address: reuse Palremit `channel_user_id` from User (or legacy metadata), else §5.1 new user + address then persist id (no duplicate LP users per BloxFi user).
+ * `client_reference` is BloxFi txnRef (OFF-…) so webhooks correlate to a single offramp.
  */
 export async function createOfframpPalremitCryptoDeposit(
   liquidityRequest: PalremitLiquidityRequestFn,
   ctx: {
-    userId: string;
     businessInfo: unknown;
     legalRepresentative: unknown;
-    metadata: unknown;
-    palremitChannelUserId: string | null;
+    email: string;
   },
-  persistence: PalremitOfframpUserPersistence,
   body: Omit<CreateOfframpRequest, 'requestId'>,
-  requestId: string,
+  _requestId: string,
   depositBy: string,
   txnRef: string
 ): Promise<PalremitOfframpDepositResult | null> {
   const fromCurrency = body.source.currency.trim().toUpperCase();
-  /** Must be a Palremit `network_code` from GET /coins/get_coin (validated at ramp creation). */
   const sourceNetwork = body.source.chain.trim();
+  const clientRef = txnRef.trim();
 
-  let channelUserId =
-    (ctx.palremitChannelUserId?.trim() || '') ||
-    (getPalremitChannelUserIdFromMetadata(ctx.metadata)?.trim() || '') ||
-    '';
-
-  if (!ctx.palremitChannelUserId?.trim() && getPalremitChannelUserIdFromMetadata(ctx.metadata)) {
-    const fromMeta = getPalremitChannelUserIdFromMetadata(ctx.metadata)!;
-    await persistence.setPalremitChannelUserIdIfAbsent(ctx.userId, fromMeta);
-    channelUserId = fromMeta;
+  const existing = await listPalremitProvisionedAccounts(liquidityRequest, {
+    client_reference: clientRef,
+    asset: fromCurrency,
+    mode: 'CRYPTO_DEPOSIT',
+    state: 'active',
+  });
+  const hit = existing?.find(
+    (a) =>
+      a.network?.toUpperCase() === sourceNetwork.toUpperCase() &&
+      a.deposit_instructions &&
+      (a.deposit_instructions as PalremitDepositInstructions).kind === 'crypto_address'
+  );
+  if (hit?.deposit_instructions) {
+    const di = mapCryptoInstructionsToDepositInstructions(
+      hit.deposit_instructions as PalremitDepositInstructions,
+      body.source.amount,
+      depositBy,
+      fromCurrency
+    );
+    if (!di) return null;
+    return {
+      correlationId: txnRef,
+      depositInstructions: di,
+      providerRefs: {
+        palremitOrchestrator: {
+          provisionedAccountId: hit.id,
+          clientReference: hit.client_reference,
+          depositAsset: fromCurrency,
+          withdrawalAsset: body.destination.currency.trim().toUpperCase(),
+          network: sourceNetwork,
+          depositStatus: hit.state,
+          withdrawalStatus: null,
+          reusedExistingProvision: true,
+        },
+      },
+    };
   }
 
-  let addr: PalremitCryptoAddress | null = null;
+  const names = namesForPalremitCryptoProvision(ctx);
+  const reqBody: Record<string, unknown> = {
+    asset: fromCurrency,
+    mode: 'CRYPTO_DEPOSIT',
+    network: sourceNetwork,
+    client_reference: clientRef,
+    kyc_input: {
+      provider_extras: {
+        first_name: names.first_name,
+        last_name: names.last_name,
+        email: ctx.email.trim(),
+      },
+    },
+  };
 
-  if (channelUserId) {
-    try {
-      addr = await resolveExistingUserCryptoDepositAddress(
-        liquidityRequest,
-        channelUserId,
-        fromCurrency,
-        sourceNetwork,
-        txnRef
-      );
-    } catch (e) {
-      if (!isHttp404(e)) throw e;
-      addr = null;
-    }
-  }
+  const idempotencyKey = `offramp-crypto-prov:${clientRef}:${fromCurrency}:${sourceNetwork}`;
+  const rawRequest = { ...reqBody };
+  const prov = await provisionPalremitDepositAccount(liquidityRequest, reqBody, idempotencyKey);
+  if (!prov) return null;
 
-  if (!addr?.address) {
-    const names = namesForPalremitNewUser(ctx);
-    const created = await createPalremitCryptoAddressNewUser(liquidityRequest, {
-      first_name: names.first_name,
-      last_name: names.last_name,
-      currency: fromCurrency,
-      network: sourceNetwork,
-      txn_ref: txnRef,
+  let account = prov.account;
+  const rawProvisionResponse = { ...account };
+
+  if (account.state?.toLowerCase() === 'pending' || account.state?.toLowerCase() === 'kyc_pending') {
+    const polled = await pollProvisionedUntilActiveOrFailed(liquidityRequest, account.id, {
+      maxAttempts: 20,
+      delayMs: 2000,
     });
-    if (!created?.address || !created.channel_user_id) {
-      addr = created;
-    } else {
-      const saved = await persistence.setPalremitChannelUserIdIfAbsent(
-        ctx.userId,
-        created.channel_user_id
-      );
-      if (saved) {
-        addr = created;
-      } else {
-        const winner = await persistence.getPalremitChannelUserId(ctx.userId);
-        if (winner) {
-          addr = await resolveExistingUserCryptoDepositAddress(
-            liquidityRequest,
-            winner,
-            fromCurrency,
-            sourceNetwork,
-            txnRef
-          );
-        } else {
-          addr = created;
-        }
-      }
-    }
+    if (polled.failed || !polled.account) return null;
+    account = polled.account;
   }
 
-  if (!addr?.address) return null;
+  if (account.state?.toLowerCase() !== 'active' || !account.deposit_instructions) {
+    return null;
+  }
+
+  const instr = account.deposit_instructions as PalremitDepositInstructions;
+  const di = mapCryptoInstructionsToDepositInstructions(instr, body.source.amount, depositBy, fromCurrency);
+  if (!di) return null;
 
   return {
     correlationId: txnRef,
-    depositInstructions: mapCryptoAddressToDepositInstructions(
-      addr,
-      body.source.amount,
-      depositBy
-    ),
-    channelAddressId: addr.channel_address_id,
+    depositInstructions: di,
     providerRefs: {
-      palremitCryptoAddress: {
-        channel_address_id: addr.channel_address_id,
-        channel_user_id: addr.channel_user_id,
-        address: addr.address,
+      palremitOrchestrator: {
+        provisionedAccountId: account.id,
+        clientReference: account.client_reference,
+        depositAsset: fromCurrency,
+        withdrawalAsset: body.destination.currency.trim().toUpperCase(),
+        network: sourceNetwork,
+        depositStatus: account.state,
+        withdrawalStatus: null,
+        rawProvisionRequest: rawRequest,
+        rawProvisionResponse,
       },
     },
   };
 }
 
-/** §6.1.3 `destination_information` from BloxFi account holder + region. */
+/** Build NGN bank payout destination for orchestrator `bank_account` withdrawals. */
 export function buildPalremitFiatDestinationInformation(
   accountHolder: unknown,
   regionDetails: unknown
@@ -321,59 +244,38 @@ export function buildPalremitFiatDestinationInformation(
   };
 }
 
-const DEPOSIT_OK_STATUSES = ['successful', 'success', 'completed', 'confirmed'];
-
-/**
- * §5.5 List deposits; on match, §6.1.3–6.1.4 create + confirm fiat withdrawal.
- */
-export async function tryPalremitOfframpFiatPayout(
+export async function createPalremitOfframpFiatWithdrawal(
   liquidityRequest: PalremitLiquidityRequestFn,
   params: {
-    offrampId: string;
-    requestId: string;
-    /** BloxFi OFF-… ref; Palremit requires this as create_withdrawal.reference */
     txnRef: string;
-    expectedCryptoAmount: number;
-    depositAddress: string;
-    sourceCurrency: string;
-    sourceNetwork: string;
     destinationAmount: number;
     destinationCurrency: string;
     destinationInformation: Record<string, string>;
   }
-): Promise<{ withdrawalReference: string } | null> {
-  const deposits = await listPalremitCryptoDeposits(liquidityRequest, {
-    currency: params.sourceCurrency,
-    network: params.sourceNetwork,
-    limit: 50,
-  });
-  if (!deposits?.length) return null;
+): Promise<{ withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown } | null> {
+  const bankCode = params.destinationInformation.provider_code?.trim();
+  const accountNumber = params.destinationInformation.account_unique?.trim();
+  if (!bankCode || !accountNumber) return null;
 
-  const normalizedAddr = params.depositAddress.toLowerCase();
-  const match = deposits.find((d) => {
-    const dest = (d.destination_address ?? '').toLowerCase();
-    const okAddr =
-      dest === normalizedAddr ||
-      dest.includes(normalizedAddr) ||
-      normalizedAddr.includes(dest);
-    const amtOk = d.amount >= params.expectedCryptoAmount * 0.99;
-    const st = (d.status ?? '').toLowerCase();
-    const okStatus = DEPOSIT_OK_STATUSES.some((s) => st.includes(s));
-    return okAddr && amtOk && okStatus;
-  });
-  if (!match) return null;
-
-  const created = await createPalremitFiatWithdrawal(liquidityRequest, {
-    reference: params.txnRef,
-    destination_amount: params.destinationAmount,
-    destination_currency: params.destinationCurrency.toUpperCase(),
+  const asset = params.destinationCurrency.trim().toUpperCase();
+  const body: Record<string, unknown> = {
+    client_reference: params.txnRef.trim(),
+    asset,
+    amount: params.destinationAmount,
     destination_type: 'bank_account',
-    destination_information: params.destinationInformation,
-  });
-  if (!created?.reference) return null;
+    destination: {
+      bank_code: bankCode,
+      account_number: accountNumber,
+    },
+  };
 
-  const confirmed = await confirmPalremitFiatWithdrawal(liquidityRequest, created.reference);
-  if (!confirmed) return null;
+  const idempotencyKey = `offramp-fiat-wd:${params.txnRef.trim()}`;
+  const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
+  if (!created?.id) return null;
 
-  return { withdrawalReference: created.reference };
+  return {
+    withdrawalId: created.id,
+    rawRequest: body,
+    rawResponse: created.raw,
+  };
 }

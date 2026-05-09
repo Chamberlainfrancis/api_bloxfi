@@ -28,15 +28,35 @@ export function errorMiddleware(
     retryable = err.retryable;
   } else if (err instanceof Error) {
     message = err.message;
-    const status = (err as Error & { statusCode?: number }).statusCode;
+    const httpErr = err as Error & {
+      statusCode?: number;
+      status?: number;
+      data?: unknown;
+    };
     const multerCode = (err as Error & { code?: string }).code;
+    const httpStatus = httpErr.statusCode ?? httpErr.status;
     if (multerCode === 'LIMIT_FILE_SIZE') {
       statusCode = 400;
       code = 'INVALID_REQUEST';
       message = 'File size exceeds maximum allowed (10MB)';
-    } else if (status && status >= 400 && status < 600) {
-      statusCode = status;
+    } else if (httpStatus && httpStatus >= 400 && httpStatus < 600) {
+      statusCode = httpStatus;
       if (statusCode === 400) code = 'INVALID_REQUEST';
+      else if (statusCode === 404) code = 'NOT_FOUND';
+      else if (statusCode === 422) code = 'UNPROCESSABLE_ENTITY';
+      else if (statusCode === 401 || statusCode === 403) code = 'UNAUTHORIZED';
+      else if (statusCode >= 502) code = 'BAD_GATEWAY';
+      const d = httpErr.data;
+      if (d && typeof d === 'object' && !Array.isArray(d)) {
+        const o = d as Record<string, unknown>;
+        const upstreamMsg =
+          typeof o.message === 'string'
+            ? o.message.trim()
+            : typeof o.error === 'string'
+              ? o.error.trim()
+              : '';
+        if (upstreamMsg) message = upstreamMsg;
+      }
     }
   }
 

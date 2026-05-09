@@ -87,7 +87,10 @@ export interface DepositInfo {
 export interface Receipt {
   transactionHash?: string;
   txnRef?: string;
+  /** @deprecated Legacy prepare step; use palremitWithdrawalId */
   palremitPrepareReference?: string;
+  /** Palremit Liquidity Orchestrator withdrawal id (Mongo ObjectId hex). */
+  palremitWithdrawalId?: string;
   destinationTxId?: string;
   awaitingWebhookConfirmation?: boolean;
   provider?: string;
@@ -101,8 +104,10 @@ export interface DeveloperFeeAmount {
 export interface OnrampTransferDetails {
   id: string;
   requestId: string;
-  /** BloxFi primary transaction id (ON-…); echoed by Palremit as webhook data.txnRef */
+  /** BloxFi primary id (ON-…); same value as `clientReference` and Palremit `client_reference`. */
   txnRef: string;
+  /** Palremit Liquidity Orchestrator `client_reference`; identical to `txnRef` for this integration. */
+  clientReference: string;
   status: OnrampStatus;
   createdAt: string;
   updatedAt: string;

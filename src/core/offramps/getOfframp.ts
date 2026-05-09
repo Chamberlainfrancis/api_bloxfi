@@ -53,10 +53,12 @@ function rowToTransferDetails(row: {
   createdAt: Date;
   updatedAt: Date;
 }): OfframpTransferDetails {
+  const ref = row.txnRef ?? '';
   return {
     id: row.id,
     requestId: row.requestId,
-    txnRef: row.txnRef ?? '',
+    txnRef: ref,
+    clientReference: ref,
     status: row.status as OfframpStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

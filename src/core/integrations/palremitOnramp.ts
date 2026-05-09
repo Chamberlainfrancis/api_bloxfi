@@ -1,107 +1,71 @@
 /**
- * Palremit onramp: `/deposits/create_fiat_deposit` for bank instructions; §6.2 crypto withdrawal after fiat processed.
+ * Palremit onramp: provision fiat VA via /v1/provisioned-accounts; payout crypto via /v1/withdrawals.
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
-  createPalremitFiatDeposit,
-  preparePalremitCryptoWithdrawal,
-  confirmPalremitCryptoWithdrawal,
+  getPalremitProvisionedAccount,
+  provisionPalremitDepositAccount,
+  createPalremitWithdrawal,
+  type PalremitDepositInstructions,
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { DepositInfo } from '@/types/onramp';
 
-function pickStr(d: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const k of keys) {
-    const v = d[k];
-    if (typeof v === 'string' && v.trim() !== '') return v.trim();
-  }
-  return undefined;
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function nestedObject(d: Record<string, unknown>, key: string): Record<string, unknown> | null {
-  const v = d[key];
-  if (v != null && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
-  return null;
-}
-
-/**
- * Map LP `create_fiat_deposit` `data` object to BloxFi DepositInfo.
- * New LP shape: virtual account `address`, `bank_name`, `bank_code`, `account_name`, `channel_reference`, `id`.
- */
-export function mapPalremitFiatDepositResponseToDepositInfo(
-  raw: Record<string, unknown>,
+/** Map orchestrator `deposit_instructions` (fiat_account) → BloxFi DepositInfo. */
+export function mapOrchestratorFiatInstructionsToDepositInfo(
+  instructions: PalremitDepositInstructions,
   bloxRequestId: string,
   depositByIso: string,
   sourceAmount: number,
   sourceCurrencyUpper: string
 ): DepositInfo {
-  const payment = nestedObject(raw, 'payment_information') ?? nestedObject(raw, 'paymentInformation');
-
+  if (instructions.kind !== 'fiat_account') {
+    return {
+      bankName: 'Bank',
+      beneficiary: { name: 'Beneficiary', address: '' },
+      reference: bloxRequestId,
+      depositBy: depositByIso,
+      instruction: `Fiat deposit pending. Reference ${bloxRequestId}.`,
+    };
+  }
+  const accountNumber = String(instructions.account_number ?? '');
+  const bankCode = String(instructions.bank_code ?? '');
   const ref =
-    pickStr(raw, ['reference', 'deposit_reference', 'depositReference', 'channel_reference', 'channelReference']) ??
-    (payment ? pickStr(payment, ['reference', 'narration', 'narrative']) : undefined) ??
-    pickStr(raw, ['id']) ??
-    bloxRequestId;
-
-  const bankName =
-    pickStr(raw, ['bank_name', 'bankName', 'provider_name', 'providerName']) ??
-    (payment ? pickStr(payment, ['bank_name', 'bankName', 'bank']) : undefined) ??
-    'Palremit';
-
-  const accountNumber =
-    pickStr(raw, ['address', 'account_number', 'accountNumber', 'account_unique', 'accountUnique']) ??
-    (payment ? pickStr(payment, ['account_number', 'accountNumber', 'account']) : undefined);
-
-  const routing =
-    pickStr(raw, ['routing_number', 'routingNumber', 'sort_code', 'sortCode', 'bank_code', 'bankCode']) ??
-    (payment
-      ? pickStr(payment, ['routing_number', 'routingNumber', 'sort_code', 'bank_code'])
-      : undefined);
-
-  const beneficiaryName =
-    pickStr(raw, ['account_name', 'accountName', 'beneficiary_name', 'beneficiaryName']) ??
-    (payment ? pickStr(payment, ['beneficiary_name', 'account_name']) : undefined) ??
-    'Beneficiary';
-
-  const wire =
-    accountNumber != null && accountNumber !== '' || routing != null && routing !== ''
-      ? { routingNumber: routing ?? '', accountNumber: accountNumber ?? '' }
-      : undefined;
-
-  const pixKey = pickStr(raw, ['pix_key', 'pixKey']) ?? (payment ? pickStr(payment, ['pix_key', 'pixKey']) : undefined);
-  const pix = pixKey ? { pixKey } : undefined;
-
-  const channel = pickStr(raw, ['channel']);
-  const addressType = pickStr(raw, ['address_type', 'addressType']);
-  const channelPart =
-    channel || addressType
-      ? ` Channel: ${channel ?? '—'}${addressType ? ` (${addressType})` : ''}.`
-      : '';
-
+    [accountNumber, bankCode].filter(Boolean).join('-') || bloxRequestId;
   return {
-    bankName,
+    bankName: String(instructions.bank_name ?? 'Bank'),
     beneficiary: {
-      name: beneficiaryName,
-      address: pickStr(raw, ['beneficiary_address', 'beneficiaryAddress']) ?? '',
+      name: String(instructions.account_holder_name ?? 'Beneficiary'),
+      address: '',
     },
     ach: undefined,
-    wire,
-    pix,
+    wire: { routingNumber: bankCode, accountNumber },
+    pix: undefined,
     reference: ref,
     depositBy: depositByIso,
-    instruction: `Deposit ${sourceAmount} ${sourceCurrencyUpper} to the account above using reference ${ref} before ${depositByIso}.${channelPart} Crypto is sent after your fiat deposit is confirmed.`,
+    instruction: `Deposit ${sourceAmount} ${sourceCurrencyUpper} to the account above using reference ${ref} before ${depositByIso}. Crypto is sent after your fiat deposit is confirmed.`,
   };
 }
 
-function providerRefsFromFiatDepositRaw(raw: Record<string, unknown>): Record<string, unknown> {
-  return {
-    palremitFiatDeposit: {
-      id: raw.id,
-      reference: raw.reference,
-      channel_reference: raw.channel_reference,
-    },
-  };
+async function pollProvisionedUntilActiveOrFailed(
+  request: PalremitLiquidityRequestFn,
+  accountId: string,
+  opts: { maxAttempts: number; delayMs: number }
+): Promise<{ account: Awaited<ReturnType<typeof getPalremitProvisionedAccount>>; failed: boolean }> {
+  for (let i = 0; i < opts.maxAttempts; i++) {
+    const acc = await getPalremitProvisionedAccount(request, accountId);
+    const st = acc?.state?.toLowerCase() ?? '';
+    if (st === 'active') return { account: acc, failed: false };
+    if (st === 'failed') return { account: acc, failed: true };
+    await sleep(opts.delayMs);
+  }
+  const last = await getPalremitProvisionedAccount(request, accountId);
+  return { account: last, failed: last?.state?.toLowerCase() === 'failed' };
 }
 
 export async function createOnrampPalremitFiatDeposit(
@@ -117,31 +81,81 @@ export async function createOnrampPalremitFiatDeposit(
     txnRef: string;
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
-  const data = await createPalremitFiatDeposit(liquidityRequest, {
-    first_name: params.firstName,
-    last_name: params.lastName,
-    email: params.email,
-    currency: params.currency.toUpperCase(),
-    amount: String(params.amount),
-    txn_ref: params.txnRef,
-  });
-  if (!data) return null;
-  const depositInfo = mapPalremitFiatDepositResponseToDepositInfo(
-    data,
+  const asset = params.currency.trim().toUpperCase();
+  const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' =
+    asset === 'NGN' ? 'FIAT_DEPOSIT_NO_KYC' : 'FIAT_DEPOSIT_KYC';
+
+  const body: Record<string, unknown> = {
+    asset,
+    mode,
+    client_reference: params.txnRef.trim(),
+  };
+
+  if (mode === 'FIAT_DEPOSIT_KYC') {
+    body.kyc_input = {
+      first_name: params.firstName,
+      last_name: params.lastName,
+      email: params.email,
+    };
+  }
+
+  const idempotencyKey = `onramp-fiat-prov:${params.txnRef.trim()}`;
+  const rawRequest = { ...body };
+  const prov = await provisionPalremitDepositAccount(liquidityRequest, body, idempotencyKey);
+  if (!prov) return null;
+
+  let account = prov.account;
+  const rawProvisionResponse = { ...account };
+
+  if (account.state?.toLowerCase() === 'pending' || account.state?.toLowerCase() === 'kyc_pending') {
+    const polled = await pollProvisionedUntilActiveOrFailed(liquidityRequest, account.id, {
+      maxAttempts: 20,
+      delayMs: 2000,
+    });
+    if (polled.failed || !polled.account) return null;
+    account = polled.account;
+  }
+
+  if (account.state?.toLowerCase() !== 'active' || !account.deposit_instructions) {
+    return null;
+  }
+
+  const instr = account.deposit_instructions as PalremitDepositInstructions;
+  if (instr.kind !== 'fiat_account') return null;
+
+  const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+    instr,
     params.bloxRequestId,
     params.depositByIso,
     params.amount,
-    params.currency.toUpperCase()
+    asset
   );
+
   return {
     depositInfo,
-    providerRefs: providerRefsFromFiatDepositRaw(data),
+    providerRefs: {
+      palremitOrchestrator: {
+        provisionedAccountId: account.id,
+        clientReference: account.client_reference,
+        asset,
+        mode,
+        depositAsset: asset,
+        withdrawalAsset: null,
+        network: null,
+        depositStatus: account.state,
+        withdrawalStatus: null,
+        rawProvisionRequest: rawRequest,
+        rawProvisionResponse,
+      },
+    },
   };
 }
 
 export interface PalremitOnrampWithdrawResult {
-  prepareReference: string;
-  confirmed: boolean;
+  withdrawalId: string;
+  clientReference: string;
+  rawWithdrawalRequest: Record<string, unknown>;
+  rawWithdrawalResponse: unknown;
 }
 
 export async function executePalremitOnrampCryptoWithdrawal(
@@ -152,36 +166,32 @@ export async function executePalremitOnrampCryptoWithdrawal(
   destinationAddress: string,
   txnRef: string
 ): Promise<PalremitOnrampWithdrawResult | null> {
-  const fromCurrency = body.source.currency.trim().toUpperCase();
   const destCurrency = body.destination.currency.trim().toUpperCase();
-  /** Must be a Palremit `network_code` from GET /coins/get_coin (validated at ramp creation). */
   const destNetwork = body.destination.chain.trim();
 
-  let appFee: number | undefined;
-  let appFeeCurrency: string | undefined;
-  if (body.fee.type === 'FIX') {
-    appFee = body.fee.value;
-    appFeeCurrency = destCurrency;
-  } else {
-    appFee = receiveNetCryptoAmount * body.fee.value;
-    appFeeCurrency = destCurrency;
-  }
+  /** Net crypto to user wallet (fee already applied in quote). */
+  const sendAmount = Math.max(receiveNetCryptoAmount, 0);
 
-  const prepared = await preparePalremitCryptoWithdrawal(liquidityRequest, {
-    source_amount: body.source.amount,
-    source_currency: fromCurrency,
-    destination_currency: destCurrency,
-    destination_network: destNetwork,
-    destination_address: destinationAddress,
-    destination_token: 'default',
-    app_fee: appFee,
-    app_fee_currency: appFeeCurrency,
-    txn_ref: txnRef,
-  });
-  if (!prepared?.reference) return null;
+  const withdrawalBody: Record<string, unknown> = {
+    client_reference: txnRef.trim(),
+    asset: destCurrency,
+    amount: sendAmount,
+    destination_type: 'crypto_address',
+    network: destNetwork,
+    destination: {
+      address: destinationAddress.trim(),
+      memo: null,
+    },
+  };
 
-  const confirmed = await confirmPalremitCryptoWithdrawal(liquidityRequest, prepared.reference);
-  if (!confirmed) return null;
+  const idempotencyKey = `onramp-crypto-wd:${txnRef.trim()}`;
+  const created = await createPalremitWithdrawal(liquidityRequest, withdrawalBody, idempotencyKey);
+  if (!created?.id) return null;
 
-  return { prepareReference: prepared.reference, confirmed: true };
+  return {
+    withdrawalId: created.id,
+    clientReference: created.client_reference,
+    rawWithdrawalRequest: withdrawalBody,
+    rawWithdrawalResponse: created.raw,
+  };
 }

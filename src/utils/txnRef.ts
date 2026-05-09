@@ -1,5 +1,10 @@
 /**
- * BloxFi-wide transaction reference: opaque, stable, sent to Palremit and echoed in webhooks as `data.txnRef`.
+ * BloxFi-wide transaction reference (ON-… / OFF-…).
+ *
+ * **Palremit Liquidity Orchestrator:** this exact string is sent as `client_reference` on
+ * `POST /v1/provisioned-accounts` and `POST /v1/withdrawals`. Webhooks return the same value as
+ * `data.client_reference` (and on nested `withdrawal.client_reference` where applicable).
+ * BloxFi API surfaces it as `transferDetails.txnRef` and `transferDetails.clientReference` (identical).
  */
 
 import { randomBytes } from 'crypto';

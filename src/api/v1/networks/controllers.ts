@@ -1,5 +1,5 @@
 /**
- * GET /api/v1/networks — Palremit-supported networks per coin (GET /coins/get_coin).
+ * GET /api/v1/networks — Palremit networks per coin (GET /v1/coins/get_coin_network_list, fallback get_coin).
  */
 
 import type { Request, Response, NextFunction } from 'express';

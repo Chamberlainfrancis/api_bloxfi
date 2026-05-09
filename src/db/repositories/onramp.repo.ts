@@ -99,7 +99,12 @@ export async function findOnrampByTxnRef(txnRef: string): Promise<OnrampRow | nu
 export async function updateOnrampStatus(
   id: string,
   status: OnrampStatus,
-  updates?: { receipt?: object | null; failedReason?: string | null; providerRefs?: object | null }
+  updates?: {
+    receipt?: object | null;
+    failedReason?: string | null;
+    providerRefs?: object | null;
+    depositInfo?: object | null;
+  }
 ): Promise<OnrampRow | null> {
   const existing = await prisma.onramp.findUnique({ where: { id } });
   const mergedProviderRefs =
@@ -116,6 +121,7 @@ export async function updateOnrampStatus(
       status: toPrismaStatus(status),
       ...(updates?.receipt !== undefined && { receipt: updates.receipt as object | undefined }),
       ...(updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
+      ...(updates?.depositInfo !== undefined && { depositInfo: updates.depositInfo as object | undefined }),
       ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },
   });

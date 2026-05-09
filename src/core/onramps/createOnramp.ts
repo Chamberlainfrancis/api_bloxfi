@@ -1,6 +1,6 @@
 /**
  * Core: create onramp. Fiat-deposit-first flow:
- * create intent + deposit instructions, then execute §6.2 crypto withdrawal after fiat is processed.
+ * create intent + deposit instructions, then execute crypto withdrawal after fiat is credited.
  */
 
 import { applyOnrampFee } from '@/core/payments';
@@ -28,7 +28,7 @@ export interface CreateOnrampOptions {
     amount: number
   ) => Promise<{ conversionRate: string; conversion: number } | null>;
   /**
-   * Resolve `destination.chain` to a Palremit `network_code` from GET /coins/get_coin.
+   * Resolve `destination.chain` to a Palremit `network_code` from GET /v1/coins/get_coin_network_list (fallback get_coin).
    * Must throw or return canonical code; invalid chain should fail ramp creation.
    */
   resolvePalremitNetwork: (
@@ -36,7 +36,7 @@ export interface CreateOnrampOptions {
     chainFromClient: string,
     field: 'destination.chain'
   ) => Promise<string>;
-  /** Palremit `POST /deposits/create_fiat_deposit` → BloxFi deposit instructions. */
+  /** Palremit `POST /v1/provisioned-accounts` (fiat) → BloxFi deposit instructions. */
   createPalremitFiatDeposit: (params: {
     firstName: string;
     lastName: string;
@@ -284,10 +284,12 @@ export async function createOnramp(
     failedReason: null,
   });
 
+  const ref = row.txnRef ?? txnRef;
   const transferDetails: OnrampTransferDetails = {
     id: row.id,
     requestId: row.requestId,
-    txnRef: row.txnRef ?? txnRef,
+    txnRef: ref,
+    clientReference: ref,
     status: row.status as OnrampStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

@@ -49,8 +49,8 @@ const bloxfiInboundWebhookPayloadSchema = z
     data: val.data,
   }));
 
-/** Palremit §7: { event, data } */
-const palremitWebhookPayloadSchema = z
+/** Legacy Palremit: { event, data } */
+const palremitLegacyWebhookPayloadSchema = z
   .object({
     event: z.string().min(1),
     data: z.record(z.unknown()).optional().default({}),
@@ -70,9 +70,26 @@ const palremitWebhookPayloadSchema = z
     };
   });
 
+/** Palremit Liquidity Orchestrator envelope */
+const palremitOrchestratorWebhookPayloadSchema = z
+  .object({
+    event_id: z.string().min(1),
+    event_type: z.string().min(1),
+    occurred_at: z.string().min(1),
+    correlation_id: z.string().optional(),
+    data: z.record(z.unknown()),
+  })
+  .transform((val) => ({
+    eventId: val.event_id,
+    eventType: val.event_type,
+    timestamp: val.occurred_at,
+    data: val.data,
+  }));
+
 export const inboundWebhookPayloadSchema = z.union([
+  palremitOrchestratorWebhookPayloadSchema,
   bloxfiInboundWebhookPayloadSchema,
-  palremitWebhookPayloadSchema,
+  palremitLegacyWebhookPayloadSchema,
 ]);
 
 export type InboundWebhookPayloadSchema = z.infer<typeof inboundWebhookPayloadSchema>;

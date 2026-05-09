@@ -68,28 +68,36 @@ if (pm.response.code === 200 && pm.response.json().success && pm.response.json()
 }
 ```
 
-### 5. Create Onramp → save `onrampId`
+### 5. Create Onramp → save `onrampId`, `onrampTxnRef`
 
-Expect `transferDetails.status === 'AWAITING_FUNDS'` after create; then **Webhook: onramp.fiat_processed** before **Get Onramp** pays crypto.
+Expect `transferDetails.status === 'AWAITING_FUNDS'` after create; then **Palremit: deposit.credited (onramp fiat)** (with `palremitProvisionedAccountId` from DB) before **Get Onramp** pays crypto.
 
 ```javascript
 var j = pm.response.json();
 if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {
     pm.collectionVariables.set('onrampId', j.data.transferDetails.id);
     console.log('Saved onrampId: ' + j.data.transferDetails.id);
+    if (j.data.transferDetails.txnRef) {
+        pm.collectionVariables.set('onrampTxnRef', j.data.transferDetails.txnRef);
+        console.log('Saved onrampTxnRef: ' + j.data.transferDetails.txnRef);
+    }
     if (j.data.transferDetails.status !== 'AWAITING_FUNDS') {
         console.warn('Expected AWAITING_FUNDS after create; got: ' + j.data.transferDetails.status);
     }
 }
 ```
 
-### 6. Create Offramp → save `offrampId`
+### 6. Create Offramp → save `offrampId`, `offrampTxnRef`
 
 ```javascript
 var j = pm.response.json();
 if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {
     pm.collectionVariables.set('offrampId', j.data.transferDetails.id);
     console.log('Saved offrampId: ' + j.data.transferDetails.id);
+    if (j.data.transferDetails.txnRef) {
+        pm.collectionVariables.set('offrampTxnRef', j.data.transferDetails.txnRef);
+        console.log('Saved offrampTxnRef: ' + j.data.transferDetails.txnRef);
+    }
 }
 ```
 

@@ -1,12 +1,12 @@
 /**
- * When offramp is AWAITING_CRYPTO, §5.5 list deposits; if matched, §6.1 fiat withdrawal.
- * Called from GET /offramps/:id to progress state (or rely on BloxFi-shaped webhooks in parallel).
+ * When offramp is CRYPTO_CONFIRMED, create Palremit fiat withdrawal (/v1/withdrawals).
+ * Deposit confirmation is webhook-driven (`deposit.credited` → CRYPTO_CONFIRMED).
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
   buildPalremitFiatDestinationInformation,
-  tryPalremitOfframpFiatPayout,
+  createPalremitOfframpFiatWithdrawal,
 } from '@/core/integrations/palremitOfframp';
 import type { OfframpStatus } from '@/types/offramp';
 
@@ -21,6 +21,7 @@ export interface OfframpRepoAdvance {
     destination: unknown;
     depositInstructions: unknown;
     timeline: unknown;
+    providerRefs: unknown;
   } | null>;
   updateOfframpStatus(
     id: string,
@@ -28,6 +29,7 @@ export interface OfframpRepoAdvance {
     updates?: {
       timeline?: object | null;
       lpReference?: string | null;
+      providerRefs?: object | null;
     }
   ): Promise<unknown>;
 }
@@ -51,27 +53,11 @@ export async function advanceOfframpIfDepositReady(
   const row = await offrampRepo.findOfframpById(offrampId);
   if (!row?.txnRef) return;
 
-  // Webhook-driven flows may already have moved the offramp past AWAITING_CRYPTO.
-  // As long as fiat hasn't been initiated yet, we can still attempt the payout.
-  const allowedStatuses = new Set<string>([
-    'AWAITING_CRYPTO',
-    'CRYPTO_PENDING',
-    'CRYPTO_RECEIVED',
-    'CRYPTO_CONFIRMED',
-  ]);
-  if (!allowedStatuses.has(row.status)) return;
+  if (row.status !== 'CRYPTO_CONFIRMED') return;
 
   const timeline = (row.timeline as Record<string, unknown>) ?? {};
   if (timeline.fiatWithdrawalCompleted === true) return;
-  if (timeline.fiatWithdrawalReference != null) return;
-
-  const deposit = row.depositInstructions as {
-    address?: string;
-    amount?: string;
-    currency?: string;
-    network?: string;
-  } | null;
-  if (!deposit?.address || !deposit.currency || !deposit.network) return;
+  if (timeline.fiatWithdrawalId != null) return;
 
   const source = row.source as { amount?: number; currency?: string; chain?: string };
   const destination = row.destination as {
@@ -82,7 +68,7 @@ export async function advanceOfframpIfDepositReady(
   };
   const accountId = destination.accountId;
   const userId = row.userId;
-  if (!accountId || !destination.amount) return;
+  if (!accountId || destination.amount == null) return;
 
   const account = await accountRepo.findAccountByIdAndUser(accountId, userId);
   if (!account) return;
@@ -93,35 +79,39 @@ export async function advanceOfframpIfDepositReady(
   );
   if (!destInfo.account_unique) return;
 
-  const expectedAmount = Number(source.amount) ?? parseFloat(String(source.amount));
-  if (!Number.isFinite(expectedAmount) || expectedAmount <= 0) return;
+  const destinationAmount = Number(destination.amount);
+  if (!Number.isFinite(destinationAmount) || destinationAmount <= 0) return;
 
-  const sourceNetwork =
-    source.chain != null && String(source.chain).trim() !== ''
-      ? String(source.chain).trim()
-      : deposit.network;
-
-  const result = await tryPalremitOfframpFiatPayout(liquidityRequest, {
-    offrampId: row.id,
-    requestId: row.requestId,
+  const result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
     txnRef: row.txnRef,
-    expectedCryptoAmount: expectedAmount,
-    depositAddress: deposit.address,
-    sourceCurrency: deposit.currency.toUpperCase(),
-    sourceNetwork,
-    destinationAmount: destination.amount,
+    destinationAmount,
     destinationCurrency: destination.currency ?? 'NGN',
     destinationInformation: destInfo,
   });
 
   if (!result) return;
 
+  const orch = (
+    row.providerRefs && typeof row.providerRefs === 'object' && !Array.isArray(row.providerRefs)
+      ? (row.providerRefs as Record<string, unknown>).palremitOrchestrator
+      : null
+  ) as Record<string, unknown> | null;
+
   await offrampRepo.updateOfframpStatus(row.id, 'FIAT_PENDING', {
     timeline: {
       ...timeline,
-      fiatWithdrawalReference: result.withdrawalReference,
+      fiatWithdrawalId: result.withdrawalId,
       fiatInitiatedAt: new Date().toISOString(),
     },
-    lpReference: result.withdrawalReference,
+    lpReference: result.withdrawalId,
+    providerRefs: {
+      palremitOrchestrator: {
+        ...(orch && typeof orch === 'object' ? orch : {}),
+        withdrawalStatus: 'pending',
+        palremitWithdrawalId: result.withdrawalId,
+        rawFiatWithdrawalRequest: result.rawRequest,
+        rawFiatWithdrawalResponse: result.rawResponse,
+      },
+    },
   });
 }

@@ -1,5 +1,5 @@
 /**
- * Onramp controllers. Palremit `create_fiat_deposit` + rates; §6.2 crypto withdrawal after fiat processed; idempotency: duplicate requestId → 409.
+ * Onramp controllers. Palremit provisioned fiat deposit + rates; crypto withdrawal after `deposit.credited`; idempotency: duplicate requestId → 409.
  */
 
 import type { Request, Response, NextFunction } from 'express';

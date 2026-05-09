@@ -12,7 +12,7 @@ Aggregation API for fiat–crypto on-ramp and off-ramp. The platform owns user f
 - **Offramp** — Crypto → fiat: rates, create order, crypto deposit instructions, cancel
 - **Limits** — Platform limits, user-effective limits, high-value requests
 - **Webhooks** — Inbound LP webhooks (HMAC verification)
-- **Auth** — Bearer API key (32 chars), validated against DB; optional JWT
+- **Auth** — Simple Bearer secret (`API_KEY`)
 - **Idempotency** — `requestId` header on state-changing POSTs (Redis-backed)
 - **Rate limiting** — Redis-backed, configurable window and max requests
 
@@ -40,7 +40,7 @@ git clone <repo-url>
 cd api_bloxfi
 npm install
 cp .env.example .env
-# Edit .env with your DATABASE_URL, REDIS_URL, JWT_SECRET, etc.
+# Edit .env with your DATABASE_URL, REDIS_URL, API_KEY, etc.
 npm run prisma:generate
 npm run prisma:migrate
 ```
@@ -53,7 +53,7 @@ Create `.env` from `.env.example`. Required:
 |----------------|--------------------------------------|
 | `DATABASE_URL` | PostgreSQL connection string         |
 | `REDIS_URL`    | Redis connection string              |
-| `JWT_SECRET`   | At least 32 characters               |
+| `API_KEY`      | Bearer secret for API access         |
 
 Optional / recommended:
 
@@ -66,10 +66,10 @@ Optional / recommended:
 | `RATE_LIMIT_MAX_REQUESTS` | Max requests per window per key (default 100)   |
 | `IDEMPOTENCY_TTL_SECONDS` | TTL for idempotency keys in Redis (default 86400) |
 | `S3_*`                    | S3-compatible storage for file uploads          |
-| `PALREMIT_LIQUIDITY_URL` | Palremit liquidity API (required)                |
-| `PALREMIT_ACCESS_KEY`    | Palremit `access_key` (required)                |
+| `PALREMIT_LIQUIDITY_URL` | Palremit Liquidity Orchestrator base URL (optional; defaults to `https://liquidity.palremit.com`) |
+| `PALREMIT_LIQUIDITY_SECRET` | Tenant credential secret (from signup / rotate) |
 | `PALREMIT_CURRENCY_URL` | Palremit currency/rates API (optional; has default) |
-| `WEBHOOK_SECRET`         | Optional; Palremit webhooks verify with `PALREMIT_ACCESS_KEY` by default |
+| `WEBHOOK_SECRET`         | HMAC secret for inbound Palremit webhooks (`X-Webhook-Signature`) |
 
 See `.env.example` for all supported variables.
 
@@ -84,17 +84,16 @@ See `.env.example` for all supported variables.
 | `npm run prisma:generate` | Generate Prisma client           |
 | `npm run prisma:migrate`  | Run migrations (interactive)     |
 | `npm run db:up`       | Start DB/Redis via Docker Compose    |
-| `npm run create-api-key` | Create an API key (script)       |
 
 ## API overview
 
 Base path: **`/api/v1`**. All authenticated routes require:
 
 ```http
-Authorization: Bearer <apiKey>
+Authorization: Bearer <API_KEY>
 ```
 
-The API key must be 32 alphanumeric characters and exist in the database (use `npm run create-api-key` to create one).
+The API key is a shared secret configured in `API_KEY`.
 
 ### Endpoints
 
@@ -108,6 +107,8 @@ The API key must be 32 alphanumeric characters and exist in the database (use `n
 | **Limits (user)** | `GET /api/v1/users/:userId/limits` |
 | **Wallets** | `POST/GET/PATCH/DELETE /api/v1/users/:userId/wallets/external` — wallet `chain` is a **string** (e.g. `TRX`, `BSC`, `ETH`) |
 | **Accounts** | `POST/GET/DELETE /api/v1/users/:userId/accounts` |
+| **Coins** | `GET /api/v1/coins` — Palremit-supported assets (`get_all_coins`) |
+| **Networks** | `GET /api/v1/networks?coin=…` — chains per asset (`get_coin_network_list`, fallback `get_coin`) |
 | **Onramps** | `GET /api/v1/onramps/rates`, `POST/GET /api/v1/onramps` |
 | **Offramps** | `GET /api/v1/offramps/rates`, `POST/GET /api/v1/offramps`, `POST .../cancel` |
 | **Limits** | `GET /api/v1/limits`, `POST/GET /api/v1/high-value-requests` |
@@ -141,7 +142,7 @@ api_bloxfi/
 │   ├── schema.prisma
 │   └── migrations/
 ├── postman/             # Postman collection and docs for E2E testing
-├── scripts/             # e.g. create-api-key
+├── scripts/             # Utility scripts
 ├── .env.example
 └── package.json
 ```
@@ -149,7 +150,7 @@ api_bloxfi/
 ## Testing with Postman
 
 1. Import **`postman/api_bloxfi.postman_collection.json`** into Postman.
-2. Set collection variables: **`baseUrl`** (e.g. `http://localhost:3000`) and **`apiKey`** (your 32-char key).
+2. Set collection variables: **`baseUrl`** (e.g. `http://localhost:3000`) and **`apiKey`** (must match server `API_KEY`).
 3. Run requests in order; the collection uses **Pre-request Scripts** to generate a new `requestId` for each idempotent POST and **Tests** to save response IDs (`userId`, `fileId`, `accountId`, `walletId`, etc.) into variables.
 
 See **`postman/README.md`** and **`postman/TEST_SCRIPTS_REFERENCE.md`** for the full flow and script reference.

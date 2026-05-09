@@ -105,8 +105,10 @@ export interface OfframpFees {
 export interface OfframpTransferDetails {
   id: string;
   requestId: string;
-  /** BloxFi primary transaction id (OFF-…); echoed by Palremit as webhook data.txnRef */
+  /** BloxFi primary id (OFF-…); same value as `clientReference` and Palremit `client_reference`. */
   txnRef: string;
+  /** Palremit Liquidity Orchestrator `client_reference`; identical to `txnRef` for this integration. */
+  clientReference: string;
   status: OfframpStatus;
   createdAt: string;
   updatedAt: string;

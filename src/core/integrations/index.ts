@@ -1,20 +1,17 @@
 /**
  * Palremit integrations only. HTTP via injected request fns (services/palremitAdapters.ts).
- * docs/palremit_integration_guide.md §5–§6 (deposits + withdrawals).
+ * Liquidity Orchestrator: https://liquidity.palremit.com
  */
 
 export {
   createOfframpPalremitCryptoDeposit,
   buildPalremitFiatDestinationInformation,
-  tryPalremitOfframpFiatPayout,
+  createPalremitOfframpFiatWithdrawal,
 } from '@/core/integrations/palremitOfframp';
-export type {
-  PalremitOfframpDepositResult,
-  PalremitOfframpUserPersistence,
-} from '@/core/integrations/palremitOfframp';
+export type { PalremitOfframpDepositResult } from '@/core/integrations/palremitOfframp';
 export {
   createOnrampPalremitFiatDeposit,
-  mapPalremitFiatDepositResponseToDepositInfo,
+  mapOrchestratorFiatInstructionsToDepositInfo,
   executePalremitOnrampCryptoWithdrawal,
 } from '@/core/integrations/palremitOnramp';
 export type { PalremitOnrampWithdrawResult } from '@/core/integrations/palremitOnramp';
@@ -29,28 +26,23 @@ export {
   fetchPalremitNetworksForCoin,
   resolvePalremitNetworkOrThrow,
   palremitNetworkOptionsFromCoinData,
+  palremitNetworkOptionsFromCoinNetworkList,
 } from '@/core/integrations/palremitCoinNetworks';
 export type { PalremitNetworkOption, PalremitRampChainField } from '@/core/integrations/palremitCoinNetworks';
 export {
-  createPalremitCryptoAddressNewUser,
-  createPalremitCryptoAddress,
-  listPalremitUserCryptoAddresses,
-  createPalremitFiatDeposit,
-  listPalremitCryptoDeposits,
-  createPalremitFiatWithdrawal,
-  confirmPalremitFiatWithdrawal,
-  preparePalremitCryptoWithdrawal,
-  confirmPalremitCryptoWithdrawal,
   getPalremitCoin,
+  getPalremitCoinNetworkList,
+  listPalremitAllCoins,
+  provisionPalremitDepositAccount,
+  getPalremitProvisionedAccount,
+  listPalremitProvisionedAccounts,
+  getPalremitDepositById,
+  createPalremitWithdrawal,
 } from '@/core/integrations/palremitLiquidity';
 export type {
   PalremitLiquidityRequestFn,
-  PalremitCreateCryptoAddressNewUserBody,
-  PalremitCreateCryptoAddressBody,
-  PalremitCreateFiatDepositBody,
-  PalremitCryptoAddress,
-  PalremitCryptoDeposit,
-  PalremitCreateFiatWithdrawalBody,
-  PalremitPrepareCryptoWithdrawalBody,
   PalremitGetCoinData,
+  PalremitProvisionedAccount,
+  PalremitDepositInstructions,
+  PalremitWithdrawalCreateResult,
 } from '@/core/integrations/palremitLiquidity';

@@ -1,6 +1,6 @@
 /**
  * Inbound webhook signature verification.
- * Palremit (integration guide §7.2): X-Webhook-Signature = HMAC-SHA256 of JSON.stringify(parsed payload), secret = access_key (or WEBHOOK_SECRET).
+ * Palremit (legacy + Liquidity Orchestrator): `X-Webhook-Signature` = HMAC-SHA256 hex of raw/canonical body; secret = `WEBHOOK_SECRET`.
  * Accepts either canonical JSON.stringify(body) or raw UTF-8 body if Palremit signs the raw bytes.
  */
 
