@@ -1,6 +1,6 @@
 /**
- * GET /api/v1/banks — Palremit GET /v1/banks (supported banks per payout asset).
- * POST /api/v1/banks/resolve — Palremit POST /v1/banks/resolve (account name lookup).
+ * GET /api/v1/banks — Palremit GET /v1/banks (supported banks per **fiat** payout asset).
+ * POST /api/v1/banks/resolve — partner JSON camelCase; upstream Palremit snake_case. **200:** `data` has `bankCode`, `bankName`, `accountNumber`, `accountName` only (no Palremit `data` wrapper).
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -73,24 +73,40 @@ export async function resolveBankAccount(
     }
     const { asset, bankCode, accountNumber } = parsed.data;
     const resolution = await resolvePalremitBankAccount(palremitLiquidity, {
-      asset,
-      bankCode,
-      accountNumber,
+      asset: asset.trim(),
+      bankCode: bankCode.trim(),
+      accountNumber: accountNumber.trim(),
     });
-    sendSuccess(res, { resolution });
+    sendSuccess(res, { ...resolution });
   } catch (e) {
     if (isHttpError(e)) {
+      const dataKeys =
+        e.data != null && typeof e.data === 'object' && !Array.isArray(e.data)
+          ? Object.keys(e.data as object)
+          : [];
       if (e.status === 400) {
+        console.error('[api/v1/banks/resolve] Palremit HTTP 400', {
+          status: e.status,
+          dataKeys,
+          message: palremitClientErrorMessage(e.data),
+        });
         next(validationError(palremitClientErrorMessage(e.data)));
         return;
       }
+      console.error('[api/v1/banks/resolve] Palremit HTTP error', {
+        status: e.status,
+        dataKeys,
+        errorMessage: e.message,
+      });
       next(new AppError('Palremit bank resolve unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_BANK_RESOLVE_INVALID_RESPONSE') {
+      console.error('[api/v1/banks/resolve] upstream body did not match expected shape', e.message);
       next(new AppError('Palremit bank resolve response invalid', 'BAD_GATEWAY', 502));
       return;
     }
+    console.error('[api/v1/banks/resolve] unexpected error', e);
     next(e);
   }
 }

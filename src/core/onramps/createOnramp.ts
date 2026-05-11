@@ -114,20 +114,6 @@ export interface KybRepoForOnramp {
   >;
 }
 
-function userDisplay(user: { businessInfo?: unknown } | null): {
-  email: string;
-  businessName?: string;
-} {
-  if (!user?.businessInfo || typeof user.businessInfo !== 'object') {
-    return { email: '', businessName: undefined };
-  }
-  const info = user.businessInfo as Record<string, unknown>;
-  return {
-    email: (info.email as string) ?? '',
-    businessName: (info.legalName as string) ?? (info.tradingName as string),
-  };
-}
-
 /** Names for Palremit fiat deposit API (first_name / last_name). */
 function namesForPalremitFiatDeposit(info: Record<string, unknown>): { first: string; last: string } {
   const fn = (info.firstName as string) ?? (info.first_name as string);
@@ -147,6 +133,25 @@ function namesForPalremitFiatDeposit(info: Record<string, unknown>): { first: st
     return { first: parts[0], last: parts.slice(1).join(' ') };
   }
   return { first: 'Customer', last: 'User' };
+}
+
+function userDisplay(user: { businessInfo?: unknown } | null): {
+  email: string;
+  businessName?: string;
+  firstName: string;
+  lastName: string;
+} {
+  if (!user?.businessInfo || typeof user.businessInfo !== 'object') {
+    return { email: '', businessName: undefined, firstName: 'Customer', lastName: 'User' };
+  }
+  const info = user.businessInfo as Record<string, unknown>;
+  const { first, last } = namesForPalremitFiatDeposit(info);
+  return {
+    email: (info.email as string) ?? '',
+    businessName: (info.legalName as string) ?? (info.tradingName as string),
+    firstName: first,
+    lastName: last,
+  };
 }
 
 export async function createOnramp(
@@ -245,7 +250,7 @@ export async function createOnramp(
     user.businessInfo != null && typeof user.businessInfo === 'object' && !Array.isArray(user.businessInfo)
       ? (user.businessInfo as Record<string, unknown>)
       : {};
-  const email = userDisplay(user).email.trim();
+  const email = userDisplayInfo.email.trim();
   if (!email) {
     throw new Error('USER_EMAIL_REQUIRED_FOR_ONRAMP');
   }

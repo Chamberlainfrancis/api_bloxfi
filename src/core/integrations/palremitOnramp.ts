@@ -16,13 +16,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Palremit may echo a virtual-account label (e.g. `Palremit-ON-<hex>`) as `account_holder_name`;
+ * that is not the end-user's name. Do not treat other `Palremit-…` strings (e.g. partner test names) as synthetic.
+ */
+function isPalremitSyntheticHolderName(name: string): boolean {
+  return /^Palremit-(ON|OFF)-[a-f0-9]+$/i.test(name.trim());
+}
+
+function resolveFiatBeneficiaryName(
+  instructions: PalremitDepositInstructions,
+  preferredFromKyc?: string
+): string {
+  const pref = preferredFromKyc?.trim() ?? '';
+  if (pref) return pref;
+  if (instructions.kind !== 'fiat_account') return 'Beneficiary';
+  const fromOrchestrator = String(instructions.account_holder_name ?? '').trim();
+  if (fromOrchestrator && !isPalremitSyntheticHolderName(fromOrchestrator)) {
+    return fromOrchestrator;
+  }
+  return 'Beneficiary';
+}
+
+/** Build display name from persisted onramp `source.user` (KYC + businessName). */
+export function beneficiaryDisplayNameFromOnrampSource(source: unknown): string | undefined {
+  if (source == null || typeof source !== 'object' || Array.isArray(source)) return undefined;
+  const u = (source as { user?: Record<string, unknown> }).user;
+  if (!u || typeof u !== 'object') return undefined;
+  const fn = typeof u.firstName === 'string' ? u.firstName.trim() : '';
+  const ln = typeof u.lastName === 'string' ? u.lastName.trim() : '';
+  const joined = [fn, ln].filter(Boolean).join(' ').trim();
+  if (joined) return joined;
+  const biz = typeof u.businessName === 'string' ? u.businessName.trim() : '';
+  if (biz) return biz;
+  return undefined;
+}
+
 /** Map orchestrator `deposit_instructions` (fiat_account) → BloxFi DepositInfo. */
 export function mapOrchestratorFiatInstructionsToDepositInfo(
   instructions: PalremitDepositInstructions,
   bloxRequestId: string,
   depositByIso: string,
   sourceAmount: number,
-  sourceCurrencyUpper: string
+  sourceCurrencyUpper: string,
+  preferredBeneficiaryName?: string
 ): DepositInfo {
   if (instructions.kind !== 'fiat_account') {
     return {
@@ -40,7 +77,7 @@ export function mapOrchestratorFiatInstructionsToDepositInfo(
   return {
     bankName: String(instructions.bank_name ?? 'Bank'),
     beneficiary: {
-      name: String(instructions.account_holder_name ?? 'Beneficiary'),
+      name: resolveFiatBeneficiaryName(instructions, preferredBeneficiaryName),
       address: '',
     },
     ach: undefined,
@@ -123,12 +160,19 @@ export async function createOnrampPalremitFiatDeposit(
   const instr = account.deposit_instructions as PalremitDepositInstructions;
   if (instr.kind !== 'fiat_account') return null;
 
+  const preferredBeneficiaryName = [params.firstName, params.lastName]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+
   const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
     instr,
     params.bloxRequestId,
     params.depositByIso,
     params.amount,
-    asset
+    asset,
+    preferredBeneficiaryName
   );
 
   return {

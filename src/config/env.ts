@@ -21,7 +21,7 @@ const envSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
-  // Palremit Liquidity Orchestrator (new-liquidity-api): Bearer secret + /v1/* deposits & withdrawals.
+  // Palremit Liquidity Orchestrator: Bearer secret + /v1/*. Default host https://liquidity.palremit.com if unset.
   PALREMIT_LIQUIDITY_URL: z.string().url().optional(),
   /** One-time secret from tenant signup / rotate. */
   PALREMIT_LIQUIDITY_SECRET: z.string().min(1, "PALREMIT_LIQUIDITY_SECRET is required"),

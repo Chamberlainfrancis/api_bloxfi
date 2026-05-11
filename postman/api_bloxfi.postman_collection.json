@@ -608,7 +608,7 @@
     },
     {
       "name": "Banks",
-      "description": "Palremit [Banks](https://liquidity.palremit.com/docs#tag/banks) for local bank payouts (offramp fiat). Upstream: `GET /v1/banks`, `POST /v1/banks/resolve`. Collection variable **`banksAsset`** (default **NGN**).",
+      "description": "Palremit [Banks](https://liquidity.palremit.com/docs#tag/banks) — **fiat only**. BloxFi: camelCase JSON. Server calls **`https://liquidity.palremit.com`** (override with **`PALREMIT_LIQUIDITY_URL`**). Collection variable **`banksAsset`** (default **NGN**).",
       "item": [
         {
           "name": "List banks for asset",
@@ -638,7 +638,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "banks", "resolve"]
             },
-            "description": "**Body:** `asset`, `bankCode`, `accountNumber` (BloxFi camelCase; maps to Palremit `bank_code` / `account_number`). **200:** `resolution` with `bankCode`, `bankName`, `accountNumber`, `accountName`. **400** validation or account resolution failure. **502** if Palremit unavailable. Bearer **`apiKey`**."
+            "description": "**Body (camelCase):** `asset`, `bankCode`, `accountNumber`; optional `destinationType` `bank_account`. Upstream: Palremit snake_case. **200:** `data` = `bankCode`, `bankName`, `accountNumber`, `accountName` (no Palremit `data` / `resolution` wrapper). **400** / **502** as usual. Bearer **`apiKey`**."
           }
         }
       ]

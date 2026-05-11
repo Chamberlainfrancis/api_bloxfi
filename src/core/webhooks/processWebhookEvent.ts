@@ -10,7 +10,10 @@ import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
 import { isOnrampTxnRef, isOfframpTxnRef } from '@/utils/txnRef';
-import { mapOrchestratorFiatInstructionsToDepositInfo } from '@/core/integrations/palremitOnramp';
+import {
+  beneficiaryDisplayNameFromOnrampSource,
+  mapOrchestratorFiatInstructionsToDepositInfo,
+} from '@/core/integrations/palremitOnramp';
 import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/palremitOfframp';
 import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
 
@@ -432,12 +435,14 @@ export async function processWebhookEvent(
           (qi?.expiresAt && String(qi.expiresAt).trim()) ||
           new Date(Date.now() + 7 * 86400000).toISOString();
         const src = onramp.source as { currency?: string; amount?: number };
+        const preferredBeneficiary = beneficiaryDisplayNameFromOnrampSource(onramp.source);
         const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
           instructions,
           onramp.requestId,
           depositByIso,
           typeof src.amount === 'number' ? src.amount : 0,
           (src.currency ?? '').trim().toUpperCase() || 'FIAT',
+          preferredBeneficiary,
         );
         const nextStatus: OnrampStatus =
           onramp.status === 'CREATED' || onramp.status === 'FIAT_PENDING'

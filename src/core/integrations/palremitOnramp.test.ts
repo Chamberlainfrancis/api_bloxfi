@@ -23,4 +23,45 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
     expect(depositInfo.bankName).toBe('Kuda Microfinance Bank');
     expect(depositInfo.beneficiary.name).toBe('Palremit-BloxFi Test Corp');
   });
+
+  it('prefers KYC display name over orchestrator account_holder_name', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '7000746820',
+      bank_code: '090267',
+      bank_name: 'Kuda Microfinance Bank',
+      account_holder_name: 'Palremit-ON-3cb51f7df3a85a4e71b03b50',
+    };
+
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
+      'blox-request-id',
+      '2026-04-24T08:27:35.726Z',
+      20000,
+      'NGN',
+      'Jane Q. Customer'
+    );
+
+    expect(depositInfo.beneficiary.name).toBe('Jane Q. Customer');
+  });
+
+  it('ignores synthetic Palremit holder name when no KYC override is passed', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '7000746820',
+      bank_code: '090267',
+      bank_name: 'Kuda Microfinance Bank',
+      account_holder_name: 'Palremit-ON-3cb51f7df3a85a4e71b03b50',
+    };
+
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
+      'blox-request-id',
+      '2026-04-24T08:27:35.726Z',
+      20000,
+      'NGN'
+    );
+
+    expect(depositInfo.beneficiary.name).toBe('Beneficiary');
+  });
 });

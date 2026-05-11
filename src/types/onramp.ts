@@ -46,6 +46,8 @@ export interface OnrampDestination {
   user?: {
     email: string;
     businessName?: string;
+    firstName?: string;
+    lastName?: string;
   };
 }
 

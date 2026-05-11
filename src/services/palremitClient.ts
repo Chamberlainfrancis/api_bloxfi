@@ -1,7 +1,7 @@
 /**
  * Palremit API clients. No business logic; external I/O only.
  * - Currency API (currency-api.palremit.com): rates — GET /pairs, POST /pairs/conversion
- * - Liquidity Orchestrator (liquidity.palremit.com): Bearer secret, /v1/* deposits & withdrawals
+ * - Liquidity Orchestrator: Bearer secret, /v1/* — default `https://liquidity.palremit.com` (override with `PALREMIT_LIQUIDITY_URL`).
  */
 
 import { env } from '@/config/env';
