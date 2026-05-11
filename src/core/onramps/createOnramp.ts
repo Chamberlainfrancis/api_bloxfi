@@ -82,7 +82,11 @@ export interface OnrampRepoCreate {
 }
 
 export interface UserRepoForOnramp {
-  findUserById(id: string): Promise<{ id: string; businessInfo: unknown } | null>;
+  findUserById(id: string): Promise<{
+    id: string;
+    businessInfo: unknown;
+    legalRepresentative: unknown;
+  } | null>;
 }
 
 export interface AccountRepoForOnramp {
@@ -114,7 +118,14 @@ export interface KybRepoForOnramp {
   >;
 }
 
-/** Names for Palremit fiat deposit API (first_name / last_name). */
+function asObjectRecord(x: unknown): Record<string, unknown> | null {
+  if (x != null && typeof x === 'object' && !Array.isArray(x)) {
+    return x as Record<string, unknown>;
+  }
+  return null;
+}
+
+/** Names for Palremit fiat deposit API (first_name / last_name) when no legal rep person fields exist. */
 function namesForPalremitFiatDeposit(info: Record<string, unknown>): { first: string; last: string } {
   const fn = (info.firstName as string) ?? (info.first_name as string);
   const ln = (info.lastName as string) ?? (info.last_name as string);
@@ -135,22 +146,57 @@ function namesForPalremitFiatDeposit(info: Record<string, unknown>): { first: st
   return { first: 'Customer', last: 'User' };
 }
 
-function userDisplay(user: { businessInfo?: unknown } | null): {
+/**
+ * BloxFi business users store the natural person on `legalRepresentative` (firstName, lastName, email).
+ * Palremit KYC + deposit beneficiary should use that; fall back to businessInfo-derived names / business email.
+ */
+function resolveOnrampUserIdentity(user: {
+  businessInfo?: unknown;
+  legalRepresentative?: unknown;
+}): { firstName: string; lastName: string; email: string } {
+  const businessInfo = asObjectRecord(user.businessInfo) ?? {};
+  const lr = asObjectRecord(user.legalRepresentative);
+
+  const lrFn = typeof lr?.firstName === 'string' ? lr.firstName.trim() : '';
+  const lrLn = typeof lr?.lastName === 'string' ? lr.lastName.trim() : '';
+  const lrEmail = typeof lr?.email === 'string' ? lr.email.trim() : '';
+
+  let firstName: string;
+  let lastName: string;
+  if (lrFn && lrLn) {
+    firstName = lrFn;
+    lastName = lrLn;
+  } else if (lrFn) {
+    firstName = lrFn;
+    lastName = lrFn;
+  } else {
+    const n = namesForPalremitFiatDeposit(businessInfo);
+    firstName = n.first;
+    lastName = n.last;
+  }
+
+  const bizEmail = typeof businessInfo.email === 'string' ? businessInfo.email.trim() : '';
+  const email = lrEmail || bizEmail;
+  return { firstName, lastName, email };
+}
+
+function userDisplay(user: { businessInfo?: unknown; legalRepresentative?: unknown } | null): {
   email: string;
   businessName?: string;
   firstName: string;
   lastName: string;
 } {
-  if (!user?.businessInfo || typeof user.businessInfo !== 'object') {
-    return { email: '', businessName: undefined, firstName: 'Customer', lastName: 'User' };
-  }
-  const info = user.businessInfo as Record<string, unknown>;
-  const { first, last } = namesForPalremitFiatDeposit(info);
+  const identity = resolveOnrampUserIdentity(user ?? {});
+  const info = asObjectRecord(user?.businessInfo);
+  const businessName =
+    info != null
+      ? ((info.legalName as string) ?? (info.tradingName as string))?.trim() || undefined
+      : undefined;
   return {
-    email: (info.email as string) ?? '',
-    businessName: (info.legalName as string) ?? (info.tradingName as string),
-    firstName: first,
-    lastName: last,
+    email: identity.email,
+    businessName,
+    firstName: identity.firstName,
+    lastName: identity.lastName,
   };
 }
 
@@ -246,15 +292,11 @@ export async function createOnramp(
     user: userDisplayInfo,
   };
 
-  const businessInfo =
-    user.businessInfo != null && typeof user.businessInfo === 'object' && !Array.isArray(user.businessInfo)
-      ? (user.businessInfo as Record<string, unknown>)
-      : {};
   const email = userDisplayInfo.email.trim();
   if (!email) {
     throw new Error('USER_EMAIL_REQUIRED_FOR_ONRAMP');
   }
-  const { first: firstName, last: lastName } = namesForPalremitFiatDeposit(businessInfo);
+  const { firstName, lastName } = resolveOnrampUserIdentity(user);
 
   const txnRef = generateOnrampTxnRef();
 
