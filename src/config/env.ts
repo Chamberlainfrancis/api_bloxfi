@@ -28,6 +28,14 @@ const envSchema = z.object({
   PALREMIT_CURRENCY_URL: z.string().url().optional(),
   /** HMAC for inbound orchestrator webhooks (`X-Webhook-Signature`). */
   WEBHOOK_SECRET: z.string().min(1, "WEBHOOK_SECRET is required"),
+  /**
+   * Accept Palremit deliveries with no signature when the orchestrator has no usable signing secret.
+   * Use only with additional transport controls (mTLS, IP allowlist, private link). Default: reject unsigned.
+   */
+  WEBHOOK_ALLOW_UNSIGNED: z
+    .string()
+    .optional()
+    .transform((s) => s === "true" || s === "1"),
 });
 
 export type Env = z.infer<typeof envSchema>;

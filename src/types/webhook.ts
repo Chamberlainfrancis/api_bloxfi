@@ -37,12 +37,23 @@ export type WebhookEventType =
   | 'high_value_request.approved'
   | 'high_value_request.rejected';
 
+/** Palremit Liquidity Orchestrator outbound webhook `event_type` values (see LP docs). */
+export type PalremitLiquidityWebhookEventType =
+  | "deposit.credited"
+  | "withdrawal.successful"
+  | "withdrawal.failed"
+  | "provisioned_account.active"
+  | "provisioned_account.failed"
+  | "provisioned_account.kyc_pending";
+
 export interface InboundWebhookPayload {
   eventId: string;
   /** BloxFi LP event names or other provider strings. */
   eventType: string;
   timestamp: string; // ISO 8601
   data: Record<string, unknown>;
+  /** Present when payload is Palremit Liquidity Orchestrator envelope. */
+  correlationId?: string;
 }
 
 /** KYB status webhook data */

@@ -123,24 +123,27 @@ export async function handleInboundWebhook(req: Request, res: Response, next: Ne
     const rawUtf8 = truncateWebhookRawBody(rawBody.toString("utf8"));
 
     const signature = getHeader(req, WEBHOOK_SIGNATURE_HEADER);
+    const allowUnsigned = env.WEBHOOK_ALLOW_UNSIGNED === true;
 
     if (!signature) {
-      await logInbound("bad_signature", {
-        rawBody: rawUtf8,
-        errorMessage: "Missing X-Webhook-Signature header",
-      });
-      next(new AppError("Missing X-Webhook-Signature header", "INVALID_REQUEST", 400));
-      return;
-    }
-
-    const secret = env.WEBHOOK_SECRET;
-    if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
-      await logInbound("bad_signature", {
-        rawBody: rawUtf8,
-        errorMessage: "HMAC verification failed",
-      });
-      next(new AppError("Invalid webhook signature", "UNAUTHORIZED", 401));
-      return;
+      if (!allowUnsigned) {
+        await logInbound("bad_signature", {
+          rawBody: rawUtf8,
+          errorMessage: "Missing X-Webhook-Signature header",
+        });
+        next(new AppError("Missing X-Webhook-Signature header", "INVALID_REQUEST", 400));
+        return;
+      }
+    } else {
+      const secret = env.WEBHOOK_SECRET;
+      if (!verifyPalremitWebhookSignature(rawUtf8, secret, signature)) {
+        await logInbound("bad_signature", {
+          rawBody: rawUtf8,
+          errorMessage: "HMAC verification failed",
+        });
+        next(new AppError("Invalid webhook signature", "UNAUTHORIZED", 401));
+        return;
+      }
     }
 
     let parsed: unknown;
@@ -167,6 +170,19 @@ export async function handleInboundWebhook(req: Request, res: Response, next: Ne
     }
 
     const payload: InboundWebhookPayload = result.data;
+
+    const headerEventType = getHeader(req, "x-liquidity-event-type")?.trim();
+    if (headerEventType && headerEventType !== payload.eventType) {
+      const msg = `X-Liquidity-Event-Type (${headerEventType}) does not match body event_type (${payload.eventType})`;
+      await logInbound("bad_schema", {
+        rawBody: rawUtf8,
+        eventType: payload.eventType,
+        eventId: payload.eventId,
+        errorMessage: msg,
+      });
+      next(new AppError(msg, "INVALID_REQUEST", 400));
+      return;
+    }
 
     const dataObj = payload.data as Record<string, unknown>;
     const liquidityEventId = getHeader(req, "x-liquidity-event-id")?.trim();

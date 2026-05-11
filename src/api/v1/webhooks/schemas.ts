@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+/** Palremit Liquidity Orchestrator `event_type` (webhooks-outbound). */
+export const palremitLiquidityWebhookEventTypeSchema = z.enum([
+  'deposit.credited',
+  'withdrawal.successful',
+  'withdrawal.failed',
+  'provisioned_account.active',
+  'provisioned_account.failed',
+  'provisioned_account.kyc_pending',
+]);
+
 const bloxfiWebhookEventTypeSchema = z.enum([
   'user.created',
   'user.status_updated',
@@ -70,19 +80,20 @@ const palremitLegacyWebhookPayloadSchema = z
     };
   });
 
-/** Palremit Liquidity Orchestrator envelope */
+/** Palremit Liquidity Orchestrator envelope (`Webhook*Payload` in `data`). */
 const palremitOrchestratorWebhookPayloadSchema = z
   .object({
     event_id: z.string().min(1),
-    event_type: z.string().min(1),
+    event_type: palremitLiquidityWebhookEventTypeSchema,
     occurred_at: z.string().min(1),
-    correlation_id: z.string().optional(),
+    correlation_id: z.string().min(1).optional(),
     data: z.record(z.unknown()),
   })
   .transform((val) => ({
     eventId: val.event_id,
     eventType: val.event_type,
     timestamp: val.occurred_at,
+    correlationId: val.correlation_id,
     data: val.data,
   }));
 

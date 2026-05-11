@@ -10,6 +10,9 @@ import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
 import { isOnrampTxnRef, isOfframpTxnRef } from '@/utils/txnRef';
+import { mapOrchestratorFiatInstructionsToDepositInfo } from '@/core/integrations/palremitOnramp';
+import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/palremitOfframp';
+import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
 
 export interface WebhookRepos {
   user: {
@@ -27,10 +30,12 @@ export interface WebhookRepos {
     findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
     findOnrampByTxnRef(txnRef: string): Promise<{
       id: string;
+      requestId: string;
       status: string;
       txnRef: string | null;
       providerRefs: unknown;
       source: unknown;
+      quoteInformation: unknown;
     } | null>;
     updateOnrampStatus(
       id: string,
@@ -54,6 +59,7 @@ export interface WebhookRepos {
       source: unknown;
       depositInstructions: unknown;
       timeline: unknown;
+      rateInformation: unknown;
     } | null>;
     updateOfframpStatus(
       id: string,
@@ -139,8 +145,11 @@ export async function processWebhookEvent(
       const provId =
         typeof dep.provisioned_account_id === 'string' ? dep.provisioned_account_id.trim() : '';
       const depState = typeof dep.state === 'string' ? dep.state.toLowerCase() : '';
+      const hasCreditedAt =
+        typeof dep.credited_at === 'string' && dep.credited_at.trim() !== '';
       const depMode = typeof dep.mode === 'string' ? dep.mode : '';
-      if (!provId || depState !== 'credited') break;
+      // LP payload uses `credited_at` on `deposit.credited`; `state` may be absent.
+      if (!provId || !(depState === 'credited' || hasCreditedAt)) break;
 
       const assetObj = dep.asset;
       const assetCode =
@@ -384,6 +393,159 @@ export async function processWebhookEvent(
               ...(orch ?? {}),
               withdrawalStatus: 'failed',
               rawWithdrawalFailedPayload: d,
+            },
+          },
+        });
+      }
+      break;
+    }
+
+    case 'provisioned_account.active': {
+      const accountObj = d.account;
+      if (accountObj == null || typeof accountObj !== 'object' || Array.isArray(accountObj)) {
+        break;
+      }
+      const account = accountObj as Record<string, unknown>;
+      const clientRef =
+        typeof account.client_reference === 'string' ? account.client_reference.trim() : '';
+      const accId = typeof account.id === 'string' ? account.id.trim() : '';
+      const mode = typeof account.mode === 'string' ? account.mode : '';
+      const accState = typeof account.state === 'string' ? account.state.toLowerCase() : '';
+      if (!clientRef || !accId || accState !== 'active') break;
+
+      const instrRaw = account.deposit_instructions;
+      if (instrRaw == null || typeof instrRaw !== 'object' || Array.isArray(instrRaw)) break;
+      const instructions = instrRaw as PalremitDepositInstructions;
+
+      if (isOnrampTxnRef(clientRef) && mode.startsWith('FIAT_DEPOSIT')) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
+        if (!onramp) break;
+        if (!['AWAITING_FUNDS', 'FIAT_PENDING', 'CREATED'].includes(onramp.status)) break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        if (instructions.kind !== 'fiat_account') break;
+
+        const qi = onramp.quoteInformation as { expiresAt?: string } | undefined;
+        const depositByIso =
+          (qi?.expiresAt && String(qi.expiresAt).trim()) ||
+          new Date(Date.now() + 7 * 86400000).toISOString();
+        const src = onramp.source as { currency?: string; amount?: number };
+        const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+          instructions,
+          onramp.requestId,
+          depositByIso,
+          typeof src.amount === 'number' ? src.amount : 0,
+          (src.currency ?? '').trim().toUpperCase() || 'FIAT',
+        );
+        const nextStatus: OnrampStatus =
+          onramp.status === 'CREATED' || onramp.status === 'FIAT_PENDING'
+            ? 'AWAITING_FUNDS'
+            : (onramp.status as OnrampStatus);
+        await repos.onramp.updateOnrampStatus(onramp.id, nextStatus, {
+          depositInfo: depositInfo as object,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              depositStatus: 'active',
+              rawProvisionActivePayload: d,
+            },
+          },
+        });
+        break;
+      }
+
+      if (isOfframpTxnRef(clientRef) && mode === 'CRYPTO_DEPOSIT') {
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
+        if (!offramp) break;
+        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING'].includes(offramp.status)) break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        if (instructions.kind !== 'crypto_address') break;
+
+        const ri = offramp.rateInformation as { expiresAt?: string } | undefined;
+        const prevDi =
+          offramp.depositInstructions != null &&
+          typeof offramp.depositInstructions === 'object' &&
+          !Array.isArray(offramp.depositInstructions)
+            ? (offramp.depositInstructions as { depositBy?: string })
+            : undefined;
+        const depositBy =
+          (ri?.expiresAt && String(ri.expiresAt).trim()) ||
+          (prevDi?.depositBy && String(prevDi.depositBy).trim()) ||
+          new Date(Date.now() + 7 * 86400000).toISOString();
+        const src = offramp.source as { amount?: number; currency?: string };
+        const di = mapCryptoInstructionsToDepositInstructions(
+          instructions,
+          typeof src.amount === 'number' ? src.amount : 0,
+          depositBy,
+          (src.currency ?? '').trim().toUpperCase() || 'CRYPTO',
+        );
+        if (!di) break;
+        await repos.offramp.updateOfframpStatus(offramp.id, 'AWAITING_CRYPTO', {
+          depositInstructions: di as object,
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              depositStatus: 'active',
+              rawProvisionActivePayload: d,
+            },
+          },
+        });
+      }
+      break;
+    }
+
+    case 'provisioned_account.kyc_pending': {
+      const accountObj = d.account;
+      if (accountObj == null || typeof accountObj !== 'object' || Array.isArray(accountObj)) {
+        break;
+      }
+      const account = accountObj as Record<string, unknown>;
+      const clientRef =
+        typeof account.client_reference === 'string' ? account.client_reference.trim() : '';
+      const accId = typeof account.id === 'string' ? account.id.trim() : '';
+      const mode = typeof account.mode === 'string' ? account.mode : '';
+      const accState = typeof account.state === 'string' ? account.state.toLowerCase() : '';
+      if (!clientRef || !accId || accState !== 'kyc_pending') break;
+
+      if (isOnrampTxnRef(clientRef) && mode.startsWith('FIAT_DEPOSIT')) {
+        const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
+        if (!onramp) break;
+        if (!['AWAITING_FUNDS', 'FIAT_PENDING', 'CREATED'].includes(onramp.status)) break;
+        const orch = getPalremitOrchestrator(onramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        await repos.onramp.updateOnrampStatus(onramp.id, onramp.status as OnrampStatus, {
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              provisionState: 'kyc_pending',
+              rawProvisionKycPendingPayload: d,
+            },
+          },
+        });
+        break;
+      }
+
+      if (isOfframpTxnRef(clientRef) && mode === 'CRYPTO_DEPOSIT') {
+        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
+        if (!offramp) break;
+        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING'].includes(offramp.status)) break;
+        const orch = getPalremitOrchestrator(offramp.providerRefs);
+        const expectedProv =
+          typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
+        if (!expectedProv || expectedProv !== accId) break;
+        await repos.offramp.updateOfframpStatus(offramp.id, offramp.status as OfframpStatus, {
+          providerRefs: {
+            palremitOrchestrator: {
+              ...(orch ?? {}),
+              provisionState: 'kyc_pending',
+              rawProvisionKycPendingPayload: d,
             },
           },
         });

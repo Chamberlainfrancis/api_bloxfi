@@ -17,7 +17,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function mapCryptoInstructionsToDepositInstructions(
+export function mapCryptoInstructionsToDepositInstructions(
   instr: PalremitDepositInstructions,
   amount: number,
   depositBy: string,
