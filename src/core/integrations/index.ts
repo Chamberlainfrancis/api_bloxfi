@@ -46,3 +46,12 @@ export type {
   PalremitDepositInstructions,
   PalremitWithdrawalCreateResult,
 } from '@/core/integrations/palremitLiquidity';
+export {
+  listPalremitBanksForAsset,
+  resolvePalremitBankAccount,
+} from '@/core/integrations/palremitBanks';
+export type {
+  PalremitBankRow,
+  PalremitBankResolveInput,
+  PalremitBankResolveResult,
+} from '@/core/integrations/palremitBanks';

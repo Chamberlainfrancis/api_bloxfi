@@ -20,6 +20,7 @@
     { "key": "offrampCryptoAssetCode", "value": "USDT", "description": "Crypto asset in deposit.credited; must match Create Offramp source.currency" },
     { "key": "offrampCryptoNetwork", "value": "POLYGON", "description": "Network in deposit.credited; must match Create Offramp source.chain" },
     { "key": "networksCoinCode", "value": "USDT", "description": "Coin for GET /api/v1/networks?coin=… (e.g. USDT, USDC)" },
+    { "key": "banksAsset", "value": "NGN", "description": "Fiat asset for GET /api/v1/banks?asset=… and Resolve bank account body" },
     { "key": "highValueRequestId", "value": "" },
     { "key": "requestId", "value": "705f1f8b-a080-467c-b683-174eca409928" },
     { "key": "webhookSecret", "value": "", "description": "WEBHOOK_SECRET — used to sign POST /api/v1/webhooks" }
@@ -601,6 +602,43 @@
               ]
             },
             "description": "**Query:** `coin` or `coinCode` (required). **200:** `coinCode`, `networks` (`code`, `name`, `depositEnabled`, `withdrawEnabled`). **400** if coin missing. **502** if Palremit coin metadata fails. Bearer **`apiKey`**."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Banks",
+      "description": "Palremit [Banks](https://liquidity.palremit.com/docs#tag/banks) for local bank payouts (offramp fiat). Upstream: `GET /v1/banks`, `POST /v1/banks/resolve`. Collection variable **`banksAsset`** (default **NGN**).",
+      "item": [
+        {
+          "name": "List banks for asset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/banks?asset={{banksAsset}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "banks"],
+              "query": [{ "key": "asset", "value": "{{banksAsset}}" }]
+            },
+            "description": "**Query:** `asset` (required), payout fiat (e.g. **NGN**). **200:** `asset`, `banks[]` with `code`, `name`, `country`, `status`. **400** validation or upstream errors (message from provider). **502** if Palremit unavailable or invalid response. Bearer **`apiKey`**."
+          }
+        },
+        {
+          "name": "Resolve bank account",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset\": \"{{banksAsset}}\",\n  \"bankCode\": \"044\",\n  \"accountNumber\": \"0123456789\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/banks/resolve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "banks", "resolve"]
+            },
+            "description": "**Body:** `asset`, `bankCode`, `accountNumber` (BloxFi camelCase; maps to Palremit `bank_code` / `account_number`). **200:** `resolution` with `bankCode`, `bankName`, `accountNumber`, `accountName`. **400** validation or account resolution failure. **502** if Palremit unavailable. Bearer **`apiKey`**."
           }
         }
       ]

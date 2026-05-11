@@ -1,0 +1,96 @@
+/**
+ * GET /api/v1/banks — Palremit GET /v1/banks (supported banks per payout asset).
+ * POST /api/v1/banks/resolve — Palremit POST /v1/banks/resolve (account name lookup).
+ */
+
+import type { Request, Response, NextFunction } from 'express';
+import { sendSuccess } from '@/utils';
+import { AppError } from '@/types';
+import { isHttpError } from '@/services/http';
+import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
+import {
+  listPalremitBanksForAsset,
+  resolvePalremitBankAccount,
+} from '@/core/integrations/palremitBanks';
+import { listBanksQuerySchema, resolveBankBodySchema } from '@/api/v1/banks/schemas';
+
+const palremitLiquidity = createPalremitLiquidityAdapter();
+
+function validationError(message: string, details?: unknown): AppError {
+  return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
+}
+
+function palremitClientErrorMessage(data: unknown): string {
+  if (data != null && typeof data === 'object' && !Array.isArray(data)) {
+    const o = data as Record<string, unknown>;
+    const msg = o.message;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    const err = o.error;
+    if (typeof err === 'string' && err.trim()) return err.trim();
+  }
+  return 'Request rejected by liquidity provider';
+}
+
+export async function listBanks(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const parsed = listBanksQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      const message = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const asset = parsed.data.asset.trim().toUpperCase();
+    const banks = await listPalremitBanksForAsset(palremitLiquidity, asset);
+    sendSuccess(res, { asset, banks });
+  } catch (e) {
+    if (isHttpError(e)) {
+      if (e.status === 400) {
+        next(validationError(palremitClientErrorMessage(e.data)));
+        return;
+      }
+      next(new AppError('Palremit banks unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_BANKS_INVALID_RESPONSE') {
+      next(new AppError('Palremit banks response invalid', 'BAD_GATEWAY', 502));
+      return;
+    }
+    next(e);
+  }
+}
+
+export async function resolveBankAccount(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = resolveBankBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors.map((er) => `${er.path.join('.')}: ${er.message}`).join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const { asset, bankCode, accountNumber } = parsed.data;
+    const resolution = await resolvePalremitBankAccount(palremitLiquidity, {
+      asset,
+      bankCode,
+      accountNumber,
+    });
+    sendSuccess(res, { resolution });
+  } catch (e) {
+    if (isHttpError(e)) {
+      if (e.status === 400) {
+        next(validationError(palremitClientErrorMessage(e.data)));
+        return;
+      }
+      next(new AppError('Palremit bank resolve unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_BANK_RESOLVE_INVALID_RESPONSE') {
+      next(new AppError('Palremit bank resolve response invalid', 'BAD_GATEWAY', 502));
+      return;
+    }
+    next(e);
+  }
+}

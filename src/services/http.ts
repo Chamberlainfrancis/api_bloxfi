@@ -23,6 +23,15 @@ export type HttpError<T = unknown> = Error & {
   headers?: Record<string, string>;
 };
 
+/** True when `httpRequest` threw after a non-2xx response (includes parsed `data` body). */
+export function isHttpError<T = unknown>(e: unknown): e is HttpError<T> {
+  return (
+    e instanceof Error &&
+    typeof (e as HttpError).status === 'number' &&
+    typeof (e as HttpError).statusCode === 'number'
+  );
+}
+
 /**
  * Send HTTP request and parse JSON response. Throws on non-2xx or network error.
  */
