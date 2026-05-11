@@ -33,6 +33,11 @@ const createOfframpDestinationSchema = z.object({
   purposeOfPayment: z.string().min(1),
 });
 
+/** POST /offramps/:id/retry-fiat-payout — must match offramp.userId (ownership guard). */
+export const retryOfframpFiatPayoutBodySchema = z.object({
+  userId: z.string().uuid(),
+});
+
 export const createOfframpBodySchema = z
   .object({
     requestId: z.string().uuid().optional(),

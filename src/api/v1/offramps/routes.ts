@@ -12,6 +12,11 @@ const router = Router();
 router.get('/rates', controllers.getOfframpRates);
 router.post('/', idempotencyMiddleware, controllers.createOfframp);
 router.get('/', controllers.listOfframps);
+router.post(
+  '/:id/retry-fiat-payout',
+  idempotencyMiddleware,
+  controllers.retryOfframpFiatPayout
+);
 router.get('/:id', controllers.getOfframp);
 router.post('/:id/cancel', controllers.cancelOfframp);
 

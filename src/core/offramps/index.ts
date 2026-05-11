@@ -4,3 +4,4 @@ export { getOfframp } from '@/core/offramps/getOfframp';
 export { listOfframps } from '@/core/offramps/listOfframps';
 export { cancelOfframp } from '@/core/offramps/cancelOfframp';
 export { advanceOfframpIfDepositReady } from '@/core/offramps/advanceOfframpPayout';
+export { retryOfframpFiatPayout, type RetryOfframpFiatPayoutResult } from '@/core/offramps/retryOfframpFiatPayout';

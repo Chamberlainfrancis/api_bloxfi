@@ -27,6 +27,8 @@ export interface PalremitBankResolveResult {
 
 interface PalremitDataEnvelope<T> {
   data?: T;
+  status?: string;
+  message?: string;
 }
 
 function parseBankRow(raw: unknown): PalremitBankRow | null {
@@ -60,9 +62,54 @@ export async function listPalremitBanksForAsset(
   return rows.map(parseBankRow).filter((x): x is PalremitBankRow => x != null);
 }
 
-function readString(o: Record<string, unknown>, snake: string, camel: string): string {
-  const v = o[snake] ?? o[camel];
-  return typeof v === 'string' ? v.trim() : '';
+/** Read string-ish JSON fields (Palremit sometimes returns numbers for codes / account numbers). */
+function readStrField(o: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t) return t;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      const s = String(v);
+      if (s) return s;
+    }
+    if (typeof v === 'bigint') {
+      const s = String(v);
+      if (s) return s;
+    }
+  }
+  return '';
+}
+
+/**
+ * Normalize resolve payload: OpenAPI shows `{ data: { bank_code, ... } }`, but the orchestrator
+ * may return a flat object at the root (like `POST /v1/provisioned-accounts`) or a LegacyEnvelope
+ * `{ status, message, data }` where `data` holds the bank fields.
+ */
+function unwrapBankResolveRecord(body: unknown): Record<string, unknown> | null {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const root = body as Record<string, unknown>;
+
+  const hasResolveKeys = (o: Record<string, unknown>) =>
+    readStrField(o, 'bank_code', 'bankCode') !== '' ||
+    readStrField(o, 'account_number', 'accountNumber') !== '';
+
+  if (hasResolveKeys(root)) return root;
+
+  const nested = root.data;
+  if (nested != null && typeof nested === 'object' && !Array.isArray(nested)) {
+    const inner = nested as Record<string, unknown>;
+    if (hasResolveKeys(inner)) return inner;
+
+    const innerData = inner.data;
+    if (innerData != null && typeof innerData === 'object' && !Array.isArray(innerData)) {
+      const deep = innerData as Record<string, unknown>;
+      if (hasResolveKeys(deep)) return deep;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -82,14 +129,22 @@ export async function resolvePalremitBankAccount(
     method: 'POST',
     body,
   });
-  const d = res.data?.data;
-  if (d == null || typeof d !== 'object' || Array.isArray(d)) {
+  const d = unwrapBankResolveRecord(res.data);
+  if (!d) {
     throw new Error('PALREMIT_BANK_RESOLVE_INVALID_RESPONSE');
   }
-  const bankCode = readString(d, 'bank_code', 'bankCode');
-  const bankName = readString(d, 'bank_name', 'bankName');
-  const accountNumber = readString(d, 'account_number', 'accountNumber');
-  const accountName = readString(d, 'account_name', 'accountName');
+  const bankCode = readStrField(d, 'bank_code', 'bankCode');
+  const bankName = readStrField(d, 'bank_name', 'bankName');
+  const accountNumber = readStrField(d, 'account_number', 'accountNumber');
+  const accountName = readStrField(
+    d,
+    'account_name',
+    'accountName',
+    'account_holder_name',
+    'accountHolderName',
+    'beneficiary_name',
+    'beneficiaryName'
+  );
   if (!bankCode || !bankName || !accountNumber || !accountName) {
     throw new Error('PALREMIT_BANK_RESOLVE_INVALID_RESPONSE');
   }

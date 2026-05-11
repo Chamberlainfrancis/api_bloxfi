@@ -33,6 +33,7 @@ import {
   createOfframpBodySchema,
   getOfframpRatesQuerySchema,
   listOfframpsQuerySchema,
+  retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
 
 const REQUEST_ID_HEADER = 'requestid';
@@ -224,21 +225,77 @@ export async function getOfframp(
 ): Promise<void> {
   try {
     const { id } = req.params;
-    await offrampCore.advanceOfframpIfDepositReady(
-      {
-        findOfframpById: repos.offramp.findOfframpById,
-        updateOfframpStatus: repos.offramp.updateOfframpStatus,
-      },
-      { findAccountByIdAndUser: repos.account.findAccountByIdAndUser },
-      palremitLiquidity,
-      id
-    );
     const result = await offrampCore.getOfframp(repos.offramp, id);
     if (!result) {
       next(new AppError('Offramp not found', 'NOT_FOUND', 404));
       return;
     }
     sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * POST /offramps/:id/retry-fiat-payout
+ * Bearer API key + requestId header + body.userId must match offramp owner.
+ * Idempotent: existing Palremit withdrawal id → 200 without second LP call.
+ */
+export async function retryOfframpFiatPayout(
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = retryOfframpFiatPayoutBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors
+        .map((e) => `${e.path.join('.')}: ${e.message}`)
+        .join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const { id } = req.params;
+    const outcome = await offrampCore.retryOfframpFiatPayout(
+      {
+        findOfframpById: repos.offramp.findOfframpById,
+        updateOfframpStatus: repos.offramp.updateOfframpStatus,
+      },
+      { findAccountByIdAndUser: repos.account.findAccountByIdAndUser },
+      palremitLiquidity,
+      { offrampId: id, userId: parsed.data.userId }
+    );
+
+    if (outcome.status === 'rejected') {
+      next(new AppError(outcome.message, outcome.code, outcome.statusCode));
+      return;
+    }
+
+    if (outcome.status === 'failed_to_initiate') {
+      next(
+        new AppError(outcome.message, 'FIAT_PAYOUT_NOT_INITIATED', 422, {
+          txnRef: outcome.txnRef,
+        })
+      );
+      return;
+    }
+
+    const details = await offrampCore.getOfframp(repos.offramp, id);
+    sendSuccess(
+      res,
+      {
+        retry:
+          outcome.status === 'initiated'
+            ? { status: 'initiated', withdrawalId: outcome.withdrawalId, txnRef: outcome.txnRef }
+            : {
+                status: 'already_initiated',
+                withdrawalId: outcome.withdrawalId,
+                txnRef: outcome.txnRef,
+              },
+        transferDetails: details?.transferDetails ?? null,
+      },
+      200
+    );
   } catch (e) {
     next(e);
   }
