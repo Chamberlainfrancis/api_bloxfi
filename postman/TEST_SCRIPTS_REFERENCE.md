@@ -1,6 +1,6 @@
 # Postman test scripts reference
 
-- **Pre-request Script** (`listen: "prerequest"`): Runs before the request. Used on every idempotent POST to **auto-generate a new UUID** and set the collection variable `requestId`, so you don’t have to change it manually. You’ll see it in the **Pre-request Script** tab for: Create Business User, Update KYB, Submit KYB, Add External Wallet, Create Account (onramp/offramp), Create Onramp, Create Offramp, Create High-Value Request.
+- **Pre-request Script** (`listen: "prerequest"`): Runs before the request. Used on every idempotent POST to **auto-generate a new UUID** and set the collection variable `requestId`, so you don’t have to change it manually. You’ll see it in the **Pre-request Script** tab for: Create Business User, Update KYB, Submit KYB, Add External Wallet, Create Account (onramp/offramp), Create Onramp, Create Offramp, Retry Fiat Payout, Create High-Value Request.
 - **Test script** (`listen: "test"`): Runs after the response. Used to auto-save response IDs (userId, fileId, etc.) into collection variables. Shown in the **Tests** tab.
 
 ---

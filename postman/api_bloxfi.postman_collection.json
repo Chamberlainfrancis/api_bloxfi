@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**Offramp fiat payout:** After **`deposit.credited`** (crypto), the server advances from webhook code. If fiat withdrawal did not start (e.g. missing bank code), fix the account then **Retry Fiat Payout** (`POST …/retry-fiat-payout`) — not **Get Offramp** (read-only).\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -759,7 +759,7 @@
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). **Create Offramp** → **`AWAITING_CRYPTO`** + deposit address. After real crypto + **`deposit.credited`** (crypto), **Get Offramp** may create fiat withdrawal (**`FIAT_PENDING`**). Set **`palremitProvisionedAccountId`** from DB for webhook tests.",
+      "description": "Crypto → fiat (Palremit). **Create Offramp** → **`AWAITING_CRYPTO`** + deposit address. After **`deposit.credited`** (crypto), webhook handler sets **`CRYPTO_CONFIRMED`** and tries Palremit fiat withdrawal. If that fails silently, use **Retry Fiat Payout** (status **`CRYPTO_CONFIRMED`**, body **`userId`** = offramp owner). **Get Offramp** is read-only. Set **`palremitProvisionedAccountId`** from DB for webhook tests.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -864,7 +864,44 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "offramps", "{{offrampId}}"]
             },
-            "description": "200: transferDetails. **Side effect:** when **`CRYPTO_CONFIRMED`**, may start fiat withdrawal. Requires **`deposit.credited`** webhook from Palremit first."
+            "description": "200: transferDetails. Read-only. Fiat payout runs from the **`deposit.credited`** webhook path; use **Retry Fiat Payout** if you need to retry after fixing destination bank details."
+          }
+        },
+        {
+          "name": "Retry Fiat Payout",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/{{offrampId}}/retry-fiat-payout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps", "{{offrampId}}", "retry-fiat-payout"]
+            },
+            "description": "**`CRYPTO_CONFIRMED`** only. **`userId`** must match the offramp owner (same as Create Offramp). Fresh **`requestId`** per run (idempotency). **200** `retry.status`: **`initiated`** (new Palremit withdrawal, same **`txnRef`** as `client_reference`) or **`already_initiated`** (no duplicate LP call). **403** wrong userId; **422** wrong status or payout still could not start (e.g. bank details)."
           }
         },
         {
@@ -965,7 +1002,7 @@
     },
     {
       "name": "Webhooks",
-      "description": "`POST /api/v1/webhooks` — no Bearer auth. **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator uses **`event_id`**, **`event_type`**, **`occurred_at`**, **`data`**; scripts set **`X-Liquidity-Event-Id`** (new UUID per send, dedupe) and sign the **exact** JSON string with HMAC-SHA256 → **`X-Webhook-Signature`**.\n\n**Onramp:** **Create Onramp** → set **`palremitProvisionedAccountId`** from DB → **deposit.credited (onramp fiat)** → **Get Onramp**. **Offramp:** **Create Offramp** → same prov id + **deposit.credited (offramp crypto)** → **Get Offramp**.",
+      "description": "`POST /api/v1/webhooks` — no Bearer auth. **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator uses **`event_id`**, **`event_type`**, **`occurred_at`**, **`data`**; scripts set **`X-Liquidity-Event-Id`** (new UUID per send, dedupe) and sign the **exact** JSON string with HMAC-SHA256 → **`X-Webhook-Signature`**.\n\n**Onramp:** **Create Onramp** → set **`palremitProvisionedAccountId`** from DB → **deposit.credited (onramp fiat)** → **Get Onramp**. **Offramp:** **Create Offramp** → same prov id + **deposit.credited (offramp crypto)** (webhook advances crypto + attempts fiat). If fiat did not start, **Retry Fiat Payout**. **Get Offramp** is read-only.",
       "item": [
         {
           "name": "Inbound webhook (BloxFi-shaped)",
@@ -1141,7 +1178,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "webhooks"]
             },
-            "description": "Orchestrator **`deposit.credited`** for offramp: **`CRYPTO_DEPOSIT`**, asset/network must match **Create Offramp** `source`. Then **Get Offramp**."
+            "description": "Orchestrator **`deposit.credited`** for offramp: **`CRYPTO_DEPOSIT`**, asset/network must match **Create Offramp** `source`. Webhook sets **`CRYPTO_CONFIRMED`** and attempts fiat payout. Use **Retry Fiat Payout** if payout did not start; **Get Offramp** only reads state."
           }
         },
         {

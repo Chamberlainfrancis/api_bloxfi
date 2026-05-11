@@ -47,6 +47,7 @@ BloxFi API
 │   ├── Create Offramp
 │   ├── List Offramps
 │   ├── Get Offramp
+│   ├── Retry Fiat Payout
 │   └── Cancel Offramp
 ├── Limits
 │   ├── Get Limits
@@ -78,6 +79,7 @@ BloxFi API
    - `walletId` — from Add External Wallet
    - `onrampId`, `onrampTxnRef` — from Create Onramp (`txnRef` is used as Palremit `client_reference`)
    - `offrampId`, `offrampTxnRef` — from Create Offramp
+   - **Retry Fiat Payout** uses `{{offrampId}}`, `{{userId}}`, and a fresh `requestId` (pre-request script); run when offramp is **`CRYPTO_CONFIRMED`** and fiat withdrawal did not start (e.g. after fixing bank code).
    - `highValueRequestId` — from Create High-Value Request
 
    You can also set these manually from response bodies or the DB if you run requests out of order.
@@ -103,7 +105,7 @@ BloxFi API
 17. **Get Offramp Rates** (optional).
 18. **Create Offramp** — includes required `destination.purposeOfPayment` and `platformFee.walletAddress`; new `requestId`; `offrampId` is auto-saved. Expect **`AWAITING_CRYPTO`** and crypto **deposit instructions**.
 19. **Palremit: deposit.credited (offramp crypto)** — after user sends crypto (or to simulate), with `webhookSecret`, **`palremitProvisionedAccountId`**, and **`offrampTxnRef`** set.
-20. **Get Offramp** — may start fiat payout after **`CRYPTO_CONFIRMED`**. **Cancel Offramp** (optional).
+20. **Get Offramp** — read-only; verify status after webhook (**`CRYPTO_CONFIRMED`** / **`FIAT_PENDING`**). If crypto is confirmed but fiat did not start, **Retry Fiat Payout** (body **`userId`** must match offramp owner). **Cancel Offramp** (optional).
 21. **Get Limits** — platform limits.
 22. **Get User Limits** — user-effective limits (uses `{{userId}}`).
 23. **Create High-Value Request** — body `requestId` must match header; new `requestId`; `highValueRequestId` is auto-saved.
@@ -154,6 +156,7 @@ The collection uses **Bearer token** auth at the collection level. Set `apiKey` 
 | Offramps | POST   | `/api/v1/offramps` | Yes |
 | Offramps | GET    | `/api/v1/offramps` | — |
 | Offramps | GET    | `/api/v1/offramps/:id` | — |
+| Offramps | POST   | `/api/v1/offramps/:id/retry-fiat-payout` | Yes |
 | Offramps | POST   | `/api/v1/offramps/:id/cancel` | — |
 | Limits   | GET    | `/api/v1/limits` | — |
 | Limits   | POST   | `/api/v1/high-value-requests` | Yes |

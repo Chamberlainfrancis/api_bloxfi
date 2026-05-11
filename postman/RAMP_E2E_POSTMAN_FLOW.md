@@ -184,7 +184,7 @@ Exact enums are defined in application types (`OnrampStatus`, `OfframpStatus`).
 [ ] User → KYB chain → Account (onramp) → Wallet
 [ ] Onramps: Rates → Create → (DB: provisioned account id) → Webhook deposit.credited fiat → Get Onramp → (optional withdrawal.successful crypto)
 [ ] Account (offramp) if needed → Wallet aligned to crypto network
-[ ] Offramps: Rates → Create → Webhook deposit.credited crypto → Get Offramp → (withdrawal successful fiat when scripted)
+[ ] Offramps: Rates → Create → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat when scripted)
 ```
 
 This document is the single reference for **Postman-only** ramp QA; pair it with `postman/README.md` for variable names and request naming.
