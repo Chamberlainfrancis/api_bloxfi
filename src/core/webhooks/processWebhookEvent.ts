@@ -294,21 +294,26 @@ export async function processWebhookEvent(
         if (wmode !== 'FIAT_WITHDRAWAL') break;
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
-        if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+        // Include CRYPTO_CONFIRMED: fiat can succeed at LP while our row never reached FIAT_*
+        // (e.g. advanceOfframpIfDepositReady returned early or LP lag vs DB).
+        if (!['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED'].includes(offramp.status)) break;
         const orch = getPalremitOrchestrator(offramp.providerRefs);
         const wid = typeof w.id === 'string' ? w.id.trim() : '';
         const expectedWid =
           typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
-        if (expectedWid && wid && expectedWid !== wid) break;
-
-        const prevTimeline =
+        const timeline =
           offramp.timeline != null && typeof offramp.timeline === 'object' && !Array.isArray(offramp.timeline)
             ? (offramp.timeline as Record<string, unknown>)
             : {};
+        const timelineWd =
+          typeof timeline.fiatWithdrawalId === 'string' ? timeline.fiatWithdrawalId.trim() : '';
+        const expectedFromDb = expectedWid || timelineWd;
+        if (expectedFromDb && wid && expectedFromDb !== wid) break;
+
         await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
           receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
           timeline: {
-            ...prevTimeline,
+            ...timeline,
             completedAt: new Date().toISOString(),
             fiatWithdrawalCompleted: true,
           } as object,
@@ -380,12 +385,19 @@ export async function processWebhookEvent(
         if (wmode !== 'FIAT_WITHDRAWAL') break;
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
-        if (!['FIAT_PENDING', 'FIAT_INITIATED'].includes(offramp.status)) break;
+        if (!['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED'].includes(offramp.status)) break;
         const orch = getPalremitOrchestrator(offramp.providerRefs);
         const wid = typeof w.id === 'string' ? w.id.trim() : '';
         const expectedWid =
           typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
-        if (expectedWid && wid && expectedWid !== wid) break;
+        const timeline =
+          offramp.timeline != null && typeof offramp.timeline === 'object' && !Array.isArray(offramp.timeline)
+            ? (offramp.timeline as Record<string, unknown>)
+            : {};
+        const timelineWd =
+          typeof timeline.fiatWithdrawalId === 'string' ? timeline.fiatWithdrawalId.trim() : '';
+        const expectedFromDb = expectedWid || timelineWd;
+        if (expectedFromDb && wid && expectedFromDb !== wid) break;
 
         await repos.offramp.updateOfframpStatus(offramp.id, 'FAILED', {
           failedReason: reason,
