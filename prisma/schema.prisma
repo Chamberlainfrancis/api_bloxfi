@@ -171,6 +171,8 @@ model ExternalWallet {
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   address     String // blockchain address
+  /** Optional chain-specific tag / memo (e.g. XRP destination tag) for withdrawals. */
+  memo        String?
   /**
    * Chain/network label provided by client (string). Do not validate against DB; validate at LP boundary.
    */

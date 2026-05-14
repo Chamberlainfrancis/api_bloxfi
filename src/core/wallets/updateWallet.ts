@@ -13,11 +13,12 @@ export interface WalletRepoUpdate {
   updateExternalWallet(
     walletId: string,
     userId: string,
-    data: { name?: string; active?: boolean }
+    data: { name?: string; active?: boolean; memo?: string | null }
   ): Promise<{
     id: string;
     userId: string;
     address: string;
+    memo: string | null;
     chain: string;
     name: string;
     referenceId: string;
@@ -31,6 +32,7 @@ function toExternalWallet(row: {
   id: string;
   userId: string;
   address: string;
+  memo: string | null;
   chain: string;
   name: string;
   referenceId: string;
@@ -42,6 +44,7 @@ function toExternalWallet(row: {
     id: row.id,
     userId: row.userId,
     address: row.address,
+    ...(row.memo != null && row.memo !== '' ? { memo: row.memo } : {}),
     chain: row.chain as BlockchainNetwork,
     name: row.name,
     referenceId: row.referenceId,
@@ -60,6 +63,12 @@ export async function updateExternalWallet(
   const updated = await repo.updateExternalWallet(walletId, userId, {
     name: data.name,
     active: data.active,
+    ...(data.memo !== undefined && {
+      memo:
+        data.memo === null || (typeof data.memo === 'string' && data.memo.trim() === '')
+          ? null
+          : data.memo.trim(),
+    }),
   });
   if (!updated) return null;
   return toExternalWallet(updated);

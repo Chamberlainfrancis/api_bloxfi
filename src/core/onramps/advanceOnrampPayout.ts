@@ -42,7 +42,8 @@ export interface ExecutePalremitOnrampWithdrawalFn {
     requestId: string,
     receiveNetCryptoAmount: number,
     destinationAddress: string,
-    txnRef: string
+    txnRef: string,
+    destinationMemo?: string | null
   ): Promise<{
     withdrawalId: string;
     rawWithdrawalRequest: Record<string, unknown>;
@@ -85,6 +86,7 @@ export async function advanceOnrampIfFiatProcessed(
     walletAddress?: string;
     externalWalletId?: string;
     userId?: string;
+    memo?: string;
   };
   const developerFee = row.developerFee as { amount?: string; currency?: string } | null;
   const receiveNet = Number(destination.amount);
@@ -114,6 +116,10 @@ export async function advanceOnrampIfFiatProcessed(
     rawWithdrawalResponse: unknown;
   } | null = null;
   try {
+    const destMemo =
+      typeof destination.memo === 'string' && destination.memo.trim() !== ''
+        ? destination.memo.trim()
+        : undefined;
     result = await executePalremitCryptoWithdrawal(
       {
         source: {
@@ -133,7 +139,8 @@ export async function advanceOnrampIfFiatProcessed(
       row.requestId,
       receiveNet,
       destination.walletAddress,
-      row.txnRef
+      row.txnRef,
+      destMemo
     );
   } catch {
     result = null;

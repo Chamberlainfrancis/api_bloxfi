@@ -43,6 +43,8 @@ export interface OnrampDestination {
   currency: string;
   chain: string;
   walletAddress: string;
+  /** Copied from external wallet when present; forwarded to LP crypto withdrawal `destination.memo`. */
+  memo?: string;
   externalWalletId: string;
   amount: number;
   user?: {

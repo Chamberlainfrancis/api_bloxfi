@@ -96,6 +96,7 @@ export interface WalletRepoForOnramp {
   ): Promise<{
     id: string;
     address: string;
+    memo: string | null;
     chain: string;
     userId: string;
   } | null>;
@@ -274,6 +275,9 @@ export async function createOnramp(
     externalWalletId: dest.externalWalletId,
     amount: receiveNet,
     user: userDisplayInfo,
+    ...(wallet.memo != null && wallet.memo.trim() !== ''
+      ? { memo: wallet.memo.trim() }
+      : {}),
   };
 
   const email = userDisplayInfo.email.trim();

@@ -15,6 +15,7 @@ export interface WalletRepoGet {
     id: string;
     userId: string;
     address: string;
+    memo: string | null;
     chain: string;
     name: string;
     referenceId: string;
@@ -28,6 +29,7 @@ function toExternalWallet(row: {
   id: string;
   userId: string;
   address: string;
+  memo: string | null;
   chain: string;
   name: string;
   referenceId: string;
@@ -39,6 +41,7 @@ function toExternalWallet(row: {
     id: row.id,
     userId: row.userId,
     address: row.address,
+    ...(row.memo != null && row.memo !== '' ? { memo: row.memo } : {}),
     chain: row.chain as BlockchainNetwork,
     name: row.name,
     referenceId: row.referenceId,

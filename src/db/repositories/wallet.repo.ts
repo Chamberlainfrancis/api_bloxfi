@@ -12,6 +12,8 @@ export interface CreateExternalWalletData {
   chain: BlockchainNetwork;
   name: string;
   referenceId: string;
+  /** Optional chain tag / memo for payouts (e.g. XRP destination tag). */
+  memo?: string | null;
   active?: boolean;
 }
 
@@ -19,6 +21,7 @@ export async function createExternalWallet(data: CreateExternalWalletData): Prom
   id: string;
   userId: string;
   address: string;
+  memo: string | null;
   chain: string;
   name: string;
   referenceId: string;
@@ -26,6 +29,8 @@ export async function createExternalWallet(data: CreateExternalWalletData): Prom
   createdAt: Date;
   updatedAt: Date | null;
 }> {
+  const memoTrim =
+    typeof data.memo === 'string' && data.memo.trim() !== '' ? data.memo.trim() : null;
   const wallet = await prisma.externalWallet.create({
     data: {
       userId: data.userId,
@@ -33,6 +38,7 @@ export async function createExternalWallet(data: CreateExternalWalletData): Prom
       chain: data.chain.trim(),
       name: data.name.trim(),
       referenceId: data.referenceId.trim(),
+      memo: memoTrim,
       active: data.active ?? true,
     },
   });
@@ -50,6 +56,7 @@ export async function findExternalWalletByIdAndUser(
   id: string;
   userId: string;
   address: string;
+  memo: string | null;
   chain: string;
   name: string;
   referenceId: string;
@@ -76,6 +83,7 @@ export async function listExternalWallets(params: ListExternalWalletsParams): Pr
     id: string;
     userId: string;
     address: string;
+    memo: string | null;
     chain: string;
     name: string;
     referenceId: string;
@@ -124,11 +132,12 @@ export async function listExternalWallets(params: ListExternalWalletsParams): Pr
 export async function updateExternalWallet(
   walletId: string,
   userId: string,
-  data: { name?: string; active?: boolean }
+  data: { name?: string; active?: boolean; memo?: string | null }
 ): Promise<{
   id: string;
   userId: string;
   address: string;
+  memo: string | null;
   chain: string;
   name: string;
   referenceId: string;
@@ -136,11 +145,19 @@ export async function updateExternalWallet(
   createdAt: Date;
   updatedAt: Date | null;
 } | null> {
+  const memoUpdate =
+    data.memo === undefined
+      ? {}
+      : {
+          memo:
+            typeof data.memo === 'string' && data.memo.trim() !== '' ? data.memo.trim() : null,
+        };
   const updated = await prisma.externalWallet.updateMany({
     where: { id: walletId, userId },
     data: {
       ...(data.name !== undefined && { name: data.name.trim() }),
       ...(data.active !== undefined && { active: data.active }),
+      ...memoUpdate,
       updatedAt: new Date(),
     },
   });

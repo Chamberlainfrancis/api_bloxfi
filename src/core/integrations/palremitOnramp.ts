@@ -214,7 +214,8 @@ export async function executePalremitOnrampCryptoWithdrawal(
   _requestId: string,
   receiveNetCryptoAmount: number,
   destinationAddress: string,
-  txnRef: string
+  txnRef: string,
+  destinationMemo?: string | null
 ): Promise<PalremitOnrampWithdrawResult | null> {
   const destCurrency = body.destination.currency.trim().toUpperCase();
   const destNetwork = body.destination.chain.trim();
@@ -222,16 +223,23 @@ export async function executePalremitOnrampCryptoWithdrawal(
   /** Net crypto to user wallet (fee already applied in quote). */
   const sendAmount = Math.max(receiveNetCryptoAmount, 0);
 
+  const memoTrim =
+    typeof destinationMemo === 'string' && destinationMemo.trim() !== ''
+      ? destinationMemo.trim()
+      : undefined;
+
+  const destination: Record<string, unknown> = {
+    address: destinationAddress.trim(),
+    ...(memoTrim !== undefined ? { memo: memoTrim } : {}),
+  };
+
   const withdrawalBody: Record<string, unknown> = {
     client_reference: txnRef.trim(),
     asset: destCurrency,
     amount: sendAmount,
     destination_type: 'crypto_address',
     network: destNetwork,
-    destination: {
-      address: destinationAddress.trim(),
-      memo: null,
-    },
+    destination,
   };
 
   const idempotencyKey = `onramp-crypto-wd:${txnRef.trim()}`;

@@ -10,6 +10,7 @@ export const addExternalWalletBodySchema = z.object({
   chain: z.string().min(1, 'chain is required'),
   name: z.string().min(1, 'name is required'),
   referenceId: z.string().min(1, 'referenceId is required'),
+  memo: z.string().min(1).max(512).optional(),
 });
 
 /** GET /users/:userId/wallets/external query - cursor pagination and filters */
@@ -23,10 +24,11 @@ export const listExternalWalletsQuerySchema = z.object({
     .transform((v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
 });
 
-/** PATCH /users/:userId/wallets/external/:walletId body - name and active only */
+/** PATCH /users/:userId/wallets/external/:walletId body - name, active, memo */
 export const updateExternalWalletBodySchema = z.object({
   name: z.string().min(1).optional(),
   active: z.boolean().optional(),
+  memo: z.union([z.string().min(1).max(512), z.null()]).optional(),
 });
 
 export type AddExternalWalletBody = z.infer<typeof addExternalWalletBodySchema>;

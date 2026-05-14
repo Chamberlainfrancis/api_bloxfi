@@ -46,8 +46,16 @@ const webhookRepos = {
           updateOnrampStatus: onrampRepo.updateOnrampStatus,
         },
         onrampId,
-        (b, rid, receiveNet, destAddr, txnRef) =>
-          executePalremitOnrampCryptoWithdrawal(palremitLiquidity, b, rid, receiveNet, destAddr, txnRef),
+        (b, rid, receiveNet, destAddr, txnRef, destMemo) =>
+          executePalremitOnrampCryptoWithdrawal(
+            palremitLiquidity,
+            b,
+            rid,
+            receiveNet,
+            destAddr,
+            txnRef,
+            destMemo
+          ),
       );
     },
   },

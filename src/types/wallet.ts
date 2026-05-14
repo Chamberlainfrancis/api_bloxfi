@@ -9,6 +9,8 @@ export interface ExternalWallet {
   id: string;
   userId: string;
   address: string;
+  /** Optional chain tag / memo for withdrawals (e.g. XRP destination tag). */
+  memo?: string | null;
   chain: BlockchainNetwork;
   name: string;
   referenceId: string;
@@ -24,6 +26,8 @@ export interface AddExternalWalletRequest {
   chain: BlockchainNetwork;
   name: string;
   referenceId: string;
+  /** Optional tag / memo required by some networks for deposits or payouts. */
+  memo?: string | null;
 }
 
 export type AddExternalWalletResponse = ExternalWallet;
@@ -52,6 +56,7 @@ export type GetExternalWalletResponse = ExternalWallet;
 export interface UpdateExternalWalletRequest {
   name?: string;
   active?: boolean;
+  memo?: string | null;
 }
 
 export type UpdateExternalWalletResponse = ExternalWallet;
