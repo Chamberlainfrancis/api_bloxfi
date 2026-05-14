@@ -521,7 +521,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts"]
             },
-            "description": "Sample **USD offramp** (US bank): `details.bankCode` → Palremit `destination.bank_code` (e.g. US ABA routing). **International USD** (e.g. UK IBAN): set `bankCode` (BIC) + `details.country` / beneficiary country (ISO-2); `accountNumber` or `iban`."
+            "description": "One **USD / global bank** account shape for all corridors: `details.accountNumber` (US number or IBAN string), `details.bankCode` → Palremit `bank_code`, `transferDetails`, ISO-2 `country` / beneficiary `country`. Do not use `details.iban`."
           }
         },
         {

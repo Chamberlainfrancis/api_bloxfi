@@ -2,6 +2,7 @@
  * Zod for USD Palremit `global_bank_account`:
  * - Account `details.transferDetails` (camelCase): rail, beneficiary, settlement fields.
  * - Account `details.bankCode` → outbound `destination.bank_code`.
+ * - Palremit `destination.account_number` is sourced from `details.accountNumber` only (same schema for US and international identifiers).
  * - **`palremitUsdGlobalBankDestinationSchema`** validates the **outbound** Palremit payload (snake_case).
  */
 

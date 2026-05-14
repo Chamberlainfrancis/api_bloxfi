@@ -1,6 +1,12 @@
 /**
  * Zod schemas for offramp payout Account endpoints. Spec §3.
  * Single `details` object with required `currency`; `type` is a free-form region label.
+ *
+ * **USD / global bank (Palremit `global_bank_account`)** — one shape for every corridor
+ * (US domestic, international, IBAN countries, etc.): same keys; only values differ.
+ * Use `details.accountNumber` for any bank account identifier (US account number or IBAN).
+ * Do not send `details.iban`. `details.bankCode` maps to Palremit `destination.bank_code`
+ * (US ABA routing or BIC). Optional `accountType` / `bankCountry` / `country` follow settlement needs.
  */
 
 import { z } from 'zod';
@@ -38,7 +44,6 @@ export const regionDetailsSchema = z
     transferType: z.string().optional().nullable(),
     accountType: z.string().optional().nullable(),
     accountNumber: z.string().optional().nullable(),
-    iban: z.string().optional().nullable(),
     routingNumber: z.string().optional().nullable(),
     bankCode: z.string().optional().nullable(),
     bankName: z.string().optional().nullable(),
@@ -130,11 +135,19 @@ export const createAccountBodySchema = z
         message: 'Omit details.transferType for USD accounts; use details.transferDetails.payoutRail',
       });
     }
-    if (!String(d.accountNumber ?? '').trim() && !String(d.iban ?? '').trim()) {
+    if (String(d.iban ?? '').trim() !== '') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['details', 'iban'],
+        message:
+          'Omit details.iban. Use details.accountNumber for all bank identifiers (US account number or international IBAN).',
+      });
+    }
+    if (!String(d.accountNumber ?? '').trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['details', 'accountNumber'],
-        message: 'USD payout accounts require details.accountNumber or details.iban',
+        message: 'USD payout accounts require details.accountNumber',
       });
     }
     const bankCode = String(d.bankCode ?? d.bank_code ?? '').trim();

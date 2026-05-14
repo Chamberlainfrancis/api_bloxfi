@@ -62,8 +62,8 @@ export interface RegionAccountDetails {
   country?: string | null;
   transferType?: string | null; // ach, wire (US)
   accountType?: string | null; // Checking, Savings (US)
+  /** US domestic account number or international IBAN — one field for all USD/global bank payouts. */
   accountNumber?: string | null;
-  iban?: string | null;
   routingNumber?: string | null;
   /** USD global bank → Palremit `destination.bank_code` (e.g. US ABA routing, international BIC). */
   bankCode?: string | null;

@@ -149,7 +149,7 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
     expect(d).toMatchObject({ bank_code: '021000021' });
   });
 
-  it('maps international USD payout: GB + IBAN + bankCode only', () => {
+  it('maps international USD payout using the same accountNumber + bankCode schema (GB)', () => {
     const rd = {
       currency: 'USD',
       country: 'GB',
