@@ -130,18 +130,21 @@ export const createAccountBodySchema = z
         message: 'Omit details.transferType for USD accounts; use details.transferDetails.payoutRail',
       });
     }
-    if (!String(d.accountNumber ?? '').trim()) {
+    if (!String(d.accountNumber ?? '').trim() && !String(d.iban ?? '').trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['details', 'accountNumber'],
-        message: 'USD payout accounts require details.accountNumber',
+        message: 'USD payout accounts require details.accountNumber or details.iban',
       });
     }
-    if (!String(d.routingNumber ?? '').trim()) {
+    const routing = String(d.routingNumber ?? '').trim();
+    const swift = String(d.swiftCode ?? '').trim();
+    if (!routing && !swift) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['details', 'routingNumber'],
-        message: 'USD payout accounts require details.routingNumber (sent to Palremit as bank routing / bank code)',
+        message:
+          'USD payout accounts need at least one of: details.routingNumber (e.g. US wire routing → Palremit bank_code) or details.swiftCode (international SWIFT/BIC when there is no routing number)',
       });
     }
     if (!String(d.bankName ?? '').trim()) {
@@ -149,14 +152,6 @@ export const createAccountBodySchema = z
         code: z.ZodIssueCode.custom,
         path: ['details', 'bankName'],
         message: 'USD payout accounts require details.bankName',
-      });
-    }
-    const country = String(d.country ?? '').trim().toUpperCase();
-    if (country !== 'US') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['details', 'country'],
-        message: 'USD global bank payout accounts require details.country US',
       });
     }
     const gp = usdAccountTransferDetailsSchema.safeParse(d.transferDetails);

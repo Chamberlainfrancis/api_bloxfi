@@ -410,12 +410,22 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
       : {};
   const gbp = region.transferDetails;
   if (!gbp || typeof gbp !== 'object' || Array.isArray(gbp)) return null;
+  const g = gbp as Record<string, unknown>;
 
-  const accountNumber = String(region.accountNumber ?? region.account_number ?? '').trim();
-  const bankCode = String(region.routingNumber ?? region.bank_code ?? '').trim();
-  const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
+  const accountNumber = String(
+    region.accountNumber ?? region.account_number ?? region.iban ?? ''
+  ).trim();
   const swiftCode = String(region.swiftCode ?? region.swift_code ?? '').trim();
-  const country = String(region.country ?? 'US')
+  const bankCode =
+    String(region.routingNumber ?? region.bank_code ?? '').trim() || swiftCode;
+  const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
+  const ben = g.beneficiary as Record<string, unknown> | undefined;
+  const benAddr =
+    ben?.address && typeof ben.address === 'object' && !Array.isArray(ben.address)
+      ? (ben.address as Record<string, unknown>)
+      : undefined;
+  const benCountry = String(benAddr?.country ?? '').trim().toUpperCase();
+  const country = String(region.country ?? region.bankCountry ?? (benCountry || 'US'))
     .trim()
     .toUpperCase();
 
@@ -423,7 +433,6 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
     input.accountHolder && typeof input.accountHolder === 'object' && !Array.isArray(input.accountHolder)
       ? (input.accountHolder as Record<string, unknown>)
       : {};
-  const g = gbp as Record<string, unknown>;
   const rawHolderName = String(
     g.accountHolderName ?? g.account_holder_name ?? ''
   ).trim();

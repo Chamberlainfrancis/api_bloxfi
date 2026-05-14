@@ -1,7 +1,7 @@
 /**
  * Zod for USD Palremit `global_bank_account`:
  * - Account `details.transferDetails` (camelCase): rail, beneficiary, settlement fields.
- * - Account `details.swiftCode` (optional) → outbound `destination.swift_code` per Palremit sample.
+ * - Account `details.swiftCode` (optional) → outbound `destination.swift_code`; when `routingNumber` is omitted, `swiftCode` is also used as `bank_code` for Palremit.
  * - **`palremitUsdGlobalBankDestinationSchema`** validates the **outbound** Palremit payload (snake_case).
  */
 
@@ -62,13 +62,6 @@ export const usdAccountTransferDetailsSchema = z
         message: 'payoutRail must start with WIRE (e.g. WIRE, WIRE_DOMESTIC)',
       });
     }
-    if (d.beneficiary.address.country !== 'US') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['beneficiary', 'address', 'country'],
-        message: 'beneficiary.address.country must be US for this payout path',
-      });
-    }
   });
 
 // --- Palremit wire format (snake_case) — validate outbound `destination` only ---
@@ -119,13 +112,6 @@ export const palremitUsdGlobalBankDestinationSchema = z
         code: z.ZodIssueCode.custom,
         path: ['payout_rail'],
         message: 'payout_rail must start with WIRE (e.g. WIRE, WIRE_DOMESTIC)',
-      });
-    }
-    if (d.country !== 'US' || d.beneficiary.address.country !== 'US') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['country'],
-        message: 'country and beneficiary.address.country must be US for this payout path',
       });
     }
   });

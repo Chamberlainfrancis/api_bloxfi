@@ -149,6 +149,46 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
     expect(d).toMatchObject({ swift_code: 'CHASUS33XXX' });
   });
 
+  it('maps international USD payout: GB + IBAN + SWIFT as bank_code when routing omitted', () => {
+    const rd = {
+      currency: 'USD',
+      country: 'GB',
+      accountNumber: 'GB51REVO00997052429307',
+      swiftCode: 'REVOGB21',
+      bankName: 'Revolut Ltd',
+      bankCountry: 'GB',
+      transferDetails: {
+        payoutRail: 'WIRE',
+        accountHolderName: 'Peace Mbamalu',
+        beneficiary: {
+          name: 'Peace Mbamalu',
+          type: 'individual' as const,
+          address: {
+            street: '30 South Colonnade',
+            city: 'London',
+            stateProvince: 'London',
+            postalCode: 'E145HX',
+            country: 'GB',
+          },
+        },
+      },
+    };
+    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
+      regionDetails: rd,
+      accountHolder: { type: 'individual', name: 'Peace Mbamalu' },
+      purposeOfPayment: 'FAMILY_MAINTENANCE',
+      metadata: meta,
+    });
+    expect(d).toMatchObject({
+      country: 'GB',
+      account_number: 'GB51REVO00997052429307',
+      bank_code: 'REVOGB21',
+      swift_code: 'REVOGB21',
+      bank_name: 'Revolut Ltd',
+      beneficiary: { address: { country: 'GB', city: 'London' } },
+    });
+  });
+
   it('fills beneficiary.type from accountHolder when beneficiary omits type', () => {
     const rd = {
       ...regionDetails,

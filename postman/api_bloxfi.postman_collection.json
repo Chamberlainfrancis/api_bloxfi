@@ -521,7 +521,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts"]
             },
-            "description": "Sample **USD offramp** account aligned with Palremit **`global_bank_account`** sample: **`accountHolder`** = `type`, `name`, `email`, `phone`; **`details`** includes `routingNumber` → `bank_code`, optional **`swiftCode`** → `destination.swift_code`, plus **`transferDetails`**. Saves **`accountIdUsd`**."
+            "description": "Sample **USD offramp** (US bank): `routingNumber` → Palremit `bank_code`, optional `swiftCode` → `swift_code`. **International USD** (e.g. UK IBAN): omit `routingNumber`, set `swiftCode` + `details.country` / beneficiary country (ISO-2); `accountNumber` or `iban`."
           }
         },
         {
