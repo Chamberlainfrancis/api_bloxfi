@@ -139,6 +139,16 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
     });
   });
 
+  it('maps details.swiftCode to destination.swift_code (Palremit global_bank_account sample)', () => {
+    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
+      regionDetails: { ...regionDetails, swiftCode: 'CHASUS33XXX' },
+      accountHolder: {},
+      purposeOfPayment: 'FAMILY_MAINTENANCE',
+      metadata: meta,
+    });
+    expect(d).toMatchObject({ swift_code: 'CHASUS33XXX' });
+  });
+
   it('fills beneficiary.type from accountHolder when beneficiary omits type', () => {
     const rd = {
       ...regionDetails,

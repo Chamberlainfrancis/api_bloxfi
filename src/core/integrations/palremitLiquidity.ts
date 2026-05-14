@@ -204,6 +204,10 @@ export async function createPalremitWithdrawal(
   body: Record<string, unknown>,
   idempotencyKey: string
 ): Promise<PalremitWithdrawalCreateResult | null> {
+  console.log(
+    '[Palremit] POST /v1/withdrawals payload:',
+    JSON.stringify({ ...body, _idempotencyKey: idempotencyKey }, null, 2)
+  );
   const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
     method: 'POST',
     body,

@@ -12,6 +12,7 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
+import { isHttpError } from '@/services/http';
 import {
   palremitUsdGlobalBankDestinationSchema,
   usdOfframpOptionalMetadataSchema,
@@ -263,6 +264,7 @@ const PALREMIT_USD_GLOBAL_DESTINATION_KEYS = new Set([
   'country',
   'payout_rail',
   'account_number',
+  'swift_code',
   'bank_code',
   'bank_name',
   'account_holder_name',
@@ -280,6 +282,7 @@ const METADATA_SKIP_KEYS = new Set([
 const API_ROOT_TO_PALREMIT: Record<string, string> = {
   payoutRail: 'payout_rail',
   accountNumber: 'account_number',
+  swiftCode: 'swift_code',
   bankCode: 'bank_code',
   bankName: 'bank_name',
   accountHolderName: 'account_holder_name',
@@ -411,6 +414,7 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
   const accountNumber = String(region.accountNumber ?? region.account_number ?? '').trim();
   const bankCode = String(region.routingNumber ?? region.bank_code ?? '').trim();
   const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
+  const swiftCode = String(region.swiftCode ?? region.swift_code ?? '').trim();
   const country = String(region.country ?? 'US')
     .trim()
     .toUpperCase();
@@ -442,6 +446,7 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
     country,
     payout_rail: payoutRail,
     account_number: accountNumber,
+    ...(swiftCode ? { swift_code: swiftCode } : {}),
     bank_code: bankCode,
     bank_name: bankName,
     account_holder_name: accountHolderName,
@@ -515,18 +520,40 @@ export function buildPalremitOfframpFiatWithdrawalBody(
 
 export async function createPalremitOfframpFiatWithdrawal(
   liquidityRequest: PalremitLiquidityRequestFn,
-  params: PalremitOfframpFiatWithdrawalParams
+  params: PalremitOfframpFiatWithdrawalParams,
+  context?: { offrampId?: string }
 ): Promise<{ withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown } | null> {
   const body = buildPalremitOfframpFiatWithdrawalBody(params);
   if (!body) return null;
 
   const idempotencyKey = `offramp-fiat-wd:${params.txnRef.trim()}`;
-  const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
-  if (!created?.id) return null;
+  try {
+    const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
+    if (!created?.id) return null;
 
-  return {
-    withdrawalId: created.id,
-    rawRequest: body,
-    rawResponse: created.raw,
-  };
+    return {
+      withdrawalId: created.id,
+      rawRequest: body,
+      rawResponse: created.raw,
+    };
+  } catch (e) {
+    const ctx =
+      context?.offrampId != null && context.offrampId.trim() !== ''
+        ? ` offrampId=${context.offrampId.trim()}`
+        : '';
+    const upstream =
+      isHttpError(e) && e.data !== undefined
+        ? typeof e.data === 'string'
+          ? e.data
+          : JSON.stringify(e.data)
+        : '';
+    console.error(
+      `[Palremit offramp fiat withdrawal]${ctx} POST /v1/withdrawals failed; request body:\n${JSON.stringify(
+        body,
+        null,
+        2
+      )}${isHttpError(e) ? `\nHTTP ${e.status}; upstream: ${upstream || '(no body)'}` : ''}`
+    );
+    throw e;
+  }
 }

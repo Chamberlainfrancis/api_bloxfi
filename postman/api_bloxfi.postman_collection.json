@@ -514,14 +514,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"us\",\n  \"accountHolder\": {\n    \"type\": \"individual\",\n    \"name\": \"Chamberlain Francis\",\n    \"email\": \"chamberlain@example.com\",\n    \"phone\": \"+12025550123\"\n  },\n  \"details\": {\n    \"currency\": \"USD\",\n    \"country\": \"US\",\n    \"accountType\": \"Checking\",\n    \"accountNumber\": \"40630184380519541\",\n    \"routingNumber\": \"121000248\",\n    \"bankName\": \"Wells Fargo Bank, N.A.\",\n    \"bankCountry\": \"US\",\n    \"transferDetails\": {\n      \"payoutRail\": \"WIRE\",\n      \"accountHolderName\": \"Chamberlain Francis\",\n      \"beneficiary\": {\n        \"name\": \"Chamberlain Francis\",\n        \"address\": {\n          \"street\": \"651 N Broad St, Suite 206\",\n          \"city\": \"Middletown\",\n          \"stateProvince\": \"DE\",\n          \"postalCode\": \"19709\",\n          \"country\": \"US\"\n        }\n      }\n    }\n  }\n}"
+              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"us\",\n  \"accountHolder\": {\n    \"type\": \"individual\",\n    \"name\": \"Chamberlain Francis\",\n    \"email\": \"chamberlain@example.com\",\n    \"phone\": \"+12025550123\"\n  },\n  \"details\": {\n    \"currency\": \"USD\",\n    \"country\": \"US\",\n    \"accountType\": \"Checking\",\n    \"accountNumber\": \"40630184380519541\",\n    \"routingNumber\": \"121000248\",\n    \"swiftCode\": \"WFBIUS6SXXX\",\n    \"bankName\": \"Wells Fargo Bank, N.A.\",\n    \"bankCountry\": \"US\",\n    \"transferDetails\": {\n      \"payoutRail\": \"WIRE\",\n      \"accountHolderName\": \"Chamberlain Francis\",\n      \"beneficiary\": {\n        \"name\": \"Chamberlain Francis\",\n        \"address\": {\n          \"street\": \"651 N Broad St, Suite 206\",\n          \"city\": \"Middletown\",\n          \"stateProvince\": \"DE\",\n          \"postalCode\": \"19709\",\n          \"country\": \"US\"\n        }\n      }\n    }\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts"]
             },
-            "description": "Sample **USD offramp** account: **`accountHolder`** = only `type`, `name`, `email`, `phone`; bank + beneficiary under **`details`** / **`transferDetails`**. Saves **`accountIdUsd`**."
+            "description": "Sample **USD offramp** account aligned with Palremit **`global_bank_account`** sample: **`accountHolder`** = `type`, `name`, `email`, `phone`; **`details`** includes `routingNumber` → `bank_code`, optional **`swiftCode`** → `destination.swift_code`, plus **`transferDetails`**. Saves **`accountIdUsd`**."
           }
         },
         {

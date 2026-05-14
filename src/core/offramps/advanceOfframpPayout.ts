@@ -93,26 +93,34 @@ export async function advanceOfframpIfDepositReady(
       metadata: destination.metadata,
     });
     if (!gb || typeof gb !== 'object') return;
-    result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
-      payoutKind: 'global_bank_account',
-      txnRef: row.txnRef,
-      destinationAmount,
-      asset: 'USD',
-      destination: gb,
-    });
+    result = await createPalremitOfframpFiatWithdrawal(
+      liquidityRequest,
+      {
+        payoutKind: 'global_bank_account',
+        txnRef: row.txnRef,
+        destinationAmount,
+        asset: 'USD',
+        destination: gb,
+      },
+      { offrampId: row.id }
+    );
   } else {
     const destInfo = buildPalremitFiatDestinationInformation(
       account.accountHolder,
       account.regionDetails
     );
     if (!destInfo.account_unique) return;
-    result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
-      payoutKind: 'local_bank_account',
-      txnRef: row.txnRef,
-      destinationAmount,
-      destinationCurrency: destination.currency ?? 'NGN',
-      destinationInformation: destInfo,
-    });
+    result = await createPalremitOfframpFiatWithdrawal(
+      liquidityRequest,
+      {
+        payoutKind: 'local_bank_account',
+        txnRef: row.txnRef,
+        destinationAmount,
+        destinationCurrency: destination.currency ?? 'NGN',
+        destinationInformation: destInfo,
+      },
+      { offrampId: row.id }
+    );
   }
 
   if (!result) return;

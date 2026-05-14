@@ -1,6 +1,7 @@
 /**
  * Zod for USD Palremit `global_bank_account`:
  * - Account `details.transferDetails` (camelCase): rail, beneficiary, settlement fields.
+ * - Account `details.swiftCode` (optional) → outbound `destination.swift_code` per Palremit sample.
  * - **`palremitUsdGlobalBankDestinationSchema`** validates the **outbound** Palremit payload (snake_case).
  */
 
@@ -95,7 +96,7 @@ export const usdGlobalBankExtrasSchema = z.object({
   is_self_transfer: z.boolean(),
 });
 
-/** Outbound Palremit `destination` object. */
+/** Outbound Palremit `destination` for `global_bank_account` (see LP sample: swift_code after account_number). */
 export const palremitUsdGlobalBankDestinationSchema = z
   .object({
     country: z
@@ -105,6 +106,7 @@ export const palremitUsdGlobalBankDestinationSchema = z
       .transform((s) => s.toUpperCase()),
     payout_rail: z.string().min(1).transform((s) => s.toUpperCase()),
     account_number: z.string().min(1),
+    swift_code: z.string().min(1).optional(),
     bank_code: z.string().min(1),
     bank_name: z.string().min(1),
     account_holder_name: z.string().min(1),
