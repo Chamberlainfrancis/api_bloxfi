@@ -264,7 +264,6 @@ const PALREMIT_USD_GLOBAL_DESTINATION_KEYS = new Set([
   'country',
   'payout_rail',
   'account_number',
-  'swift_code',
   'bank_code',
   'bank_name',
   'account_holder_name',
@@ -282,7 +281,6 @@ const METADATA_SKIP_KEYS = new Set([
 const API_ROOT_TO_PALREMIT: Record<string, string> = {
   payoutRail: 'payout_rail',
   accountNumber: 'account_number',
-  swiftCode: 'swift_code',
   bankCode: 'bank_code',
   bankName: 'bank_name',
   accountHolderName: 'account_holder_name',
@@ -415,9 +413,7 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
   const accountNumber = String(
     region.accountNumber ?? region.account_number ?? region.iban ?? ''
   ).trim();
-  const swiftCode = String(region.swiftCode ?? region.swift_code ?? '').trim();
-  const bankCode =
-    String(region.routingNumber ?? region.bank_code ?? '').trim() || swiftCode;
+  const bankCode = String(region.bankCode ?? region.bank_code ?? '').trim();
   const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
   const ben = g.beneficiary as Record<string, unknown> | undefined;
   const benAddr =
@@ -455,7 +451,6 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
     country,
     payout_rail: payoutRail,
     account_number: accountNumber,
-    ...(swiftCode ? { swift_code: swiftCode } : {}),
     bank_code: bankCode,
     bank_name: bankName,
     account_holder_name: accountHolderName,

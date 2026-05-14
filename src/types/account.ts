@@ -60,12 +60,13 @@ export interface UsdTransferDetails {
 export interface RegionAccountDetails {
   /** Free-form country or jurisdiction for this bank account (stored as provided). */
   country?: string | null;
-  transferType?: string | null; // ach, wire, swift (US)
+  transferType?: string | null; // ach, wire (US)
   accountType?: string | null; // Checking, Savings (US)
   accountNumber?: string | null;
   iban?: string | null;
   routingNumber?: string | null;
-  swiftCode?: string | null;
+  /** USD global bank → Palremit `destination.bank_code` (e.g. US ABA routing, international BIC). */
+  bankCode?: string | null;
   bankName?: string | null;
   bankCountry?: string | null;
   bankAddress?: Address | null;

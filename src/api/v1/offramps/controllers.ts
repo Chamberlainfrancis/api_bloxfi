@@ -223,7 +223,7 @@ export async function createOfframp(
     if (e instanceof Error && e.message === 'USD_ACCOUNT_INCOMPLETE_FOR_OFFRAMP') {
       next(
         new AppError(
-          'USD offramp payload invalid: linked account needs account number (or IBAN), bank name, details.transferDetails (beneficiary), routing number and/or SWIFT (for Palremit bank_code), destination.country or bank/beneficiary country for settlement; destination.purposeOfPayment must be valid UPPER_SNAKE for Palremit; metadata must include isSelfTransfer',
+          'USD offramp payload invalid: linked account needs account number (or IBAN), bank name, details.bankCode (Palremit bank_code), details.transferDetails (beneficiary), destination.country or bank/beneficiary country for settlement; destination.purposeOfPayment must be valid UPPER_SNAKE for Palremit; metadata must include isSelfTransfer',
           'INVALID_REQUEST',
           400
         )

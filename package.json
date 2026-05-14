@@ -19,7 +19,9 @@
     "db:migrate": "prisma migrate dev",
     "create-api-key": "ts-node -r tsconfig-paths/register scripts/create-api-key.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postman:watch-sync": "node scripts/watch-postman-sync.js",
+    "postman:push": "node scripts/watch-postman-sync.js --once"
   },
   "engines": {
     "node": ">=18"

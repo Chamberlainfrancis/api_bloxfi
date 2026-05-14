@@ -40,7 +40,7 @@ export const regionDetailsSchema = z
     accountNumber: z.string().optional().nullable(),
     iban: z.string().optional().nullable(),
     routingNumber: z.string().optional().nullable(),
-    swiftCode: z.string().optional().nullable(),
+    bankCode: z.string().optional().nullable(),
     bankName: z.string().optional().nullable(),
     bankCountry: z.string().optional().nullable(),
     bankAddress: addressSchema.optional().nullable(),
@@ -137,14 +137,13 @@ export const createAccountBodySchema = z
         message: 'USD payout accounts require details.accountNumber or details.iban',
       });
     }
-    const routing = String(d.routingNumber ?? '').trim();
-    const swift = String(d.swiftCode ?? '').trim();
-    if (!routing && !swift) {
+    const bankCode = String(d.bankCode ?? d.bank_code ?? '').trim();
+    if (!bankCode) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['details', 'routingNumber'],
+        path: ['details', 'bankCode'],
         message:
-          'USD payout accounts need at least one of: details.routingNumber (e.g. US wire routing → Palremit bank_code) or details.swiftCode (international SWIFT/BIC when there is no routing number)',
+          'USD payout accounts require details.bankCode (maps to Palremit destination.bank_code; e.g. US ABA routing number or international BIC)',
       });
     }
     if (!String(d.bankName ?? '').trim()) {

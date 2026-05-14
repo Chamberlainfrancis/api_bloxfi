@@ -91,7 +91,7 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
     currency: 'USD',
     country: 'US',
     accountNumber: '000111222',
-    routingNumber: '021000021',
+    bankCode: '021000021',
     bankName: 'Chase',
     transferDetails: {
       payoutRail: 'WIRE',
@@ -139,22 +139,22 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
     });
   });
 
-  it('maps details.swiftCode to destination.swift_code (Palremit global_bank_account sample)', () => {
+  it('maps details.bank_code snake_case to destination.bank_code', () => {
     const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: { ...regionDetails, swiftCode: 'CHASUS33XXX' },
+      regionDetails: { ...regionDetails, bankCode: undefined, bank_code: '021000021' },
       accountHolder: {},
       purposeOfPayment: 'FAMILY_MAINTENANCE',
       metadata: meta,
     });
-    expect(d).toMatchObject({ swift_code: 'CHASUS33XXX' });
+    expect(d).toMatchObject({ bank_code: '021000021' });
   });
 
-  it('maps international USD payout: GB + IBAN + SWIFT as bank_code when routing omitted', () => {
+  it('maps international USD payout: GB + IBAN + bankCode only', () => {
     const rd = {
       currency: 'USD',
       country: 'GB',
       accountNumber: 'GB51REVO00997052429307',
-      swiftCode: 'REVOGB21',
+      bankCode: 'REVOGB21',
       bankName: 'Revolut Ltd',
       bankCountry: 'GB',
       transferDetails: {
@@ -183,7 +183,6 @@ describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
       country: 'GB',
       account_number: 'GB51REVO00997052429307',
       bank_code: 'REVOGB21',
-      swift_code: 'REVOGB21',
       bank_name: 'Revolut Ltd',
       beneficiary: { address: { country: 'GB', city: 'London' } },
     });

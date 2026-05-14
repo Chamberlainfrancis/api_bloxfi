@@ -23,6 +23,8 @@ function maskRegionDetails(details: unknown): RegionAccountDetails | null {
   if (d.accountNumber != null) out.accountNumber = maskAccountNumber(String(d.accountNumber));
   if (d.iban != null) out.iban = maskAccountNumber(String(d.iban));
   if (d.routingNumber != null) out.routingNumber = maskAccountNumber(String(d.routingNumber));
+  if (d.bankCode != null) out.bankCode = maskAccountNumber(String(d.bankCode));
+  if (d.bank_code != null) out.bank_code = maskAccountNumber(String(d.bank_code));
   return out as unknown as RegionAccountDetails;
 }
 
