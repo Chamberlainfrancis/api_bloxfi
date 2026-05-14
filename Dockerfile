@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./
 COPY src ./src
