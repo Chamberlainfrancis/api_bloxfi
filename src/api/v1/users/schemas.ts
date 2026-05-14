@@ -11,7 +11,7 @@ const addressSchema = z.object({
   city: z.string().min(1),
   stateProvinceRegion: z.string().optional(),
   postalCode: z.string().min(1),
-  country: z.string().length(3),
+  country: z.string().min(1),
 });
 
 const entityTypeSchema = z.enum([
@@ -88,7 +88,7 @@ const beneficialOwnerSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   dateOfBirth: z.string().min(1),
-  nationality: z.string().length(3),
+  nationality: z.string().min(1),
   ownershipPercentage: z.number().min(0).max(100),
   isPoliticallyExposed: z.boolean(),
   address: addressSchema,

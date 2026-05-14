@@ -1,17 +1,8 @@
 /**
- * Core: list fiat accounts with cursor pagination and filters. Mask account numbers in list. Spec §3.2.
+ * Core: list offramp payout accounts with cursor pagination and filters. Mask account numbers in list. Spec §3.2.
  */
 
-import {
-  ACCOUNT_REGION_TYPES,
-  type ListAccountsQuery,
-  type ListAccountsResponse,
-  type Account,
-  type RailInfo,
-  type AccountHolder,
-  type RegionAccountDetails,
-  type RailType,
-} from '@/types/account';
+import type { ListAccountsQuery, ListAccountsResponse, Account, RailInfo, AccountHolder, RegionAccountDetails, RailType } from '@/types/account';
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
@@ -25,14 +16,13 @@ function maskAccountNumber(value: string | null | undefined): string | null | un
 }
 
 /** Mask sensitive fields in region details for list response */
-function maskRegionDetails(details: unknown, regionType: string): RegionAccountDetails | null {
+function maskRegionDetails(details: unknown): RegionAccountDetails | null {
   if (!details || typeof details !== 'object') return null;
   const d = details as Record<string, unknown>;
   const out: Record<string, unknown> = { ...d };
-  if (regionType === 'us') {
-    if (d.accountNumber != null) out.accountNumber = maskAccountNumber(String(d.accountNumber));
-    if (d.iban != null) out.iban = maskAccountNumber(String(d.iban));
-  }
+  if (d.accountNumber != null) out.accountNumber = maskAccountNumber(String(d.accountNumber));
+  if (d.iban != null) out.iban = maskAccountNumber(String(d.iban));
+  if (d.routingNumber != null) out.routingNumber = maskAccountNumber(String(d.routingNumber));
   return out as unknown as RegionAccountDetails;
 }
 
@@ -58,22 +48,19 @@ function rowToAccount(
   };
   const accountHolder = row.accountHolder as AccountHolder | null;
   const regionDetails = options.mask
-    ? maskRegionDetails(row.regionDetails, row.accountType)
+    ? maskRegionDetails(row.regionDetails)
     : (row.regionDetails as RegionAccountDetails | null);
 
-  const acc: Account = {
+  return {
     id: row.id,
     userId: row.userId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     rail,
+    type: row.accountType,
+    details: regionDetails,
     accountHolder: accountHolder ?? undefined,
   };
-  const type = row.accountType;
-  if (type && ACCOUNT_REGION_TYPES.includes(type as (typeof ACCOUNT_REGION_TYPES)[number])) {
-    (acc as unknown as Record<string, unknown>)[type] = regionDetails;
-  }
-  return acc;
 }
 
 export interface AccountRepoList {

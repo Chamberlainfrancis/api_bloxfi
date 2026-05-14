@@ -69,8 +69,8 @@ Only **`GET /ready`**, **`GET /api/v1/health`**, and **`POST /api/v1/webhooks`**
 | 1 | `GET /ready` | 200 — DB + Redis ok |
 | 2 | `POST /api/v1/users` | **201** — save **`userId`** (script may set variable) |
 | 3 | KYB: update KYB → upload file → attach docs → **submit KYB** | Until rail you need is **approved** (check `GET .../kyb/status`) |
-| 4 | `POST .../accounts` (onramp rail, matches destination fiat region) | **200** — **`accountId`** |
-| 5 | `POST .../wallets/external` | **200/201** — **`walletId`**; **`chain`** = network code from step above |
+| 4 | *(Skip BloxFi account for on-ramp.)* **`POST .../wallets/external`** | **200/201** — **`walletId`**; **`chain`** = network code from **Networks** |
+| 5 | *(Optional)* **`POST .../accounts`** — only if you will run **off-ramp** next; saves **`accountId`** for fiat payout |
 
 User must have **`businessInfo.email`** for Palremit fiat provision.
 
@@ -79,7 +79,7 @@ User must have **`businessInfo.email`** for Palremit fiat provision.
 | Step | Request | Notes |
 |------|---------|--------|
 | 6 | `GET /api/v1/onramps/rates` | Sanity-check pair |
-| 7 | **`POST /api/v1/onramps`** | Header **`requestId`** = body `requestId`; fresh UUID each time. Expect **`AWAITING_FUNDS`**, **`txnRef`** saved as **`onrampTxnRef`**. |
+| 7 | **`POST /api/v1/onramps`** | Header **`requestId`** = body `requestId`; fresh UUID each time. Expect **`AWAITING_FUNDS`**, **`txnRef`** saved as **`onrampTxnRef`**. Fiat VA is provisioned by Palremit — no BloxFi **Account** id in the body. |
 
 ### C. Deposit confirmation (fiat) — webhook
 
@@ -181,7 +181,7 @@ Exact enums are defined in application types (`OnrampStatus`, `OfframpStatus`).
 ```
 [ ] Health / Ready
 [ ] Coins (optional) + Networks (validate chain codes)
-[ ] User → KYB chain → Account (onramp) → Wallet
+[ ] User → KYB chain → Wallet (on-ramp) → [optional Account (offramp) before off-ramp]
 [ ] Onramps: Rates → Create → (DB: provisioned account id) → Webhook deposit.credited fiat → Get Onramp → (optional withdrawal.successful crypto)
 [ ] Account (offramp) if needed → Wallet aligned to crypto network
 [ ] Offramps: Rates → Create → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat when scripted)

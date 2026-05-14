@@ -29,7 +29,7 @@ export interface OnrampRepoAdvance {
 export interface ExecutePalremitOnrampWithdrawalFn {
   (
     body: {
-      source: { amount: number; currency: string; userId: string; accountId: string; transferType?: string };
+      source: { amount: number; currency: string; userId: string; transferType?: string };
       destination: {
         currency: string;
         chain: string;
@@ -76,7 +76,6 @@ export async function advanceOnrampIfFiatProcessed(
     amount?: number;
     currency?: string;
     userId?: string;
-    accountId?: string;
     transferType?: string;
   };
   const destination = row.destination as {
@@ -93,7 +92,6 @@ export async function advanceOnrampIfFiatProcessed(
 
   if (
     !source.userId ||
-    !source.accountId ||
     !source.currency ||
     !Number.isFinite(Number(source.amount)) ||
     !destination.userId ||
@@ -122,7 +120,6 @@ export async function advanceOnrampIfFiatProcessed(
           amount: Number(source.amount),
           currency: source.currency,
           userId: source.userId,
-          accountId: source.accountId,
           transferType: source.transferType,
         },
         destination: {

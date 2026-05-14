@@ -7,7 +7,7 @@ Aggregation API for fiat–crypto on-ramp and off-ramp. The platform owns user f
 - **Users & KYB** — Business user creation, KYB information, document attachment, submission, status
 - **Files** — Upload (e.g. S3 or local), max 10MB; PDF, JPEG, PNG
 - **Wallets** — External crypto wallets (add, list, get, update, delete) per user
-- **Accounts** — Fiat accounts for onramp/offramp (bank, PIX, region-specific)
+- **Accounts** — Offramp payout bank accounts only (fiat destination for offramps)
 - **Onramp** — Fiat → crypto: rates, create order, deposit instructions, status
 - **Offramp** — Crypto → fiat: rates, create order, crypto deposit instructions, cancel
 - **Limits** — Platform limits, user-effective limits, high-value requests

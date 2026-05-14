@@ -3,6 +3,8 @@
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
+import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
+import { mapStoredUsdAccountToPalremitGlobalBankDestination } from '@/core/integrations/palremitOfframp';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
@@ -98,9 +100,10 @@ export interface UserRepoForOfframp {
 }
 
 export interface AccountRepoForOfframp {
-  findAccountByIdAndUser(accountId: string, userId: string): Promise<{
+  findOfframpAccountByIdAndUser(accountId: string, userId: string): Promise<{
     id: string;
     userId: string;
+    currency: string;
     accountHolder: unknown;
     regionDetails: unknown;
     paymentRail: string;
@@ -164,7 +167,7 @@ export async function createOfframp(
   const approved = railStatuses.some((r) => r.status === 'approved');
   if (!approved) throw new Error('USER_NOT_KYB_VERIFIED');
 
-  const account = await accountRepo.findAccountByIdAndUser(dest.accountId, userId);
+  const account = await accountRepo.findOfframpAccountByIdAndUser(dest.accountId, userId);
   if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
   const wallet = await walletRepo.findExternalWalletByIdAndUser(src.externalWalletId, userId);
@@ -178,6 +181,23 @@ export async function createOfframp(
 
   const fromCurrency = src.currency.trim().toLowerCase();
   const toCurrency = dest.currency.trim().toLowerCase();
+
+  const accountCurrency = account.currency.trim().toLowerCase();
+  if (accountCurrency !== toCurrency) {
+    throw new Error('ACCOUNT_CURRENCY_MISMATCH');
+  }
+
+  if (toCurrency === 'usd') {
+    const probe = mapStoredUsdAccountToPalremitGlobalBankDestination({
+      regionDetails: account.regionDetails,
+      accountHolder: account.accountHolder,
+      purposeOfPayment: dest.purposeOfPayment,
+      metadata: body.metadata,
+    });
+    if (!probe) {
+      throw new Error('USD_ACCOUNT_INCOMPLETE_FOR_OFFRAMP');
+    }
+  }
 
   if (!options.getRateFromPalremit) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
@@ -224,11 +244,12 @@ export async function createOfframp(
     currency: toCurrency,
     amount: fiatNet,
     accountId: account.id,
-    transferType: dest.transferType ?? account.paymentRail,
+    transferType: toCurrency === 'usd' ? account.paymentRail : (dest.transferType ?? account.paymentRail),
     bankTransferMethod: dest.bankTransferMethod,
     reference: dest.reference,
     purposeOfPayment: dest.purposeOfPayment,
     user: userDisplayInfo,
+    ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
   };
 
   const fees: OfframpFees = {
@@ -305,7 +326,7 @@ export async function createOfframp(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     source: row.source as OfframpSource,
-    destination: row.destination as OfframpDestination,
+    destination: maskPublicOfframpDestination(row.destination as OfframpDestination),
     rateInformation: row.rateInformation as RateInformation,
     depositInstructions: (row.depositInstructions as DepositInstructions) ?? null,
     timeline: (row.timeline as { createdAt?: string }) ?? undefined,

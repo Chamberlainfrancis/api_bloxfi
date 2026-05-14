@@ -1,15 +1,24 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**Offramp fiat payout:** After **`deposit.credited`** (crypto), the server advances from webhook code. If fiat withdrawal did not start (e.g. missing bank code), fix the account then **Retry Fiat Payout** (`POST …/retry-fiat-payout`) — not **Get Offramp** (read-only).\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**Offramp fiat payout:** After **`deposit.credited`** (crypto), the server advances from webhook code. If fiat withdrawal did not start (e.g. missing bank code), fix the account then **Retry Fiat Payout** (`POST …/retry-fiat-payout`) — not **Get Offramp** (read-only).\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `accountIdUsd`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "apiKey", "value": "your-api-key-min-32-characters-long" },
-    { "key": "userId", "value": "" },
+    {
+      "key": "apiKey",
+      "value": "Q3nAEFXr5slD4VIzXWuvVyUIpOm0nkfZ",
+      "description": "Partner API key (must match server API_KEY). Update here when rotating."
+    },
+    {
+      "key": "userId",
+      "value": "2902e329-424e-4cba-b07b-346ec74b7124",
+      "description": "Default user id for requests; Create Business User test script overwrites on 201/200."
+    },
     { "key": "fileId", "value": "" },
     { "key": "accountId", "value": "" },
+    { "key": "accountIdUsd", "value": "", "description": "Auto-set by Create Account (offramp, USD example); use as destination.accountId for USD global-bank offramp" },
     { "key": "walletId", "value": "" },
     { "key": "onrampId", "value": "" },
     { "key": "onrampTxnRef", "value": "", "description": "Auto-set by Create Onramp (transferDetails.txnRef)" },
@@ -298,7 +307,7 @@
     },
     {
       "name": "Wallets",
-      "description": "External crypto wallets. Add Wallet returns id; use walletId in onramp/offramp.",
+      "description": "External crypto wallets. **`walletId`** is the **onramp crypto destination** and the **offramp crypto source** (never a fiat payout account).",
       "item": [
         {
           "name": "Add External Wallet",
@@ -415,57 +424,8 @@
     },
     {
       "name": "Accounts",
-      "description": "Fiat accounts for onramp/offramp. Create returns id; use accountId in Create Onramp/Offramp.",
+      "description": "**Offramp payout bank accounts only** (fiat destination). Create returns id; use **`accountId`** / **`accountIdUsd`** in **Create Offramp**. Onramp fiat is provisioned by Palremit when you **Create Onramp** — use **Wallets** for the crypto destination. **`accountHolder`** for USD = type, name, email, phone only; beneficiary under **`details.transferDetails`**; per-transfer purpose on **Create Offramp** `metadata`.",
       "item": [
-        {
-          "name": "Create Account (onramp)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "function uuidv4() {",
-                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
-                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
-                  "    return v.toString(16);",
-                  "  });",
-                  "}",
-                  "pm.collectionVariables.set('requestId', uuidv4());"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "if (pm.response.code === 200 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
-                  "    pm.collectionVariables.set('accountId', pm.response.json().data.id);",
-                  "    console.log('Saved accountId: ' + pm.response.json().data.id);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "requestId", "value": "{{requestId}}" },
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"rail\": \"onramp\",\n  \"type\": \"nigeria\",\n  \"accountHolder\": {\n    \"type\": \"business\",\n    \"name\": \"Acme Corporation Ltd\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+2348012345678\"\n  },\n  \"nigeria\": {\n    \"currency\": \"NGN\",\n    \"accountNumber\": \"0123456789\",\n    \"bankName\": \"Test Bank\",\n    \"bankCode\": \"058\"\n  }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "users", "{{userId}}", "accounts"]
-            },
-            "description": "type: us, brazil, nigeria, ghana, etc. Provide matching region key (e.g. nigeria) with currency. 200: id (auto-saved), status, message. User must be KYB-approved for rail."
-          }
-        },
         {
           "name": "Create Account (offramp)",
           "event": [
@@ -505,14 +465,63 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"nigeria\",\n  \"accountHolder\": {\n    \"type\": \"business\",\n    \"name\": \"Acme Corporation Ltd\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+2348012345678\"\n  },\n  \"nigeria\": {\n    \"currency\": \"NGN\",\n    \"accountNumber\": \"0123456789\",\n    \"bankName\": \"Test Bank\",\n    \"bankCode\": \"058\"\n  }\n}"
+              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"nigeria\",\n  \"accountHolder\": {\n    \"type\": \"business\",\n    \"name\": \"Acme Corporation Ltd\",\n    \"email\": \"admin@acmecorp.com\",\n    \"phone\": \"+2348012345678\"\n  },\n  \"details\": {\n    \"currency\": \"NGN\",\n    \"country\": \"NG\",\n    \"accountNumber\": \"0123456789\",\n    \"bankName\": \"Test Bank\",\n    \"bankCode\": \"058\"\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts"]
             },
-            "description": "Same as onramp but rail: offramp. Use a new requestId. Can reuse same accountId for both if one account does both."
+            "description": "NGN offramp payout bank. New `requestId` header each run. Saves **`accountId`** for **Create Offramp (NGN)**."
+          }
+        },
+        {
+          "name": "Create Account (offramp, USD example)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {",
+                  "    pm.collectionVariables.set('accountIdUsd', pm.response.json().data.id);",
+                  "    console.log('Saved accountIdUsd (offramp): ' + pm.response.json().data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rail\": \"offramp\",\n  \"type\": \"us\",\n  \"accountHolder\": {\n    \"type\": \"individual\",\n    \"name\": \"Chamberlain Francis\",\n    \"email\": \"chamberlain@example.com\",\n    \"phone\": \"+12025550123\"\n  },\n  \"details\": {\n    \"currency\": \"USD\",\n    \"country\": \"US\",\n    \"accountType\": \"Checking\",\n    \"accountNumber\": \"40630184380519541\",\n    \"routingNumber\": \"121000248\",\n    \"bankName\": \"Wells Fargo Bank, N.A.\",\n    \"bankCountry\": \"US\",\n    \"transferDetails\": {\n      \"payoutRail\": \"WIRE\",\n      \"accountHolderName\": \"Chamberlain Francis\",\n      \"beneficiary\": {\n        \"name\": \"Chamberlain Francis\",\n        \"address\": {\n          \"street\": \"651 N Broad St, Suite 206\",\n          \"city\": \"Middletown\",\n          \"stateProvince\": \"DE\",\n          \"postalCode\": \"19709\",\n          \"country\": \"US\"\n        }\n      }\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "{{userId}}", "accounts"]
+            },
+            "description": "Sample **USD offramp** account: **`accountHolder`** = only `type`, `name`, `email`, `phone`; bank + beneficiary under **`details`** / **`transferDetails`**. Saves **`accountIdUsd`**."
           }
         },
         {
@@ -526,14 +535,16 @@
               "path": ["api", "v1", "users", "{{userId}}", "accounts"],
               "query": [
                 { "key": "limit", "value": "10" },
-                { "key": "rail", "value": "onramp", "disabled": true },
+                { "key": "rail", "value": "offramp", "disabled": true },
                 { "key": "type", "value": "nigeria", "disabled": true },
                 { "key": "currency", "value": "NGN", "disabled": true },
+                { "key": "type", "value": "us", "disabled": true },
+                { "key": "currency", "value": "USD", "disabled": true },
                 { "key": "createdBefore", "value": "", "disabled": true },
                 { "key": "createdAfter", "value": "", "disabled": true }
               ]
             },
-            "description": "200: list of accounts. Query: rail, type, currency, limit, createdBefore, createdAfter."
+            "description": "200: accounts for the `rail` query (`offramp` default when omitted). Query: rail, type, currency, limit, createdBefore, createdAfter."
           }
         },
         {
@@ -546,7 +557,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "users", "{{userId}}", "accounts", "{{accountId}}"]
             },
-            "description": "200: account by id; 404 if not found."
+            "description": "200: offramp payout account by id (full details). 404 if missing or not an offramp account."
           }
         },
         {
@@ -645,7 +656,7 @@
     },
     {
       "name": "Onramps",
-      "description": "Fiat → crypto (Palremit Orchestrator). Needs `userId`, `accountId`, `walletId`, **`businessInfo.email`**. **Create Onramp** → **`AWAITING_FUNDS`**. Set **`palremitProvisionedAccountId`** from DB, then **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** for crypto payout.",
+      "description": "Fiat → crypto (Palremit Orchestrator). Needs `userId`, **`walletId`** (destination), **`businessInfo.email`**. Fiat deposit instructions come from Palremit when you **Create Onramp** — no BloxFi **Account** on the onramp. **Create Onramp** → **`AWAITING_FUNDS`**. Set **`palremitProvisionedAccountId`** from DB, then **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** for crypto payout.",
       "item": [
         {
           "name": "Get Onramp Rates",
@@ -711,7 +722,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 100,\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"ach\"\n  },\n  \"destination\": {\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"purposeOfPayment\": \"Investment\",\n  \"fee\": {\n    \"type\": \"PERCENT\",\n    \"value\": 0.01\n  }\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 100,\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"transferType\": \"ach\"\n  },\n  \"destination\": {\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"purposeOfPayment\": \"Investment\",\n  \"fee\": {\n    \"type\": \"PERCENT\",\n    \"value\": 0.01\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/onramps",
@@ -759,7 +770,7 @@
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). **Create Offramp** → **`AWAITING_CRYPTO`** + deposit address. After **`deposit.credited`** (crypto), webhook handler sets **`CRYPTO_CONFIRMED`** and tries Palremit fiat withdrawal. If that fails silently, use **Retry Fiat Payout** (status **`CRYPTO_CONFIRMED`**, body **`userId`** = offramp owner). **Get Offramp** is read-only. Set **`palremitProvisionedAccountId`** from DB for webhook tests.",
+      "description": "Crypto → fiat (Palremit). **Create Offramp** (NGN) and **Create Offramp (USD)** share the same `destination` shape; USD uses **`destination.purposeOfPayment`** (UPPER_SNAKE → Palremit `extras.transfer_purpose`), **`metadata.isSelfTransfer`**, and payout rail from **`details.transferDetails.payoutRail`** (omit `details.transferType` on USD accounts). After **`deposit.credited`**, webhook advances to **`CRYPTO_CONFIRMED`** and tries fiat withdrawal. **Retry Fiat Payout** if needed.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -777,6 +788,24 @@
               ]
             },
             "description": "200: fromCurrency, toCurrency, rate, inverseRate, fromChain?."
+          }
+        },
+        {
+          "name": "Get Offramp Rates (USDT→USD)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/rates?fromCurrency=USDT&toCurrency=USD",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps", "rates"],
+              "query": [
+                { "key": "fromCurrency", "value": "USDT" },
+                { "key": "toCurrency", "value": "USD" },
+                { "key": "fromChain", "value": "POLYGON", "disabled": true }
+              ]
+            },
+            "description": "Same as NGN rates example; **`toCurrency`** = **USD** for USDT→USD."
           }
         },
         {
@@ -831,6 +860,60 @@
               "path": ["api", "v1", "offramps"]
             },
             "description": "Body.requestId must match requestId header. **destination.purposeOfPayment** (required) and **platformFee.walletAddress** (required) must be present per API schema. 201: transferType OFFRAMP, transferDetails (id auto-saved). Use new requestId for each create."
+          }
+        },
+        {
+          "name": "Create Offramp (USD)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {",
+                  "    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "pm.collectionVariables.set('requestId', uuidv4());"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var j = pm.response.json();",
+                  "if (pm.response.code === 201 && j.success && j.data && j.data.transferDetails && j.data.transferDetails.id) {",
+                  "    pm.collectionVariables.set('offrampId', j.data.transferDetails.id);",
+                  "    console.log('Saved offrampId (USD): ' + j.data.transferDetails.id);",
+                  "    if (j.data.transferDetails.txnRef) {",
+                  "        pm.collectionVariables.set('offrampTxnRef', j.data.transferDetails.txnRef);",
+                  "        console.log('Saved offrampTxnRef: ' + j.data.transferDetails.txnRef);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "requestId", "value": "{{requestId}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"amount\": 50,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountIdUsd}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "offramps"]
+            },
+            "description": "**USD** offramp: **`destination.purposeOfPayment`** (UPPER_SNAKE) → Palremit `extras.transfer_purpose`; required **`metadata.isSelfTransfer`**. Payout rail comes from the linked account’s **`transferDetails.payoutRail`**. Optional Palremit `destination` overrides in `metadata` are merged. Run **Create Account (offramp, USD example)** first for **`{{accountIdUsd}}`**."
           }
         },
         {

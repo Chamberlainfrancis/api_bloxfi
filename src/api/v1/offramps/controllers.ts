@@ -53,7 +53,7 @@ const repos = {
     findUserById: userRepo.findUserById,
   },
   account: {
-    findAccountByIdAndUser: accountRepo.findAccountByIdAndUser,
+    findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser,
   },
   wallet: {
     findExternalWalletByIdAndUser: walletRepo.findExternalWalletByIdAndUser,
@@ -210,6 +210,26 @@ export async function createOfframp(
       );
       return;
     }
+    if (e instanceof Error && e.message === 'ACCOUNT_CURRENCY_MISMATCH') {
+      next(
+        new AppError(
+          'Linked account currency must match destination.currency',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'USD_ACCOUNT_INCOMPLETE_FOR_OFFRAMP') {
+      next(
+        new AppError(
+          'USD offramp payload invalid: linked account needs accountNumber, routingNumber, bankName, country US, and details.transferDetails (beneficiary); destination.purposeOfPayment must be valid UPPER_SNAKE for Palremit; metadata must include isSelfTransfer',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
     if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {
       next(new AppError('Palremit coin metadata unavailable', 'BAD_GATEWAY', 502));
       return;
@@ -261,7 +281,7 @@ export async function retryOfframpFiatPayout(
         findOfframpById: repos.offramp.findOfframpById,
         updateOfframpStatus: repos.offramp.updateOfframpStatus,
       },
-      { findAccountByIdAndUser: repos.account.findAccountByIdAndUser },
+      { findOfframpAccountByIdAndUser: repos.account.findOfframpAccountByIdAndUser },
       palremitLiquidity,
       { offrampId: id, userId: parsed.data.userId }
     );

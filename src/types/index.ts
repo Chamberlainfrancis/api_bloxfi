@@ -34,14 +34,13 @@ export type {
   UpdateExternalWalletResponse,
   DeleteExternalWalletResponse,
 } from "@/types/wallet";
-export { ACCOUNT_REGION_TYPES } from "@/types/account";
 export type {
   RailType,
-  AccountRegionType,
   Address as AccountAddress,
   AccountHolder,
   RailInfo,
   RegionAccountDetails,
+  UsdTransferDetails,
   Account,
   CreateAccountRequest,
   CreateAccountResponse,

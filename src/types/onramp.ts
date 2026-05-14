@@ -26,8 +26,10 @@ export interface OnrampSource {
   userId: string;
   currency: string;
   amount: number;
-  accountId?: string;
+  /** Optional label for fiat rail (e.g. ach); not a BloxFi account id. */
   transferType?: string;
+  /** @deprecated Legacy rows only; onramps no longer link Account records. */
+  accountId?: string;
   user?: {
     email: string;
     businessName?: string;
@@ -77,7 +79,7 @@ export interface DepositInfoPix {
 
 export interface DepositInfo {
   bankName: string;
-  beneficiary: { name: string; address: string };
+  beneficiary: { name: string; address: string; country?: string };
   ach?: DepositInfoAch;
   wire?: DepositInfoWire;
   pix?: DepositInfoPix;
@@ -152,7 +154,6 @@ export interface CreateOnrampSourceInput {
   amount: number;
   currency: string;
   userId: string;
-  accountId: string;
   transferType?: string;
 }
 

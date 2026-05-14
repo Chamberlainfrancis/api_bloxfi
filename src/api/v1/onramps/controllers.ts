@@ -8,7 +8,6 @@ import { AppError } from '@/types';
 import * as onrampCore from '@/core/onramps';
 import * as onrampRepo from '@/db/repositories/onramp.repo';
 import * as userRepo from '@/db/repositories/user.repo';
-import * as accountRepo from '@/db/repositories/account.repo';
 import * as walletRepo from '@/db/repositories/wallet.repo';
 import {
   createPalremitLiquidityAdapter,
@@ -46,9 +45,6 @@ const repos = {
   },
   user: {
     findUserById: userRepo.findUserById,
-  },
-  account: {
-    findAccountByIdAndUser: accountRepo.findAccountByIdAndUser,
   },
   wallet: {
     findExternalWalletByIdAndUser: walletRepo.findExternalWalletByIdAndUser,
@@ -134,7 +130,6 @@ export async function createOnramp(
     const result = await onrampCore.createOnramp(
       repos.onramp,
       repos.user,
-      repos.account,
       repos.wallet,
       repos.kyb,
       raw,
@@ -154,10 +149,6 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'USER_NOT_KYB_VERIFIED') {
       next(new AppError('User not KYB verified for this currency', 'UNPROCESSABLE_ENTITY', 422));
-      return;
-    }
-    if (e instanceof Error && e.message === 'ACCOUNT_NOT_FOUND') {
-      next(new AppError('Account not found', 'NOT_FOUND', 404));
       return;
     }
     if (e instanceof Error && e.message === 'WALLET_NOT_FOUND') {

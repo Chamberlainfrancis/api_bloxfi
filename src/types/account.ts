@@ -1,29 +1,9 @@
 /**
  * Fiat account types per docs/bloxfi-liquidity-provider-integration-spec-v1.0.0.md §3.
- * Unified region schema per spec-clarifications §2: same shape for all regions; N/A fields null or "".
- * Africa: supported as specific countries (Nigeria, Ghana, Kenya, etc.) plus generic "africa" fallback.
+ * BloxFi **Account** rows are **offramp payout destinations** only; onramp fiat uses Palremit provisioned accounts + **ExternalWallet** for crypto destination.
  */
 
 export type RailType = 'onramp' | 'offramp';
-
-/** All supported account region/country codes (Americas, Africa-specific, generic africa). */
-export const ACCOUNT_REGION_TYPES = [
-  'us',
-  'brazil',
-  'colombia',
-  'argentina',
-  'mexico',
-  'africa',
-  'nigeria',
-  'ghana',
-  'kenya',
-  'south_africa',
-  'zimbabwe',
-  'rwanda',
-  'senegal',
-] as const;
-
-export type AccountRegionType = (typeof ACCOUNT_REGION_TYPES)[number];
 
 export interface Address {
   addressLine1: string;
@@ -53,8 +33,33 @@ export interface RailInfo {
   paymentRail: string; // e.g. "ach", "wire", "pix", "spei"
 }
 
-/** Unified region-specific account details; N/A fields null or "" per spec-clarifications §2 */
+/**
+ * USD settlement on the account: payout rail, account holder as credited, beneficiary (+ address).
+ * Stored at `details.transferDetails`.
+ * Transfer purpose is **`destination.purposeOfPayment`** on the offramp; **`metadata.isSelfTransfer`**
+ * maps to Palremit `extras.is_self_transfer`.
+ */
+export interface UsdTransferDetails {
+  payoutRail: string;
+  accountHolderName: string;
+  beneficiary: {
+    name: string;
+    /** When omitted on create, API copies `accountHolder.type`. */
+    type?: 'individual' | 'business';
+    address: {
+      street: string;
+      city: string;
+      stateProvince: string;
+      postalCode: string;
+      country: string;
+    };
+  };
+}
+
+/** Bank / rail-specific fields; N/A fields null or "" per spec-clarifications §2 */
 export interface RegionAccountDetails {
+  /** Free-form country or jurisdiction for this bank account (stored as provided). */
+  country?: string | null;
   transferType?: string | null; // ach, wire, swift (US)
   accountType?: string | null; // Checking, Savings (US)
   accountNumber?: string | null;
@@ -66,6 +71,8 @@ export interface RegionAccountDetails {
   bankAddress?: Address | null;
   currency: string;
   pixKey?: string | null; // Brazil
+  /** USD: rail, beneficiary, settlement fields for Palremit global-bank offramps. */
+  transferDetails?: UsdTransferDetails | null;
 }
 
 export interface Account {
@@ -74,41 +81,21 @@ export interface Account {
   createdAt: string;
   updatedAt: string;
   rail: RailInfo;
+  /** Free-form region / corridor label (persisted as `accountType`). */
+  type: string;
+  details: RegionAccountDetails | null;
   accountHolder?: AccountHolder | null;
-  us?: RegionAccountDetails | null;
-  brazil?: RegionAccountDetails | null;
-  colombia?: RegionAccountDetails | null;
-  argentina?: RegionAccountDetails | null;
-  mexico?: RegionAccountDetails | null;
-  africa?: RegionAccountDetails | null;
-  nigeria?: RegionAccountDetails | null;
-  ghana?: RegionAccountDetails | null;
-  kenya?: RegionAccountDetails | null;
-  south_africa?: RegionAccountDetails | null;
-  zimbabwe?: RegionAccountDetails | null;
-  rwanda?: RegionAccountDetails | null;
-  senegal?: RegionAccountDetails | null;
 }
 
 // --- Create Account (POST) ---
 
 export interface CreateAccountRequest {
+  /** Must be `offramp` (BloxFi accounts are payout destinations for offramps only). */
   rail: RailType;
-  type: AccountRegionType;
+  /** Non-empty region or corridor label (stored verbatim after trim). */
+  type: string;
   accountHolder: AccountHolder;
-  us?: RegionAccountDetails | null;
-  brazil?: RegionAccountDetails | null;
-  colombia?: RegionAccountDetails | null;
-  argentina?: RegionAccountDetails | null;
-  mexico?: RegionAccountDetails | null;
-  africa?: RegionAccountDetails | null;
-  nigeria?: RegionAccountDetails | null;
-  ghana?: RegionAccountDetails | null;
-  kenya?: RegionAccountDetails | null;
-  south_africa?: RegionAccountDetails | null;
-  zimbabwe?: RegionAccountDetails | null;
-  rwanda?: RegionAccountDetails | null;
-  senegal?: RegionAccountDetails | null;
+  details: RegionAccountDetails;
 }
 
 export interface CreateAccountResponse {
@@ -120,8 +107,10 @@ export interface CreateAccountResponse {
 // --- List Accounts (GET) ---
 
 export interface ListAccountsQuery {
+  /** Filter by stored rail (`onramp` / `offramp`). When omitted, only `offramp` rows are returned. */
   rail?: RailType;
-  type?: AccountRegionType;
+  /** Filter by stored region label (`accountType`). */
+  type?: string;
   currency?: string;
   limit?: number;
   createdBefore?: string;

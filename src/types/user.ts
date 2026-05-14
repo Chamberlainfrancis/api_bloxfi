@@ -29,7 +29,7 @@ export interface Address {
   city: string;
   stateProvinceRegion?: string;
   postalCode: string;
-  country: string; // ISO 3166-1 alpha-3
+  country: string; // any non-empty jurisdiction string (e.g. ISO alpha-2/alpha-3 or full name)
 }
 
 export interface BusinessInfo {

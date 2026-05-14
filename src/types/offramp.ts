@@ -52,6 +52,11 @@ export interface OfframpDestination {
   bankTransferMethod?: string;
   reference?: string;
   purposeOfPayment: string;
+  /**
+   * USD offramp: **`isSelfTransfer`** and optional Palremit `destination` overrides (not bank core fields).
+   * Transfer purpose is **`purposeOfPayment`** (same row), not duplicated in metadata.
+   */
+  metadata?: Record<string, unknown>;
   user?: {
     email: string;
     businessName?: string;

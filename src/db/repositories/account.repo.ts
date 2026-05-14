@@ -1,17 +1,17 @@
 /**
- * Fiat account repository. Only layer that touches Prisma for Account.
+ * Fiat account repository (offramp payout destinations). Only layer that touches Prisma for Account.
  * Per CURSOR_RULES: all DB access for accounts goes through this file.
  */
 
 import { prisma } from "@/db/prisma/client";
-import type { RailType, AccountRegionType } from "@/types/account";
+import type { RailType } from "@/types/account";
 
 export interface CreateAccountData {
   userId: string;
   railType: RailType;
   currency: string;
   paymentRail: string;
-  accountType: AccountRegionType;
+  accountType: string;
   accountHolder: object;
   regionDetails: object;
 }
@@ -44,9 +44,10 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
   return account as AccountRow;
 }
 
-export async function findAccountByIdAndUser(accountId: string, userId: string): Promise<AccountRow | null> {
+/** Fiat payout bank rows for offramps only (not used for onramp). */
+export async function findOfframpAccountByIdAndUser(accountId: string, userId: string): Promise<AccountRow | null> {
   const account = await prisma.account.findFirst({
-    where: { id: accountId, userId },
+    where: { id: accountId, userId, railType: "offramp" },
   });
   return account as AccountRow | null;
 }
@@ -57,7 +58,7 @@ export interface ListAccountsParams {
   createdBefore?: Date;
   createdAfter?: Date;
   rail?: RailType;
-  type?: AccountRegionType;
+  type?: string;
   currency?: string;
 }
 
@@ -69,11 +70,11 @@ export async function listAccounts(params: ListAccountsParams): Promise<{
   const take = Math.min(Math.max(1, limit), 100);
   const where: {
     userId: string;
+    railType: string;
     createdAt?: { lt?: Date; gt?: Date };
-    railType?: string;
     accountType?: string;
     currency?: string;
-  } = { userId };
+  } = { userId, railType: rail ?? "offramp" };
 
   if (createdBefore) {
     where.createdAt = { ...where.createdAt, lt: createdBefore };
@@ -84,7 +85,6 @@ export async function listAccounts(params: ListAccountsParams): Promise<{
   if (createdBefore && createdAfter) {
     where.createdAt = { lt: createdBefore, gt: createdAfter };
   }
-  if (rail) where.railType = rail;
   if (type) where.accountType = type;
   if (currency) where.currency = currency;
 
@@ -103,7 +103,7 @@ export async function listAccounts(params: ListAccountsParams): Promise<{
 }
 
 export async function deleteAccount(accountId: string, userId: string): Promise<{ id: string } | null> {
-  const account = await findAccountByIdAndUser(accountId, userId);
+  const account = await findOfframpAccountByIdAndUser(accountId, userId);
   if (!account) return null;
   await prisma.account.delete({
     where: { id: accountId },

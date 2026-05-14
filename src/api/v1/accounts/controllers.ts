@@ -1,5 +1,5 @@
 /**
- * Fiat account controllers. Validate → call core → return standardized response.
+ * Offramp payout account controllers (fiat destination). Validate → call core → return standardized response.
  * No Prisma/Redis/business logic here.
  */
 
@@ -17,7 +17,7 @@ const REQUEST_ID_HEADER = "requestid";
 const repos = {
   account: {
     createAccount: accountRepo.createAccount,
-    findAccountByIdAndUser: accountRepo.findAccountByIdAndUser,
+    findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser,
     listAccounts: accountRepo.listAccounts,
     deleteAccount: accountRepo.deleteAccount,
     hasPendingTransactions: accountRepo.hasPendingTransactions,

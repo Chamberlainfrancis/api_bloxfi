@@ -1,17 +1,11 @@
 /**
- * Core: get single fiat account (full details, no masking). Spec §3.3.
+ * Core: get single offramp payout account (full details, no masking). Spec §3.3.
  */
 
-import {
-  ACCOUNT_REGION_TYPES,
-  type GetAccountResponse,
-  type AccountHolder,
-  type RegionAccountDetails,
-  type RailType,
-} from '@/types/account';
+import type { GetAccountResponse, AccountHolder, RegionAccountDetails, RailType } from '@/types/account';
 
 export interface AccountRepoGet {
-  findAccountByIdAndUser(
+  findOfframpAccountByIdAndUser(
     accountId: string,
     userId: string
   ): Promise<{
@@ -47,19 +41,16 @@ function rowToAccount(row: {
   };
   const accountHolder = row.accountHolder as AccountHolder | null;
   const regionDetails = row.regionDetails as RegionAccountDetails | null;
-  const acc: GetAccountResponse = {
+  return {
     id: row.id,
     userId: row.userId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     rail,
+    type: row.accountType,
+    details: regionDetails,
     accountHolder: accountHolder ?? undefined,
   };
-  const type = row.accountType;
-  if (type && ACCOUNT_REGION_TYPES.includes(type as (typeof ACCOUNT_REGION_TYPES)[number])) {
-    (acc as unknown as Record<string, unknown>)[type] = regionDetails;
-  }
-  return acc;
 }
 
 export async function getAccount(
@@ -67,7 +58,7 @@ export async function getAccount(
   userId: string,
   accountId: string
 ): Promise<GetAccountResponse | null> {
-  const account = await repo.findAccountByIdAndUser(accountId, userId);
+  const account = await repo.findOfframpAccountByIdAndUser(accountId, userId);
   if (!account) return null;
   return rowToAccount(account);
 }

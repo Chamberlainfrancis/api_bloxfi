@@ -14,6 +14,7 @@ import type {
   OfframpStatus,
   RefundDetails,
 } from '@/types/offramp';
+import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 
 export interface OfframpRepoGet {
   findOfframpById(id: string): Promise<{
@@ -63,7 +64,7 @@ function rowToTransferDetails(row: {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     source: row.source as OfframpSource,
-    destination: row.destination as OfframpDestination,
+    destination: maskPublicOfframpDestination(row.destination as OfframpDestination),
     rateInformation: row.rateInformation as RateInformation,
     depositInstructions: (row.depositInstructions as DepositInstructions) ?? null,
     timeline: (row.timeline as Timeline) ?? undefined,

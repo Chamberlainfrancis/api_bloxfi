@@ -14,8 +14,6 @@ const createOnrampSourceSchema = z.object({
   currency: z.string().min(1),
   userId: z.string().uuid().optional(),
   userld: z.string().uuid().optional(),
-  accountId: z.string().uuid().optional(),
-  accountld: z.string().uuid().optional(),
   transferType: z.string().optional(),
 });
 
@@ -42,7 +40,6 @@ export const createOnrampBodySchema = z
     source: {
       ...val.source,
       userId: val.source.userId ?? val.source.userld,
-      accountId: val.source.accountId ?? val.source.accountld,
     },
     destination: {
       ...val.destination,
@@ -58,9 +55,6 @@ export const createOnrampBodySchema = z
     }
     if (!val.source.userId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'userId'], message: 'source.userId is required' });
-    }
-    if (!val.source.accountId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'accountId'], message: 'source.accountId is required' });
     }
     if (!val.destination.userId) {
       ctx.addIssue({

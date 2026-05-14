@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { usdOfframpOptionalMetadataSchema, usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
 
 const platformFeeSchema = z.object({
   type: z.enum(['PERCENTAGE', 'FLAT']),
@@ -89,6 +90,40 @@ export const createOfframpBodySchema = z
         path: ['destination', 'accountId'],
         message: 'destination.accountId is required',
       });
+    }
+
+    const destCcy = val.destination.currency.trim().toUpperCase();
+    if (destCcy === 'USD') {
+      const pp = usdPalremitTransferPurposeSchema.safeParse(val.destination.purposeOfPayment.trim());
+      if (!pp.success) {
+        for (const e of pp.error.errors) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: e.message,
+            path: ['destination', 'purposeOfPayment'],
+          });
+        }
+      }
+
+      const m = val.metadata;
+      if (m == null || typeof m !== 'object' || Array.isArray(m)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['metadata'],
+          message: 'metadata is required for USD offramp (isSelfTransfer)',
+        });
+        return;
+      }
+      const mp = usdOfframpOptionalMetadataSchema.safeParse(m);
+      if (!mp.success) {
+        for (const e of mp.error.errors) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: e.message,
+            path: ['metadata', ...e.path],
+          });
+        }
+      }
     }
   });
 

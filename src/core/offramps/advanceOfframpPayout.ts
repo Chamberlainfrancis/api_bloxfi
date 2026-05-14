@@ -6,6 +6,7 @@
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
   buildPalremitFiatDestinationInformation,
+  mapStoredUsdAccountToPalremitGlobalBankDestination,
   createPalremitOfframpFiatWithdrawal,
 } from '@/core/integrations/palremitOfframp';
 import type { OfframpStatus } from '@/types/offramp';
@@ -35,7 +36,7 @@ export interface OfframpRepoAdvance {
 }
 
 export interface AccountRepoAdvance {
-  findAccountByIdAndUser(
+  findOfframpAccountByIdAndUser(
     accountId: string,
     userId: string
   ): Promise<{
@@ -59,35 +60,60 @@ export async function advanceOfframpIfDepositReady(
   if (timeline.fiatWithdrawalCompleted === true) return;
   if (timeline.fiatWithdrawalId != null) return;
 
-  const source = row.source as { amount?: number; currency?: string; chain?: string };
   const destination = row.destination as {
     amount?: number;
     currency?: string;
     accountId?: string;
     userId?: string;
+    purposeOfPayment?: string;
+    metadata?: Record<string, unknown>;
   };
   const accountId = destination.accountId;
   const userId = row.userId;
   if (!accountId || destination.amount == null) return;
 
-  const account = await accountRepo.findAccountByIdAndUser(accountId, userId);
+  const account = await accountRepo.findOfframpAccountByIdAndUser(accountId, userId);
   if (!account) return;
-
-  const destInfo = buildPalremitFiatDestinationInformation(
-    account.accountHolder,
-    account.regionDetails
-  );
-  if (!destInfo.account_unique) return;
 
   const destinationAmount = Number(destination.amount);
   if (!Number.isFinite(destinationAmount) || destinationAmount <= 0) return;
 
-  const result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
-    txnRef: row.txnRef,
-    destinationAmount,
-    destinationCurrency: destination.currency ?? 'NGN',
-    destinationInformation: destInfo,
-  });
+  const destCcy = (destination.currency ?? 'NGN').trim().toLowerCase();
+
+  let result: Awaited<ReturnType<typeof createPalremitOfframpFiatWithdrawal>>;
+
+  if (destCcy === 'usd') {
+    const purpose =
+      typeof destination.purposeOfPayment === 'string' ? destination.purposeOfPayment.trim() : '';
+    if (!purpose) return;
+    const gb = mapStoredUsdAccountToPalremitGlobalBankDestination({
+      regionDetails: account.regionDetails,
+      accountHolder: account.accountHolder,
+      purposeOfPayment: purpose,
+      metadata: destination.metadata,
+    });
+    if (!gb || typeof gb !== 'object') return;
+    result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
+      payoutKind: 'global_bank_account',
+      txnRef: row.txnRef,
+      destinationAmount,
+      asset: 'USD',
+      destination: gb,
+    });
+  } else {
+    const destInfo = buildPalremitFiatDestinationInformation(
+      account.accountHolder,
+      account.regionDetails
+    );
+    if (!destInfo.account_unique) return;
+    result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
+      payoutKind: 'local_bank_account',
+      txnRef: row.txnRef,
+      destinationAmount,
+      destinationCurrency: destination.currency ?? 'NGN',
+      destinationInformation: destInfo,
+    });
+  }
 
   if (!result) return;
 

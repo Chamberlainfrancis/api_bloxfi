@@ -9,7 +9,7 @@
   },
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc && tsc-alias -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "start": "node -r tsconfig-paths/register dist/server.js",
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/server.ts",
     "lint": "eslint src --ext .ts",

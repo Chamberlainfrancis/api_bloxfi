@@ -72,6 +72,11 @@ export function mapOrchestratorFiatInstructionsToDepositInfo(
   }
   const accountNumber = String(instructions.account_number ?? '');
   const bankCode = String(instructions.bank_code ?? '');
+  const inst = instructions as Record<string, unknown>;
+  const rawCountry =
+    [inst.country, inst.country_code, inst.bank_country]
+      .find((v) => typeof v === 'string' && String(v).trim() !== '') ?? '';
+  const country = typeof rawCountry === 'string' ? rawCountry.trim() : '';
   const ref =
     [accountNumber, bankCode].filter(Boolean).join('-') || bloxRequestId;
   return {
@@ -79,6 +84,7 @@ export function mapOrchestratorFiatInstructionsToDepositInfo(
     beneficiary: {
       name: resolveFiatBeneficiaryName(instructions, preferredBeneficiaryName),
       address: '',
+      ...(country ? { country } : {}),
     },
     ach: undefined,
     wire: { routingNumber: bankCode, accountNumber },

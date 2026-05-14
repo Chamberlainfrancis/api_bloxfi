@@ -89,17 +89,6 @@ export interface UserRepoForOnramp {
   } | null>;
 }
 
-export interface AccountRepoForOnramp {
-  findAccountByIdAndUser(accountId: string, userId: string): Promise<{
-    id: string;
-    userId: string;
-    accountHolder: unknown;
-    regionDetails: unknown;
-    paymentRail: string;
-    accountType: string;
-  } | null>;
-}
-
 export interface WalletRepoForOnramp {
   findExternalWalletByIdAndUser(
     walletId: string,
@@ -203,7 +192,6 @@ function userDisplay(user: { businessInfo?: unknown; legalRepresentative?: unkno
 export async function createOnramp(
   onrampRepo: OnrampRepoCreate,
   userRepo: UserRepoForOnramp,
-  accountRepo: AccountRepoForOnramp,
   walletRepo: WalletRepoForOnramp,
   kybRepo: KybRepoForOnramp,
   requestId: string,
@@ -223,9 +211,6 @@ export async function createOnramp(
   const railStatuses = await kybRepo.getKybRailStatuses(userId, [railCurrency]);
   const approved = railStatuses.some((r) => r.status === 'approved');
   if (!approved) throw new Error('USER_NOT_KYB_VERIFIED');
-
-  const account = await accountRepo.findAccountByIdAndUser(src.accountId, userId);
-  if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
   const wallet = await walletRepo.findExternalWalletByIdAndUser(dest.externalWalletId, userId);
   if (!wallet) throw new Error('WALLET_NOT_FOUND');
@@ -278,8 +263,7 @@ export async function createOnramp(
     userId,
     currency: fromCurrency,
     amount: grossFiat,
-    accountId: account.id,
-    transferType: src.transferType ?? account.paymentRail,
+    transferType: src.transferType,
     user: userDisplayInfo,
   };
   const destinationPayload: OnrampDestination = {

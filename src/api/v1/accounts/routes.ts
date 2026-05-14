@@ -1,5 +1,5 @@
 /**
- * Fiat account routes. Spec §3.
+ * Offramp payout bank accounts (fiat destination). Spec §3.
  * POST /users/:userId/accounts (idempotent), GET list, GET one, DELETE.
  */
 

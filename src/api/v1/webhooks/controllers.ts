@@ -61,7 +61,7 @@ const webhookRepos = {
           findOfframpById: offrampRepo.findOfframpById,
           updateOfframpStatus: offrampRepo.updateOfframpStatus,
         },
-        { findAccountByIdAndUser: accountRepo.findAccountByIdAndUser },
+        { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
         palremitLiquidity,
         offrampId,
       );

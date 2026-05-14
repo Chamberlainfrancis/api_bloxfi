@@ -192,12 +192,12 @@ model Account {
   id            String   @id @default(uuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  railType      String // onramp | offramp
+  railType      String // offramp for API-created rows; legacy onramp values may exist in DB
   currency      String
   paymentRail   String // ach, wire, pix, spei, etc.
-  accountType   String // us, brazil, colombia, argentina, mexico, africa
+  accountType   String // free-form region / corridor label
   accountHolder Json // AccountHolder shape
-  regionDetails Json // Region-specific details (us/brazil/etc. shape; mask in list)
+  regionDetails Json // unified bank details (currency, country, etc.; mask in list)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
