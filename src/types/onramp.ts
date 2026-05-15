@@ -93,6 +93,8 @@ export interface DepositInfo {
 export interface Receipt {
   transactionHash?: string;
   txnRef?: string;
+  /** ISO timestamp when LP confirmed crypto payout (`withdrawal.successful`). */
+  completedAt?: string;
   /** @deprecated Legacy prepare step; use palremitWithdrawalId */
   palremitPrepareReference?: string;
   /** Palremit Liquidity Orchestrator withdrawal id (Mongo ObjectId hex). */

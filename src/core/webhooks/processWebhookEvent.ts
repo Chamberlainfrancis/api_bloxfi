@@ -126,6 +126,19 @@ function getPalremitOrchestrator(providerRefs: unknown): Record<string, unknown>
   return o as Record<string, unknown>;
 }
 
+/** Terminal onramp statuses — `withdrawal.successful` does not change these (except idempotent COMPLETED). */
+const ONRAMP_TERMINAL_NO_COMPLETE = new Set<string>(['COMPLETED', 'EXPIRED']);
+
+function withdrawalClientReference(
+  withdrawal: Record<string, unknown>,
+  data: Record<string, unknown>
+): string {
+  const fromWithdrawal =
+    typeof withdrawal.client_reference === 'string' ? withdrawal.client_reference.trim() : '';
+  if (fromWithdrawal) return fromWithdrawal;
+  return typeof data.client_reference === 'string' ? data.client_reference.trim() : '';
+}
+
 /**
  * Process a single webhook event. Updates state via repos; throws on unrecoverable errors.
  */
@@ -247,17 +260,18 @@ export async function processWebhookEvent(
         break;
       }
       const w = withdrawalObj as Record<string, unknown>;
-      const clientRef =
-        typeof w.client_reference === 'string' ? w.client_reference.trim() : '';
+      const clientRef = withdrawalClientReference(w, d);
       const wstate = typeof w.state === 'string' ? w.state.toLowerCase() : '';
-      const wmode = typeof w.mode === 'string' ? w.mode : '';
-      if (!clientRef || wstate !== 'successful') break;
+      const wmode = typeof w.mode === 'string' ? w.mode.trim() : '';
+      if (!clientRef) break;
+      if (wstate && wstate !== 'successful') break;
 
       if (isOnrampTxnRef(clientRef)) {
-        if (wmode !== 'CRYPTO_WITHDRAWAL') break;
+        if (wmode && wmode !== 'CRYPTO_WITHDRAWAL') break;
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
-        if (onramp.status !== 'CRYPTO_PENDING') break;
+        if (ONRAMP_TERMINAL_NO_COMPLETE.has(onramp.status)) break;
+
         const orch = getPalremitOrchestrator(onramp.providerRefs);
         const wid = typeof w.id === 'string' ? w.id.trim() : '';
         const expectedWid =
@@ -270,19 +284,25 @@ export async function processWebhookEvent(
             : typeof w.settlement_reference === 'string'
               ? w.settlement_reference
               : undefined;
+        const completedAt = new Date().toISOString();
 
         await repos.onramp.updateOnrampStatus(onramp.id, 'COMPLETED', {
+          failedReason: null,
           receipt: {
             provider: 'palremit',
             eventType,
             withdrawal: w,
             transactionHash: destTx,
+            completedAt,
+            ...(wid ? { palremitWithdrawalId: wid } : {}),
             awaitingWebhookConfirmation: false,
           },
           providerRefs: {
             palremitOrchestrator: {
               ...(orch ?? {}),
+              ...(wid ? { palremitWithdrawalId: wid } : {}),
               withdrawalStatus: 'successful',
+              completedAt,
               rawWithdrawalSuccessfulPayload: d,
             },
           },

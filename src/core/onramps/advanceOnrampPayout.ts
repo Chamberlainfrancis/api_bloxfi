@@ -69,6 +69,7 @@ export async function advanceOnrampIfFiatProcessed(
 
   const eligible =
     row.status === 'FIAT_PROCESSED' ||
+    (row.status === 'CRYPTO_FAILED' && !hasWithdrawalId) ||
     ((row.status === 'CRYPTO_INITIATED' || row.status === 'CRYPTO_PENDING') && !hasWithdrawalId);
 
   if (!eligible) return;
@@ -146,13 +147,6 @@ export async function advanceOnrampIfFiatProcessed(
     result = null;
   }
 
-  if (!result) {
-    await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_FAILED', {
-      failedReason: 'PALREMIT_ONRAMP_WITHDRAWAL_FAILED',
-    });
-    return;
-  }
-
   const orch =
     row.providerRefs != null &&
     typeof row.providerRefs === 'object' &&
@@ -164,7 +158,27 @@ export async function advanceOnrampIfFiatProcessed(
       ? (orch as Record<string, unknown>)
       : {};
 
+  if (!result) {
+    // LP may still process payout; completion is driven by `withdrawal.successful`.
+    await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_PENDING', {
+      failedReason: null,
+      receipt: {
+        txnRef: row.txnRef,
+        awaitingWebhookConfirmation: true,
+      },
+      providerRefs: {
+        palremitOrchestrator: {
+          ...orchObj,
+          withdrawalStatus: 'pending',
+          withdrawalInitiationFailed: true,
+        },
+      },
+    });
+    return;
+  }
+
   await onrampRepo.updateOnrampStatus(row.id, 'CRYPTO_PENDING', {
+    failedReason: null,
     receipt: {
       txnRef: row.txnRef,
       palremitWithdrawalId: result.withdrawalId,
@@ -175,6 +189,7 @@ export async function advanceOnrampIfFiatProcessed(
         ...orchObj,
         palremitWithdrawalId: result.withdrawalId,
         withdrawalStatus: 'pending',
+        withdrawalInitiationFailed: false,
         rawCryptoWithdrawalRequest: result.rawWithdrawalRequest,
         rawCryptoWithdrawalResponse: result.rawWithdrawalResponse,
       },
