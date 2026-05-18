@@ -410,8 +410,12 @@ export function mapStoredUsdAccountToPalremitGlobalBankDestination(
   if (!gbp || typeof gbp !== 'object' || Array.isArray(gbp)) return null;
   const g = gbp as Record<string, unknown>;
 
-  const accountNumber = String(region.accountNumber ?? region.account_number ?? '').trim();
-  const bankCode = String(region.bankCode ?? region.bank_code ?? '').trim();
+  const accountNumber = String(region.accountNumber ?? region.account_number ?? '')
+    .trim()
+    .replace(/\s+/g, '');
+  const bankCode = String(region.bankCode ?? region.bank_code ?? '')
+    .trim()
+    .replace(/\s+/g, '');
   const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
   const ben = g.beneficiary as Record<string, unknown> | undefined;
   const benAddr =

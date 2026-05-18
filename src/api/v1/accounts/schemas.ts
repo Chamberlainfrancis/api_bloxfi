@@ -12,6 +12,19 @@
 import { z } from 'zod';
 import { usdAccountTransferDetailsSchema } from '@/schemas/usdGlobalBank.zod';
 
+const BANK_IDENTIFIER_KEYS = [
+  'accountNumber',
+  'bankCode',
+  'routingNumber',
+  'account_number',
+  'bank_code',
+  'routing_number',
+] as const;
+
+function stripBankIdentifierWhitespace(value: string): string {
+  return value.replace(/\s+/g, '');
+}
+
 const addressSchema = z.object({
   addressLine1: z.string().min(1),
   addressLine2: z.string().optional().nullable(),
@@ -55,6 +68,26 @@ export const regionDetailsSchema = z
   })
   .passthrough();
 
+function stripBankIdentifiersInCreateBody<
+  T extends {
+    details: z.infer<typeof regionDetailsSchema>;
+  },
+>(data: T): T {
+  const d = { ...(data.details as Record<string, unknown>) };
+  let changed = false;
+  for (const key of BANK_IDENTIFIER_KEYS) {
+    const v = d[key];
+    if (typeof v !== 'string' || v === '') continue;
+    const stripped = stripBankIdentifierWhitespace(v);
+    if (stripped !== v) {
+      d[key] = stripped;
+      changed = true;
+    }
+  }
+  if (!changed) return data;
+  return { ...data, details: d as T['details'] };
+}
+
 function normalizeUsdBeneficiaryTypeFromAccountHolder<
   T extends {
     accountHolder: { type: 'business' | 'individual' };
@@ -89,6 +122,7 @@ export const createAccountBodySchema = z
     accountHolder: accountHolderSchema,
     details: regionDetailsSchema,
   })
+  .transform((data) => stripBankIdentifiersInCreateBody(data))
   .superRefine((data, ctx) => {
     if (data.rail !== 'offramp') {
       ctx.addIssue({
@@ -176,6 +210,7 @@ export const createAccountBodySchema = z
         });
       }
     }
+
   })
   .transform((data) => normalizeUsdBeneficiaryTypeFromAccountHolder(data));
 
