@@ -41,6 +41,7 @@ Only **`GET /ready`**, **`GET /api/v1/health`**, and **`POST /api/v1/webhooks`**
 | `onrampFiatAssetCode` | Fiat asset in simulated **`deposit.credited`** (match Create Onramp `source.currency`) |
 | `offrampCryptoAssetCode` / `offrampCryptoNetwork` | Match Create Offramp `source.currency` / resolved `chain` |
 | `palremitProvisionedAccountId` | **Manual:** copy from DB after create — `providerRefs.palremitOrchestrator.provisionedAccountId` (API does not return it). |
+| `payoutCorridorAsset` / `payoutCorridorCountry` / `payoutDestinationType` / `payoutBeneficiaryType` | Auto-set by **List payout corridors (USD / GE)** (defaults USD, GE, wire, business) |
 | Auto-saved | `userId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef` — from test scripts where configured |
 
 ---
@@ -116,7 +117,9 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 | Step | Request |
 |------|---------|
 | 1–3 | Same user + KYB as on-ramp |
-| 4 | **`POST .../accounts`** (offramp rail / payout bank) if different — **`accountId`** |
+| 4a | **USD / international:** **Payout corridors** → **List** → **Get corridor requirements** → **Create Account (offramp)** → **`accountId`** |
+| 4b | **NGN:** **Get corridor requirements (NGN local_bank)** → **Create Account (offramp, NGN)** → **`accountId`** |
+| 4c | **`POST /api/v1/offramps`** with `destination.accountId` = **`{{accountId}}`** — **Create Offramp (USD)** or **Create Offramp (NGN)** |
 | 5 | **`POST .../wallets/external`** — **`walletId`** on the **source crypto network** |
 
 ### B. Network validation (off-ramp source)

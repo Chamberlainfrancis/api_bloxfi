@@ -24,6 +24,8 @@ Only these requests have a test script; others (e.g. Health check, Get User) hav
 | User    | Create Business User      | `userId`            |
 | Wallets | Add External Wallet       | `walletId`          |
 | Accounts| Create Account (offramp)   | `accountId`         |
+| Accounts| Create Account (offramp, NGN) | `accountId`      |
+| Payout corridors | List payout corridors (USD / GE) | `payoutCorridorAsset`, `payoutCorridorCountry`, `payoutDestinationType`, `payoutBeneficiaryType` |
 | Onramps | Create Onramp             | `onrampId`          |
 | Offramps| Create Offramp            | `offrampId`         |
 | Limits  | Create High-Value Request | `highValueRequestId` |
@@ -65,6 +67,20 @@ if (pm.response.code === 201 && pm.response.json().success && pm.response.json()
 if (pm.response.code === 200 && pm.response.json().success && pm.response.json().data && pm.response.json().data.id) {
     pm.collectionVariables.set('accountId', pm.response.json().data.id);
     console.log('Saved accountId: ' + pm.response.json().data.id);
+}
+```
+
+### 4b. List payout corridors (USD / GE) → save corridor query vars
+
+```javascript
+pm.test('Status 200', function () { pm.response.to.have.status(200); });
+var j = pm.response.json();
+if (j.success && j.data && Array.isArray(j.data.corridors) && j.data.corridors.length) {
+  var pick = j.data.corridors.find(function (c) { return c.destinationType === 'wire' && c.beneficiaryType === 'business'; }) || j.data.corridors[0];
+  pm.collectionVariables.set('payoutCorridorAsset', pick.asset);
+  pm.collectionVariables.set('payoutCorridorCountry', pick.country);
+  pm.collectionVariables.set('payoutDestinationType', pick.destinationType);
+  pm.collectionVariables.set('payoutBeneficiaryType', pick.beneficiaryType);
 }
 ```
 

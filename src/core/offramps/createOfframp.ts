@@ -4,7 +4,7 @@
 
 import { applyOfframpPlatformFee } from '@/core/payments';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
-import { mapStoredUsdAccountToPalremitGlobalBankDestination } from '@/core/integrations/palremitOfframp';
+import { isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
@@ -105,7 +105,7 @@ export interface AccountRepoForOfframp {
     userId: string;
     currency: string;
     accountHolder: unknown;
-    regionDetails: unknown;
+    providerPayout: unknown;
     paymentRail: string;
     accountType: string;
   } | null>;
@@ -187,16 +187,8 @@ export async function createOfframp(
     throw new Error('ACCOUNT_CURRENCY_MISMATCH');
   }
 
-  if (toCurrency === 'usd') {
-    const probe = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: account.regionDetails,
-      accountHolder: account.accountHolder,
-      purposeOfPayment: dest.purposeOfPayment,
-      metadata: body.metadata,
-    });
-    if (!probe) {
-      throw new Error('USD_ACCOUNT_INCOMPLETE_FOR_OFFRAMP');
-    }
+  if (!isAccountReadyForOfframp({ providerPayout: account.providerPayout })) {
+    throw new Error('ACCOUNT_INCOMPLETE_FOR_OFFRAMP');
   }
 
   if (!options.getRateFromPalremit) {

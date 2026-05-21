@@ -1,328 +1,113 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildPalremitOfframpFiatWithdrawalBody,
-  mapStoredUsdAccountToPalremitGlobalBankDestination,
-} from '@/core/integrations/palremitOfframp';
+import { buildWithdrawalFromAccount, isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
 
-describe('buildPalremitOfframpFiatWithdrawalBody', () => {
-  it('builds NGN local bank_account payload', () => {
-    const body = buildPalremitOfframpFiatWithdrawalBody({
-      payoutKind: 'local_bank_account',
-      txnRef: 'OFF-testref',
-      destinationAmount: 150000,
-      destinationCurrency: 'ngn',
-      destinationInformation: {
-        account_unique: '0123456789',
-        account_name: 'ACME',
-        provider_name: 'GTBank',
-        provider_code: '058',
-        country: 'NG',
-      },
-    });
-    expect(body).toEqual({
-      client_reference: 'OFF-testref',
-      asset: 'NGN',
-      amount: 150000,
-      destination_type: 'bank_account',
-      destination: {
-        bank_code: '058',
-        account_number: '0123456789',
-      },
-    });
-  });
-
-  it('builds USD global_bank_account payload', () => {
-    const destination = {
-      country: 'US',
-      payout_rail: 'WIRE',
-      account_number: '000111222',
-      bank_code: '021000021',
-      bank_name: 'Chase',
-      account_holder_name: 'ACME LLC',
+describe('buildWithdrawalFromAccount', () => {
+  const providerPayout = {
+    provider: 'palremit' as const,
+    schemaVersion: 2 as const,
+    corridor: {
+      asset: 'USD',
+      country: 'GE',
+      destinationType: 'wire',
+      beneficiaryType: 'business' as const,
+    },
+    destination: {
+      account_number: 'GE00TB123',
+      bank_code: 'TBCBGE22',
+      bank_name: 'TBC Bank',
+      account_holder_name: 'ACME GE',
       beneficiary: {
-        name: 'ACME LLC',
         type: 'business',
+        name: 'ACME GE',
         address: {
-          street: '99 Market St',
-          city: 'SF',
-          state_province: 'CA',
-          postal_code: '94105',
-          country: 'US',
+          street: '1 Main',
+          city: 'Tbilisi',
+          state_province: 'TB',
+          postal_code: '0108',
+          country: 'GE',
         },
       },
       extras: {
-        transfer_purpose: 'FAMILY_MAINTENANCE',
+        transfer_purpose: 'BUSINESS_PAYMENT',
         is_self_transfer: false,
       },
-    };
-    const body = buildPalremitOfframpFiatWithdrawalBody({
-      payoutKind: 'global_bank_account',
-      txnRef: 'OFF-usd1',
-      destinationAmount: 500,
-      asset: 'usd',
-      destination,
+    },
+  };
+
+  it('builds withdrawal from providerPayout', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-corridor1',
+      destinationAmount: 100,
+      providerPayout,
     });
-    expect(body).toEqual({
-      client_reference: 'OFF-usd1',
+    expect(body).toMatchObject({
+      client_reference: 'OFF-corridor1',
       asset: 'USD',
-      amount: 500,
-      destination_type: 'global_bank_account',
-      destination,
+      country: 'GE',
+      destination_type: 'wire',
+      amount: 100,
+    });
+    expect((body?.destination as Record<string, unknown>).account_number).toBe('GE00TB123');
+  });
+
+  it('merges purposeOfPayment into extras when missing on account', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        account_number: 'GE00TB123',
+        bank_code: 'TBCBGE22',
+        bank_name: 'TBC',
+        account_holder_name: 'ACME',
+        beneficiary: providerPayout.destination.beneficiary,
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout: pp,
+      purposeOfPayment: 'FAMILY_MAINTENANCE',
+      metadata: { isSelfTransfer: true },
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toEqual({
+      transfer_purpose: 'FAMILY_MAINTENANCE',
+      is_self_transfer: true,
     });
   });
 
-  it('returns null when global destination missing account identifiers', () => {
+  it('returns null without providerPayout', () => {
     expect(
-      buildPalremitOfframpFiatWithdrawalBody({
-        payoutKind: 'global_bank_account',
+      buildWithdrawalFromAccount({
         txnRef: 'OFF-x',
         destinationAmount: 1,
-        asset: 'USD',
-        destination: { country: 'US' },
+        providerPayout: null,
       })
     ).toBeNull();
   });
 });
 
-describe('mapStoredUsdAccountToPalremitGlobalBankDestination', () => {
-  const meta = { isSelfTransfer: false };
-
-  const regionDetails = {
-    currency: 'USD',
-    country: 'US',
-    accountNumber: '000111222',
-    bankCode: '021000021',
-    bankName: 'Chase',
-    transferDetails: {
-      payoutRail: 'WIRE',
-      accountHolderName: 'ACME LLC',
-      beneficiary: {
-        name: 'ACME LLC',
-        type: 'business' as const,
-        address: {
-          street: '99 Market St',
-          city: 'SF',
-          stateProvince: 'CA',
-          postalCode: '94105',
-          country: 'US',
-        },
-      },
-    },
-  };
-
-  it('builds Palremit destination from camelCase account + purposeOfPayment + metadata', () => {
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails,
-      accountHolder: {},
-      purposeOfPayment: 'FAMILY_MAINTENANCE',
-      metadata: meta,
-    });
-    expect(d).toEqual({
-      country: 'US',
-      payout_rail: 'WIRE',
-      account_number: '000111222',
-      bank_code: '021000021',
-      bank_name: 'Chase',
-      account_holder_name: 'ACME LLC',
-      beneficiary: {
-        name: 'ACME LLC',
-        type: 'business',
-        address: {
-          street: '99 Market St',
-          city: 'SF',
-          state_province: 'CA',
-          postal_code: '94105',
-          country: 'US',
-        },
-      },
-      extras: { transfer_purpose: 'FAMILY_MAINTENANCE', is_self_transfer: false },
-    });
-  });
-
-  it('maps details.bank_code snake_case to destination.bank_code', () => {
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: { ...regionDetails, bankCode: undefined, bank_code: '021000021' },
-      accountHolder: {},
-      purposeOfPayment: 'FAMILY_MAINTENANCE',
-      metadata: meta,
-    });
-    expect(d).toMatchObject({ bank_code: '021000021' });
-  });
-
-  it('normalizes spaced IBAN and BIC for international USD payout (SE)', () => {
-    const rd = {
-      currency: 'USD',
-      country: 'SE',
-      accountNumber: 'SE68 5000 0000 0504 0114 3074',
-      bankCode: 'ESSESESSXXX',
-      bankName: 'SEB',
-      transferDetails: {
-        payoutRail: 'WIRE',
-        accountHolderName: 'Viking Ploom',
-        beneficiary: {
-          name: 'Viking Ploom',
-          type: 'business' as const,
-          address: {
-            street: 'Scheffersgatan 9',
-            city: 'STOCKHOLM',
-            stateProvince: 'SE',
-            postalCode: '11258',
-            country: 'SE',
-          },
-        },
-      },
-    };
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: rd,
-      accountHolder: { type: 'business', name: 'Viking Ploom' },
-      purposeOfPayment: 'SALARY',
-      metadata: meta,
-    });
-    expect(d).toMatchObject({
-      country: 'SE',
-      account_number: 'SE6850000000050401143074',
-      bank_code: 'ESSESESSXXX',
-    });
-  });
-
-  it('normalizes spaced IBAN and BIC for international USD payout (SE)', () => {
-    const rd = {
-      currency: 'USD',
-      country: 'SE',
-      accountNumber: 'SE68 5000 0000 0504 0114 3074',
-      bankCode: 'ESSESESSXXX',
-      bankName: 'Skandinaviska Enskilda Banken AB',
-      transferDetails: {
-        payoutRail: 'WIRE',
-        accountHolderName: 'Viking Ploom',
-        beneficiary: {
-          name: 'Viking Ploom',
-          type: 'business' as const,
-          address: {
-            street: 'Scheffersgatan 9',
-            city: 'STOCKHOLM',
-            stateProvince: 'SE',
-            postalCode: '11258',
-            country: 'SE',
-          },
-        },
-      },
-    };
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: rd,
-      accountHolder: { type: 'business', name: 'Viking Ploom' },
-      purposeOfPayment: 'SALARY',
-      metadata: meta,
-    });
-    expect(d).toMatchObject({
-      country: 'SE',
-      account_number: 'SE6850000000050401143074',
-      bank_code: 'ESSESESSXXX',
-    });
-  });
-
-  it('maps international USD payout using the same accountNumber + bankCode schema (GB)', () => {
-    const rd = {
-      currency: 'USD',
-      country: 'GB',
-      accountNumber: 'GB51REVO00997052429307',
-      bankCode: 'REVOGB21',
-      bankName: 'Revolut Ltd',
-      bankCountry: 'GB',
-      transferDetails: {
-        payoutRail: 'WIRE',
-        accountHolderName: 'Peace Mbamalu',
-        beneficiary: {
-          name: 'Peace Mbamalu',
-          type: 'individual' as const,
-          address: {
-            street: '30 South Colonnade',
-            city: 'London',
-            stateProvince: 'London',
-            postalCode: 'E145HX',
-            country: 'GB',
-          },
-        },
-      },
-    };
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: rd,
-      accountHolder: { type: 'individual', name: 'Peace Mbamalu' },
-      purposeOfPayment: 'FAMILY_MAINTENANCE',
-      metadata: meta,
-    });
-    expect(d).toMatchObject({
-      country: 'GB',
-      account_number: 'GB51REVO00997052429307',
-      bank_code: 'REVOGB21',
-      bank_name: 'Revolut Ltd',
-      beneficiary: { address: { country: 'GB', city: 'London' } },
-    });
-  });
-
-  it('fills beneficiary.type from accountHolder when beneficiary omits type', () => {
-    const rd = {
-      ...regionDetails,
-      transferDetails: {
-        ...regionDetails.transferDetails,
-        beneficiary: {
-          name: 'ACME LLC',
-          address: regionDetails.transferDetails.beneficiary.address,
-        },
-      },
-    };
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails: rd,
-      accountHolder: { type: 'business', name: 'ACME LLC' },
-      purposeOfPayment: 'FAMILY_MAINTENANCE',
-      metadata: meta,
-    });
-    expect(d?.beneficiary).toMatchObject({ type: 'business', name: 'ACME LLC' });
-  });
-
-  it('merges metadata.extras camelCase over base extras', () => {
-    const d = mapStoredUsdAccountToPalremitGlobalBankDestination({
-      regionDetails,
-      accountHolder: {},
-      purposeOfPayment: 'FAMILY_MAINTENANCE',
-      metadata: {
-        ...meta,
-        extras: { transferPurpose: 'INVOICE_PAYMENT', isSelfTransfer: true },
-      },
-    });
-    expect(d?.extras).toEqual({ transfer_purpose: 'INVOICE_PAYMENT', is_self_transfer: true });
-  });
-
-  it('returns null when transferDetails missing', () => {
+describe('isAccountReadyForOfframp', () => {
+  it('is true when providerPayout is valid', () => {
     expect(
-      mapStoredUsdAccountToPalremitGlobalBankDestination({
-        regionDetails: { ...regionDetails, transferDetails: undefined },
-        accountHolder: {},
-        purposeOfPayment: 'FAMILY_MAINTENANCE',
-        metadata: meta,
+      isAccountReadyForOfframp({
+        providerPayout: {
+          provider: 'palremit',
+          schemaVersion: 2,
+          corridor: {
+            asset: 'NGN',
+            country: 'NG',
+            destinationType: 'local_bank',
+            beneficiaryType: 'individual',
+          },
+          destination: { bank_code: '058', account_number: '0123456789' },
+        },
       })
-    ).toBeNull();
+    ).toBe(true);
   });
 
-  it('returns null when purposeOfPayment is not UPPER_SNAKE', () => {
-    expect(
-      mapStoredUsdAccountToPalremitGlobalBankDestination({
-        regionDetails,
-        accountHolder: {},
-        purposeOfPayment: 'family maintenance',
-        metadata: meta,
-      })
-    ).toBeNull();
-  });
-
-  it('returns null when metadata missing isSelfTransfer', () => {
-    expect(
-      mapStoredUsdAccountToPalremitGlobalBankDestination({
-        regionDetails,
-        accountHolder: {},
-        purposeOfPayment: 'FAMILY_MAINTENANCE',
-        metadata: {},
-      })
-    ).toBeNull();
+  it('is false when providerPayout missing or invalid', () => {
+    expect(isAccountReadyForOfframp({ providerPayout: null })).toBe(false);
+    expect(isAccountReadyForOfframp({ providerPayout: { provider: 'palremit', schemaVersion: 1 } })).toBe(
+      false
+    );
   });
 });

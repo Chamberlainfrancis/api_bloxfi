@@ -220,10 +220,10 @@ export async function createOfframp(
       );
       return;
     }
-    if (e instanceof Error && e.message === 'USD_ACCOUNT_INCOMPLETE_FOR_OFFRAMP') {
+    if (e instanceof Error && e.message === 'ACCOUNT_INCOMPLETE_FOR_OFFRAMP') {
       next(
         new AppError(
-          'USD offramp payload invalid: linked account needs details.accountNumber, bank name, details.bankCode (Palremit bank_code), details.transferDetails (beneficiary), destination.country or bank/beneficiary country for settlement; destination.purposeOfPayment must be valid UPPER_SNAKE for Palremit; metadata must include isSelfTransfer',
+          'Offramp account incomplete: create the account via payout corridors (corridor + destination) so providerPayout is stored',
           'INVALID_REQUEST',
           400
         )

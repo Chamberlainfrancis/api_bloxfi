@@ -5,8 +5,9 @@
 
 export {
   createOfframpPalremitCryptoDeposit,
-  buildPalremitFiatDestinationInformation,
   createPalremitOfframpFiatWithdrawal,
+  buildWithdrawalFromAccount,
+  isAccountReadyForOfframp,
 } from '@/core/integrations/palremitOfframp';
 export type { PalremitOfframpDepositResult } from '@/core/integrations/palremitOfframp';
 export {
@@ -50,6 +51,13 @@ export {
   listPalremitBanksForAsset,
   resolvePalremitBankAccount,
 } from '@/core/integrations/palremitBanks';
+export {
+  listPalremitWithdrawalCorridors,
+  getPalremitWithdrawalCorridorDetail,
+  mapPalremitCorridorRowToApi,
+  mapPalremitCorridorDetailToApi,
+} from '@/core/integrations/palremitCorridors';
+export { validateDestinationAgainstCorridorFields } from '@/core/integrations/palremitCorridorValidate';
 export type {
   PalremitBankRow,
   PalremitBankResolveInput,

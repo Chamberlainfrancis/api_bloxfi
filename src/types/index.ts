@@ -36,11 +36,11 @@ export type {
 } from "@/types/wallet";
 export type {
   RailType,
-  Address as AccountAddress,
   AccountHolder,
   RailInfo,
   RegionAccountDetails,
-  UsdTransferDetails,
+  PayoutCorridor,
+  ProviderPayout,
   Account,
   CreateAccountRequest,
   CreateAccountResponse,

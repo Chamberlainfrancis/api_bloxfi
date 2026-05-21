@@ -18,6 +18,7 @@
     "db:up": "docker compose up -d",
     "db:migrate": "prisma migrate dev",
     "create-api-key": "ts-node -r tsconfig-paths/register scripts/create-api-key.ts",
+    "db:cleanup": "ts-node -r tsconfig-paths/register scripts/cleanup-db.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "postman:watch-sync": "node scripts/watch-postman-sync.js",

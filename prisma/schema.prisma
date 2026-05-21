@@ -194,12 +194,13 @@ model Account {
   id            String   @id @default(uuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  railType      String // offramp for API-created rows; legacy onramp values may exist in DB
-  currency      String
-  paymentRail   String // ach, wire, pix, spei, etc.
-  accountType   String // free-form region / corridor label
-  accountHolder Json // AccountHolder shape
-  regionDetails Json // unified bank details (currency, country, etc.; mask in list)
+  railType       String // offramp for API-created payout accounts
+  currency       String
+  paymentRail    String // corridor destinationType (local_bank, wire, etc.)
+  accountType    String // free-form corridor label
+  accountHolder  Json // AccountHolder shape
+  /** Palremit corridor + canonical destination; API `details` is derived from this at read time. */
+  providerPayout Json
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

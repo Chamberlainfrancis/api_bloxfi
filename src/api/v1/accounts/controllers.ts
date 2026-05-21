@@ -11,8 +11,11 @@ import * as accountRepo from "@/db/repositories/account.repo";
 import * as userRepo from "@/db/repositories/user.repo";
 import type { CreateAccountRequest } from "@/types/account";
 import { createAccountBodySchema, listAccountsQuerySchema } from "@/api/v1/accounts/schemas";
+import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 
 const REQUEST_ID_HEADER = "requestid";
+
+const palremitLiquidity = createPalremitLiquidityAdapter();
 
 const repos = {
   account: {
@@ -52,7 +55,14 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
       next(new AppError("User not found", "NOT_FOUND", 404));
       return;
     }
-    const result = await accountCore.createAccount(repos.account, repos.user, repos.user, userId, parsed.data as CreateAccountRequest);
+    const result = await accountCore.createAccount(
+      repos.account,
+      repos.user,
+      repos.user,
+      userId,
+      parsed.data as CreateAccountRequest,
+      { palremitLiquidityRequest: palremitLiquidity }
+    );
     sendSuccess(res, result, 200);
   } catch (e) {
     if (e instanceof Error && e.message === "USER_NOT_FOUND") {
@@ -65,6 +75,10 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
     }
     if (e instanceof Error && e.message.startsWith("INVALID_ACCOUNT:")) {
       next(new AppError(e.message.replace("INVALID_ACCOUNT:", "").trim(), "INVALID_REQUEST", 400));
+      return;
+    }
+    if (e instanceof Error && e.message === "PALREMIT_CORRIDORS_UNAVAILABLE") {
+      next(new AppError("Palremit payout corridors unavailable", "BAD_GATEWAY", 502));
       return;
     }
     next(e);

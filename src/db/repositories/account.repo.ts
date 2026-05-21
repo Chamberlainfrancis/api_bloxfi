@@ -13,7 +13,7 @@ export interface CreateAccountData {
   paymentRail: string;
   accountType: string;
   accountHolder: object;
-  regionDetails: object;
+  providerPayout: object;
 }
 
 export interface AccountRow {
@@ -24,7 +24,7 @@ export interface AccountRow {
   paymentRail: string;
   accountType: string;
   accountHolder: unknown;
-  regionDetails: unknown;
+  providerPayout: unknown;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,7 +38,7 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
       paymentRail: data.paymentRail,
       accountType: data.accountType,
       accountHolder: data.accountHolder as object,
-      regionDetails: data.regionDetails as object,
+      providerPayout: data.providerPayout as object,
     },
   });
   return account as AccountRow;

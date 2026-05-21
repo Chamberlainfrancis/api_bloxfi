@@ -13,8 +13,8 @@ import {
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { isHttpError } from '@/services/http';
+import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
-  palremitUsdGlobalBankDestinationSchema,
   usdOfframpOptionalMetadataSchema,
   usdPalremitTransferPurposeSchema,
 } from '@/schemas/usdGlobalBank.zod';
@@ -218,321 +218,76 @@ export async function createOfframpPalremitCryptoDeposit(
   };
 }
 
-/**
- * Liquidity withdrawal payloads expect a 2-letter country code when present.
- * Accepts any stored `details.country` / `details.bankCountry`; only obvious ISO2 is forwarded as-is.
- */
-function countryCodeForLiquidityWithdrawal(country: unknown, bankCountry: unknown): string {
-  for (const raw of [country, bankCountry]) {
-    if (typeof raw !== 'string') continue;
-    const s = raw.trim();
-    if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
-  }
-  return 'NG';
-}
-
-/** Build bank payout destination for orchestrator `bank_account` withdrawals. */
-export function buildPalremitFiatDestinationInformation(
-  accountHolder: unknown,
-  regionDetails: unknown
-): Record<string, string> {
-  const holder =
-    accountHolder && typeof accountHolder === 'object'
-      ? (accountHolder as Record<string, unknown>)
-      : {};
-  const region =
-    regionDetails && typeof regionDetails === 'object'
-      ? (regionDetails as Record<string, unknown>)
-      : {};
-  const accountNumber =
-    (region.accountNumber as string) ?? (region.account_number as string) ?? '';
-  const bankName = (region.bankName as string) ?? (region.bank_name as string) ?? 'Bank';
-  const bankCode = (region.bankCode as string) ?? (region.bank_code as string) ?? '00';
-  const accountName =
-    (holder.name as string) ?? (holder.account_name as string) ?? 'Account Holder';
-  const country = countryCodeForLiquidityWithdrawal(region.country, region.bankCountry);
-  return {
-    account_unique: accountNumber,
-    account_name: accountName,
-    provider_name: bankName,
-    provider_code: bankCode,
-    country,
-  };
-}
-
-const PALREMIT_USD_GLOBAL_DESTINATION_KEYS = new Set([
-  'country',
-  'payout_rail',
-  'account_number',
-  'bank_code',
-  'bank_name',
-  'account_holder_name',
-  'beneficiary',
-  'extras',
-]);
-
-const METADATA_SKIP_KEYS = new Set([
-  'transferPurpose',
-  'isSelfTransfer',
-  'transfer_purpose',
-  'is_self_transfer',
-]);
-
-const API_ROOT_TO_PALREMIT: Record<string, string> = {
-  payoutRail: 'payout_rail',
-  accountNumber: 'account_number',
-  bankCode: 'bank_code',
-  bankName: 'bank_name',
-  accountHolderName: 'account_holder_name',
-  country: 'country',
-  beneficiary: 'beneficiary',
-  extras: 'extras',
-};
-
-function mapBeneficiaryApiToPalremit(
-  ben: unknown,
-  fallbackHolderType?: 'business' | 'individual'
-): Record<string, unknown> | null {
-  if (!ben || typeof ben !== 'object' || Array.isArray(ben)) return null;
-  const b = ben as Record<string, unknown>;
-  const addr = b.address as Record<string, unknown> | undefined;
-  if (!addr) return null;
-  const state = addr.stateProvince ?? addr.state_province;
-  const postal = addr.postalCode ?? addr.postal_code;
-  const typeRaw = b.type ?? fallbackHolderType;
-  if (typeRaw !== 'individual' && typeRaw !== 'business') return null;
-  return {
-    name: b.name,
-    type: typeRaw,
-    address: {
-      street: addr.street,
-      city: addr.city,
-      state_province: String(state ?? ''),
-      postal_code: String(postal ?? ''),
-      country: String(addr.country ?? '')
-        .trim()
-        .toUpperCase(),
-    },
-  };
-}
-
-/** Partial `extras` overlay from client `metadata.extras` (optional `transfer_purpose` override). */
-function mapExtrasApiToPalremit(ex: unknown): Record<string, unknown> | null {
-  if (!ex || typeof ex !== 'object' || Array.isArray(ex)) return null;
-  const e = ex as Record<string, unknown>;
-  const tp = e.transferPurpose ?? e.transfer_purpose;
-  const st = e.isSelfTransfer ?? e.is_self_transfer;
-  const out: Record<string, unknown> = {};
-  if (typeof tp === 'string' && tp.trim()) out.transfer_purpose = tp.trim();
-  if (typeof st === 'boolean') out.is_self_transfer = st;
-  return Object.keys(out).length ? out : null;
-}
-
-/** Maps client `metadata` (camelCase; optional legacy snake) to Palremit `destination` fragment. Skips keys consumed elsewhere (`transferPurpose`, `isSelfTransfer`, …). */
-function mapUsdDestinationMetadataApiToPalremit(
-  metadata: Record<string, unknown> | undefined,
-  accountHolder?: Record<string, unknown>
-): Record<string, unknown> {
-  const holderType =
-    accountHolder &&
-    typeof accountHolder.type === 'string' &&
-    (accountHolder.type === 'individual' || accountHolder.type === 'business')
-      ? (accountHolder.type as 'individual' | 'business')
-      : undefined;
-  if (!metadata) return {};
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(metadata)) {
-    if (METADATA_SKIP_KEYS.has(k)) continue;
-    const palKey = API_ROOT_TO_PALREMIT[k] ?? (PALREMIT_USD_GLOBAL_DESTINATION_KEYS.has(k) ? k : null);
-    if (!palKey) continue;
-    if (palKey === 'beneficiary') {
-      const m = mapBeneficiaryApiToPalremit(v, holderType);
-      if (m) out[palKey] = m;
-    } else if (palKey === 'extras') {
-      const m = mapExtrasApiToPalremit(v);
-      if (m) out[palKey] = m;
-    } else {
-      out[palKey] = v;
-    }
-  }
-  return out;
-}
-
-function deepMergeRecords(
-  base: Record<string, unknown>,
-  overlay: Record<string, unknown>
-): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...base };
-  for (const [k, v] of Object.entries(overlay)) {
-    if (
-      v != null &&
-      typeof v === 'object' &&
-      !Array.isArray(v) &&
-      out[k] != null &&
-      typeof out[k] === 'object' &&
-      !Array.isArray(out[k])
-    ) {
-      out[k] = deepMergeRecords(out[k] as Record<string, unknown>, v as Record<string, unknown>);
-    } else {
-      out[k] = v;
-    }
-  }
-  return out;
-}
-
-export interface MapStoredUsdAccountToPalremitGlobalBankDestinationInput {
-  regionDetails: unknown;
-  accountHolder: unknown;
-  /** BloxFi `destination.purposeOfPayment` → Palremit `destination.extras.transfer_purpose`. */
-  purposeOfPayment: string;
-  /** Per-offramp: `isSelfTransfer` and optional Palremit `destination` overrides (camelCase). */
+export interface WithdrawalFromAccountInput {
+  txnRef: string;
+  destinationAmount: number;
+  providerPayout: unknown;
+  purposeOfPayment?: string;
   metadata?: Record<string, unknown>;
 }
 
-/**
- * Merge saved USD account (`details` + `transferDetails`) with offramp fields into Palremit
- * `destination` for `destination_type: global_bank_account`.
- */
-export function mapStoredUsdAccountToPalremitGlobalBankDestination(
-  input: MapStoredUsdAccountToPalremitGlobalBankDestinationInput
-): Record<string, unknown> | null {
-  const purposeParsed = usdPalremitTransferPurposeSchema.safeParse(input.purposeOfPayment.trim());
-  if (!purposeParsed.success) return null;
-
-  const metaParsed = usdOfframpOptionalMetadataSchema.safeParse(input.metadata ?? {});
-  if (!metaParsed.success) return null;
-
-  const region =
-    input.regionDetails && typeof input.regionDetails === 'object' && !Array.isArray(input.regionDetails)
-      ? (input.regionDetails as Record<string, unknown>)
+function mergeOfframpExtrasIntoDestination(
+  destination: Record<string, unknown>,
+  purposeOfPayment?: string,
+  metadata?: Record<string, unknown>
+): Record<string, unknown> {
+  const out = JSON.parse(JSON.stringify(destination)) as Record<string, unknown>;
+  const extras =
+    out.extras != null && typeof out.extras === 'object' && !Array.isArray(out.extras)
+      ? { ...(out.extras as Record<string, unknown>) }
       : {};
-  const gbp = region.transferDetails;
-  if (!gbp || typeof gbp !== 'object' || Array.isArray(gbp)) return null;
-  const g = gbp as Record<string, unknown>;
 
-  const accountNumber = String(region.accountNumber ?? region.account_number ?? '')
-    .trim()
-    .replace(/\s+/g, '');
-  const bankCode = String(region.bankCode ?? region.bank_code ?? '')
-    .trim()
-    .replace(/\s+/g, '');
-  const bankName = String(region.bankName ?? region.bank_name ?? '').trim();
-  const ben = g.beneficiary as Record<string, unknown> | undefined;
-  const benAddr =
-    ben?.address && typeof ben.address === 'object' && !Array.isArray(ben.address)
-      ? (ben.address as Record<string, unknown>)
-      : undefined;
-  const benCountry = String(benAddr?.country ?? '').trim().toUpperCase();
-  const country = String(region.country ?? region.bankCountry ?? (benCountry || 'US'))
-    .trim()
-    .toUpperCase();
-
-  const holder =
-    input.accountHolder && typeof input.accountHolder === 'object' && !Array.isArray(input.accountHolder)
-      ? (input.accountHolder as Record<string, unknown>)
-      : {};
-  const rawHolderName = String(
-    g.accountHolderName ?? g.account_holder_name ?? ''
-  ).trim();
-  const accountHolderName =
-    rawHolderName || (typeof holder.name === 'string' ? holder.name.trim() : '') || '';
-
-  const payoutRail = String(g.payoutRail ?? g.payout_rail ?? '')
-    .trim()
-    .toUpperCase();
-
-  const holderType =
-    typeof holder.type === 'string' && (holder.type === 'individual' || holder.type === 'business')
-      ? (holder.type as 'individual' | 'business')
-      : undefined;
-
-  const beneficiaryPalremit = mapBeneficiaryApiToPalremit(g.beneficiary, holderType);
-  if (!beneficiaryPalremit) return null;
-
-  const base: Record<string, unknown> = {
-    country,
-    payout_rail: payoutRail,
-    account_number: accountNumber,
-    bank_code: bankCode,
-    bank_name: bankName,
-    account_holder_name: accountHolderName,
-    beneficiary: beneficiaryPalremit,
-    extras: {
-      transfer_purpose: purposeParsed.data,
-      is_self_transfer: metaParsed.data.isSelfTransfer,
-    },
-  };
-
-  const overlay = mapUsdDestinationMetadataApiToPalremit(input.metadata, holder);
-  const merged = deepMergeRecords(base, overlay);
-  const parsed = palremitUsdGlobalBankDestinationSchema.safeParse(merged);
-  if (!parsed.success) return null;
-  return parsed.data as unknown as Record<string, unknown>;
+  if (purposeOfPayment?.trim()) {
+    const pp = usdPalremitTransferPurposeSchema.safeParse(purposeOfPayment.trim());
+    if (pp.success && extras.transfer_purpose == null) {
+      extras.transfer_purpose = pp.data;
+    }
+  }
+  const metaParsed = usdOfframpOptionalMetadataSchema.safeParse(metadata ?? {});
+  if (metaParsed.success && extras.is_self_transfer == null) {
+    extras.is_self_transfer = metaParsed.data.isSelfTransfer;
+  }
+  if (Object.keys(extras).length > 0) out.extras = extras;
+  return out;
 }
 
-export type PalremitOfframpFiatWithdrawalParams =
-  | {
-      payoutKind: 'local_bank_account';
-      txnRef: string;
-      destinationAmount: number;
-      destinationCurrency: string;
-      destinationInformation: Record<string, string>;
-    }
-  | {
-      payoutKind: 'global_bank_account';
-      txnRef: string;
-      destinationAmount: number;
-      asset: string;
-      destination: Record<string, unknown>;
-    };
-
-/** Builds POST /v1/withdrawals JSON for offramp fiat payout (local NGN bank vs global USD bank). */
-export function buildPalremitOfframpFiatWithdrawalBody(
-  params: PalremitOfframpFiatWithdrawalParams
+/** Build POST /v1/withdrawals body from account `providerPayout`. */
+export function buildWithdrawalFromAccount(
+  input: WithdrawalFromAccountInput
 ): Record<string, unknown> | null {
-  if (params.payoutKind === 'local_bank_account') {
-    const bankCode = params.destinationInformation.provider_code?.trim();
-    const accountNumber = params.destinationInformation.account_unique?.trim();
-    if (!bankCode || !accountNumber) return null;
-    const asset = params.destinationCurrency.trim().toUpperCase();
-    return {
-      client_reference: params.txnRef.trim(),
-      asset,
-      amount: params.destinationAmount,
-      destination_type: 'bank_account',
-      destination: {
-        bank_code: bankCode,
-        account_number: accountNumber,
-      },
-    };
-  }
+  const pp = parseProviderPayout(input.providerPayout);
+  if (!pp) return null;
 
-  const asset = params.asset.trim().toUpperCase();
-  const dest = params.destination;
-  if (!dest || typeof dest !== 'object') return null;
-  const d = dest as Record<string, unknown>;
-  const accountNumber = typeof d.account_number === 'string' ? d.account_number.trim() : '';
-  const bankCode = typeof d.bank_code === 'string' ? d.bank_code.trim() : '';
-  if (!accountNumber || !bankCode) return null;
-
+  const destination = mergeOfframpExtrasIntoDestination(
+    pp.destination,
+    input.purposeOfPayment,
+    input.metadata
+  );
   return {
-    client_reference: params.txnRef.trim(),
-    asset,
-    amount: params.destinationAmount,
-    destination_type: 'global_bank_account',
-    destination: params.destination,
+    client_reference: input.txnRef.trim(),
+    asset: pp.corridor.asset.trim().toUpperCase(),
+    country: pp.corridor.country.trim().toUpperCase(),
+    amount: input.destinationAmount,
+    destination_type: pp.corridor.destinationType,
+    destination,
   };
+}
+
+/** Whether account has corridor-backed payout data for offramp fiat withdrawal. */
+export function isAccountReadyForOfframp(input: { providerPayout: unknown }): boolean {
+  return parseProviderPayout(input.providerPayout) != null;
 }
 
 export async function createPalremitOfframpFiatWithdrawal(
   liquidityRequest: PalremitLiquidityRequestFn,
-  params: PalremitOfframpFiatWithdrawalParams,
+  params: { body: Record<string, unknown>; txnRef: string },
   context?: { offrampId?: string }
 ): Promise<{ withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown } | null> {
-  const body = buildPalremitOfframpFiatWithdrawalBody(params);
+  const body = params.body;
+  const txnRef = params.txnRef;
   if (!body) return null;
 
-  const idempotencyKey = `offramp-fiat-wd:${params.txnRef.trim()}`;
+  const idempotencyKey = `offramp-fiat-wd:${txnRef.trim()}`;
   try {
     const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
     if (!created?.id) return null;
