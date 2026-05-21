@@ -13,6 +13,7 @@ import {
   resolvePalremitBankAccount,
 } from '@/core/integrations/palremitBanks';
 import { listBanksQuerySchema, resolveBankBodySchema } from '@/api/v1/banks/schemas';
+import { logger } from '@/lib/logger';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
 
@@ -85,28 +86,28 @@ export async function resolveBankAccount(
           ? Object.keys(e.data as object)
           : [];
       if (e.status === 400) {
-        console.error('[api/v1/banks/resolve] Palremit HTTP 400', {
+        logger.warn({
           status: e.status,
           dataKeys,
           message: palremitClientErrorMessage(e.data),
-        });
+        }, 'api/v1/banks/resolve Palremit HTTP 400');
         next(validationError(palremitClientErrorMessage(e.data)));
         return;
       }
-      console.error('[api/v1/banks/resolve] Palremit HTTP error', {
+      logger.error({
         status: e.status,
         dataKeys,
         errorMessage: e.message,
-      });
+      }, 'api/v1/banks/resolve Palremit HTTP error');
       next(new AppError('Palremit bank resolve unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_BANK_RESOLVE_INVALID_RESPONSE') {
-      console.error('[api/v1/banks/resolve] upstream body did not match expected shape', e.message);
+      logger.error({ message: e.message }, 'api/v1/banks/resolve upstream body invalid');
       next(new AppError('Palremit bank resolve response invalid', 'BAD_GATEWAY', 502));
       return;
     }
-    console.error('[api/v1/banks/resolve] unexpected error', e);
+    logger.error({ err: e }, 'api/v1/banks/resolve unexpected error');
     next(e);
   }
 }

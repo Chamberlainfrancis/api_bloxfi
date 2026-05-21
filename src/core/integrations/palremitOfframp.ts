@@ -13,6 +13,7 @@ import {
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { isHttpError } from '@/services/http';
+import { logger } from '@/lib/logger';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   usdOfframpOptionalMetadataSchema,
@@ -298,22 +299,20 @@ export async function createPalremitOfframpFiatWithdrawal(
       rawResponse: created.raw,
     };
   } catch (e) {
-    const ctx =
+    const offrampId =
       context?.offrampId != null && context.offrampId.trim() !== ''
-        ? ` offrampId=${context.offrampId.trim()}`
-        : '';
-    const upstream =
-      isHttpError(e) && e.data !== undefined
-        ? typeof e.data === 'string'
-          ? e.data
-          : JSON.stringify(e.data)
-        : '';
-    console.error(
-      `[Palremit offramp fiat withdrawal]${ctx} POST /v1/withdrawals failed; request body:\n${JSON.stringify(
+        ? context.offrampId.trim()
+        : undefined;
+    logger.error(
+      {
+        offrampId,
+        path: '/v1/withdrawals',
         body,
-        null,
-        2
-      )}${isHttpError(e) ? `\nHTTP ${e.status}; upstream: ${upstream || '(no body)'}` : ''}`
+        ...(isHttpError(e)
+          ? { httpStatus: e.status, upstream: e.data }
+          : { err: e }),
+      },
+      'Palremit offramp fiat withdrawal failed'
     );
     throw e;
   }

@@ -10,6 +10,7 @@ import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
 import { isOnrampTxnRef, isOfframpTxnRef } from '@/utils/txnRef';
+import { logger } from '@/lib/logger';
 import {
   beneficiaryDisplayNameFromOnrampSource,
   mapOrchestratorFiatInstructionsToDepositInfo,
@@ -206,7 +207,7 @@ export async function processWebhookEvent(
           try {
             await repos.onramp.advanceOnrampAfterFiatWebhook(onramp.id);
           } catch (e) {
-            console.error('[webhooks] advanceOnrampAfterFiatWebhook failed', onramp.id, e);
+            logger.error({ onrampId: onramp.id, err: e }, 'webhooks advanceOnrampAfterFiatWebhook failed');
           }
         }
         break;
@@ -243,7 +244,7 @@ export async function processWebhookEvent(
           try {
             await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
           } catch (e) {
-            console.error('[webhooks] advanceOfframpAfterCryptoWebhook failed', offramp.id, e);
+            logger.error({ offrampId: offramp.id, err: e }, 'webhooks advanceOfframpAfterCryptoWebhook failed');
           }
         }
       }

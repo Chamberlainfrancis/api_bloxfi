@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { resolvePalremitBankAccount } from '@/core/integrations/palremitBanks';
+import { logger } from '@/lib/logger';
 
 describe('resolvePalremitBankAccount', () => {
   beforeAll(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(logger, 'info').mockImplementation(() => {});
   });
   afterAll(() => {
-    vi.mocked(console.log).mockRestore();
+    vi.mocked(logger.info).mockRestore();
   });
 
   it('fills bank_code from request when Palremit data omits it', async () => {

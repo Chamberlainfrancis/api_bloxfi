@@ -6,6 +6,7 @@
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
+import { logger } from '@/lib/logger';
 
 export interface PalremitBankRow {
   code: string;
@@ -73,10 +74,10 @@ function logBankResolveParseFailure(
   body: unknown,
   extra?: Record<string, boolean | string | number>
 ): void {
-  console.error('[Palremit POST /v1/banks/resolve] parse failure:', reason, {
-    ...describeResolveBodyForLog(body),
-    ...extra,
-  });
+  logger.error(
+    { reason, ...describeResolveBodyForLog(body), ...extra },
+    'Palremit POST /v1/banks/resolve parse failure'
+  );
 }
 
 function normalizePalremitJsonBody<T>(raw: T): unknown {
@@ -114,7 +115,7 @@ export async function listPalremitBanksForAsset(
   const res = await request<PalremitDataEnvelope<unknown>>(`/v1/banks?${q.toString()}`, {
     method: 'GET',
   });
-  console.log('[Palremit GET /v1/banks] response', { status: res.status, data: res.data });
+  logger.info({ path: '/v1/banks', status: res.status, data: res.data }, 'Palremit GET /v1/banks response');
   const rows = res.data?.data;
   if (!Array.isArray(rows)) {
     throw new Error('PALREMIT_BANKS_INVALID_RESPONSE');
@@ -349,7 +350,10 @@ export async function resolvePalremitBankAccount(
     method: 'POST',
     body,
   });
-  console.log('[Palremit POST /v1/banks/resolve] response', { status: res.status, data: res.data });
+  logger.info(
+    { path: '/v1/banks/resolve', status: res.status, data: res.data },
+    'Palremit POST /v1/banks/resolve response'
+  );
   const result = extractBankResolveResult(res.data, input);
   if (result) return result;
 

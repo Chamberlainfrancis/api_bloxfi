@@ -1,3 +1,5 @@
+import { logger } from '@/lib/logger';
+
 /**
  * Palremit Liquidity Orchestrator — /v1/provisioned-accounts, /v1/deposits, /v1/withdrawals.
  * Coin catalogue — `/v1/coins/*` ([docs — Coins](https://liquidity.palremit.com/docs#tag/coins)):
@@ -204,9 +206,9 @@ export async function createPalremitWithdrawal(
   body: Record<string, unknown>,
   idempotencyKey: string
 ): Promise<PalremitWithdrawalCreateResult | null> {
-  console.log(
-    '[Palremit] POST /v1/withdrawals payload:',
-    JSON.stringify({ ...body, _idempotencyKey: idempotencyKey }, null, 2)
+  logger.info(
+    { path: '/v1/withdrawals', payload: { ...body, _idempotencyKey: idempotencyKey } },
+    'Palremit withdrawal request'
   );
   const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
     method: 'POST',

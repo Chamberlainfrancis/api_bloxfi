@@ -13,6 +13,7 @@ import { advanceOnrampIfFiatProcessed } from "@/core/onramps/advanceOnrampPayout
 import { advanceOfframpIfDepositReady } from "@/core/offramps/advanceOfframpPayout";
 import { executePalremitOnrampCryptoWithdrawal } from "@/core/integrations";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
+import { logger } from "@/lib/logger";
 import * as userRepo from "@/db/repositories/user.repo";
 import * as onrampRepo from "@/db/repositories/onramp.repo";
 import * as offrampRepo from "@/db/repositories/offramp.repo";
@@ -109,7 +110,7 @@ async function logInbound(
       errorMessage: opts.errorMessage,
     });
   } catch (e) {
-    console.error("[webhooks] failed to persist WebhookInboundLog", e);
+    logger.error({ err: e }, "webhooks failed to persist WebhookInboundLog");
   }
 }
 

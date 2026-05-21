@@ -5,6 +5,7 @@
  */
 
 import { env } from '@/config/env';
+import { logger } from '@/lib/logger';
 import { httpRequest, type HttpError, type HttpRequestOptions, type HttpResponse } from '@/services/http';
 
 const PALREMIT_TIMEOUT_MS = 15000;
@@ -68,14 +69,20 @@ function logPalremitRequestFailure(
       error.headers?.['x-correlation-id'] ??
       error.headers?.['cf-ray'];
     if (reqId) debugBits.push(`req=${reqId}`);
-    console.error(
-      `[Palremit ${api}] ${method} ${url} → HTTP ${error.status}${debugBits.length ? ` (${debugBits.join(
-        ', '
-      )})` : ''}${preview ? ` body=${preview}` : ''}`
+    logger.error(
+      {
+        api,
+        method,
+        url,
+        httpStatus: error.status,
+        debug: debugBits.length ? debugBits.join(', ') : undefined,
+        bodyPreview: preview || undefined,
+      },
+      'Palremit request failed'
     );
     return;
   }
-  console.error(`[Palremit ${api}] ${method} ${url} →`, error);
+  logger.error({ api, method, url, err: error }, 'Palremit request failed');
 }
 
 /**

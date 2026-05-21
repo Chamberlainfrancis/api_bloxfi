@@ -3,6 +3,7 @@
  */
 
 import { deleteWebhookInboundLogsReceivedBefore } from '@/db/repositories/webhookInboundLog.repo';
+import { logger } from '@/lib/logger';
 
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 
@@ -16,7 +17,7 @@ function cutoffDate(): Date {
 export async function runWebhookRetentionOnce(): Promise<number> {
   const n = await deleteWebhookInboundLogsReceivedBefore(cutoffDate());
   if (n > 0) {
-    console.info(`[webhookRetention] deleted ${n} WebhookInboundLog row(s) older than 4 months`);
+    logger.info({ deleted: n }, 'webhookRetention deleted old WebhookInboundLog rows');
   }
   return n;
 }
@@ -25,12 +26,12 @@ export async function runWebhookRetentionOnce(): Promise<number> {
 export function startWebhookRetentionSchedule(): () => void {
   const id = setInterval(() => {
     void runWebhookRetentionOnce().catch((e) => {
-      console.error('[webhookRetention] cleanup failed', e);
+      logger.error({ err: e }, 'webhookRetention cleanup failed');
     });
   }, INTERVAL_MS);
 
   void runWebhookRetentionOnce().catch((e) => {
-    console.error('[webhookRetention] initial cleanup failed', e);
+    logger.error({ err: e }, 'webhookRetention initial cleanup failed');
   });
 
   return () => clearInterval(id);
