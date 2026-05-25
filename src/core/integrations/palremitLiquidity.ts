@@ -1,7 +1,6 @@
 import { logger } from '@/lib/logger';
 import {
   buildPalremitFailureLogMsg,
-  buildPalremitInfoLogMsg,
   extractPalremitErrorMessage,
   getPalremitLogCategory,
 } from '@/services/palremitErrorMessage';
@@ -212,17 +211,12 @@ export async function createPalremitWithdrawal(
   body: Record<string, unknown>,
   idempotencyKey: string
 ): Promise<PalremitWithdrawalCreateResult | null> {
-  const payload = { ...body, _idempotencyKey: idempotencyKey };
   const logCategory = getPalremitLogCategory({
     api: 'liquidity',
     method: 'POST',
     path: '/v1/withdrawals',
     idempotencyKey,
   });
-  logger.info(
-    { logCategory, path: '/v1/withdrawals', operation: 'POST /v1/withdrawals', requestPayload: payload },
-    buildPalremitInfoLogMsg(logCategory, 'request')
-  );
   const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
     method: 'POST',
     body,
@@ -236,9 +230,8 @@ export async function createPalremitWithdrawal(
         path: '/v1/withdrawals',
         operation: 'POST /v1/withdrawals',
         httpStatus: res.status,
-        requestPayload: payload,
+        expectedHttpStatus: 202,
         palremitMessage,
-        responseBody: res.data,
       },
       buildPalremitFailureLogMsg({
         category: logCategory,

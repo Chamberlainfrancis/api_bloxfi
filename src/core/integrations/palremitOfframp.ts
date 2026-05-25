@@ -12,13 +12,6 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
-import { isHttpError } from '@/services/http';
-import { logger } from '@/lib/logger';
-import {
-  buildPalremitFailureLogMsg,
-  extractPalremitErrorMessage,
-  getPalremitLogCategory,
-} from '@/services/palremitErrorMessage';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   usdOfframpOptionalMetadataSchema,
@@ -286,55 +279,19 @@ export function isAccountReadyForOfframp(input: { providerPayout: unknown }): bo
 
 export async function createPalremitOfframpFiatWithdrawal(
   liquidityRequest: PalremitLiquidityRequestFn,
-  params: { body: Record<string, unknown>; txnRef: string },
-  context?: { offrampId?: string }
+  params: { body: Record<string, unknown>; txnRef: string }
 ): Promise<{ withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown } | null> {
   const body = params.body;
   const txnRef = params.txnRef;
   if (!body) return null;
 
   const idempotencyKey = `offramp-fiat-wd:${txnRef.trim()}`;
-  try {
-    const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
-    if (!created?.id) return null;
+  const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
+  if (!created?.id) return null;
 
-    return {
-      withdrawalId: created.id,
-      rawRequest: body,
-      rawResponse: created.raw,
-    };
-  } catch (e) {
-    const offrampId =
-      context?.offrampId != null && context.offrampId.trim() !== ''
-        ? context.offrampId.trim()
-        : undefined;
-    const logCategory = getPalremitLogCategory({
-      api: 'liquidity',
-      method: 'POST',
-      path: '/v1/withdrawals',
-      idempotencyKey,
-    });
-    const palremitMessage = isHttpError(e) ? extractPalremitErrorMessage(e.data) : undefined;
-    logger.error(
-      {
-        logCategory,
-        offrampId,
-        path: '/v1/withdrawals',
-        operation: 'POST /v1/withdrawals',
-        requestPayload: body,
-        palremitMessage,
-        ...(isHttpError(e)
-          ? { httpStatus: e.status, responseBody: e.data }
-          : { err: e }),
-      },
-      buildPalremitFailureLogMsg({
-        category: logCategory,
-        responseData: isHttpError(e) ? e.data : undefined,
-        method: 'POST',
-        path: '/v1/withdrawals',
-        httpStatus: isHttpError(e) ? e.status : undefined,
-      })
-    );
-    throw e;
-  }
+  return {
+    withdrawalId: created.id,
+    rawRequest: body,
+    rawResponse: created.raw,
+  };
 }

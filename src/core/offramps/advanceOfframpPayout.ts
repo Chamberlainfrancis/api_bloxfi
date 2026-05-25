@@ -87,11 +87,10 @@ export async function advanceOfframpIfDepositReady(
   });
   if (!withdrawalBody) return;
 
-  const result = await createPalremitOfframpFiatWithdrawal(
-    liquidityRequest,
-    { body: withdrawalBody, txnRef: row.txnRef },
-    { offrampId: row.id }
-  );
+  const result = await createPalremitOfframpFiatWithdrawal(liquidityRequest, {
+    body: withdrawalBody,
+    txnRef: row.txnRef,
+  });
 
   if (!result) return;
 

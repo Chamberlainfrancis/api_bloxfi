@@ -115,7 +115,6 @@ export async function listPalremitBanksForAsset(
   const res = await request<PalremitDataEnvelope<unknown>>(`/v1/banks?${q.toString()}`, {
     method: 'GET',
   });
-  logger.info({ path: '/v1/banks', status: res.status, data: res.data }, 'Palremit GET /v1/banks response');
   const rows = res.data?.data;
   if (!Array.isArray(rows)) {
     throw new Error('PALREMIT_BANKS_INVALID_RESPONSE');
@@ -350,10 +349,6 @@ export async function resolvePalremitBankAccount(
     method: 'POST',
     body,
   });
-  logger.info(
-    { path: '/v1/banks/resolve', status: res.status, data: res.data },
-    'Palremit POST /v1/banks/resolve response'
-  );
   const result = extractBankResolveResult(res.data, input);
   if (result) return result;
 

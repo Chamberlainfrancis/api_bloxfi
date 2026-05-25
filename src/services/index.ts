@@ -6,3 +6,10 @@ export {
   isPalremitConfigured,
 } from '@/services/palremitClient';
 export { createPalremitLiquidityAdapter, createPalremitCurrencyAdapter } from '@/services/palremitAdapters';
+export {
+  logProviderApiFailure,
+  logProviderApiSuccess,
+  truncateForProviderLog,
+  type ProviderApiLogFields,
+  type ProviderName,
+} from '@/services/providerApiLog';
