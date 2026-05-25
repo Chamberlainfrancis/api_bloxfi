@@ -6,7 +6,20 @@
 
 import { env } from '@/config/env';
 import { logger } from '@/lib/logger';
+import {
+  buildPalremitFailureLogMsg,
+  extractPalremitErrorMessage,
+  getPalremitLogCategory,
+} from '@/services/palremitErrorMessage';
 import { httpRequest, type HttpError, type HttpRequestOptions, type HttpResponse } from '@/services/http';
+
+export {
+  buildPalremitFailureLogMsg,
+  buildPalremitInfoLogMsg,
+  extractPalremitErrorMessage,
+  formatPalremitErrorBodyForLog,
+  getPalremitLogCategory,
+} from '@/services/palremitErrorMessage';
 
 const PALREMIT_TIMEOUT_MS = 15000;
 
@@ -40,28 +53,70 @@ function isHttpErrorWithStatus(e: unknown): e is HttpError & { data?: unknown } 
   );
 }
 
+function pathFromUrl(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function truncateForLog(value: unknown, maxLen = 2000): unknown {
+  if (value === undefined) return undefined;
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  if (raw.length <= maxLen) return value;
+  return `${raw.slice(0, maxLen)}…`;
+}
+
 function logPalremitRequestFailure(
   api: 'currency' | 'liquidity',
   method: string,
   url: string,
   error: unknown,
   meta?: {
+    requestBody?: unknown;
     hasAuth?: boolean;
     authScheme?: string;
     idempotencyKey?: string;
   }
 ): void {
+  const path = pathFromUrl(url);
+  const logCategory = getPalremitLogCategory({
+    api,
+    method,
+    path,
+    idempotencyKey: meta?.idempotencyKey,
+  });
+  const baseFields = {
+    api,
+    method,
+    path,
+    url,
+    logCategory,
+    requestPayload: truncateForLog(meta?.requestBody),
+    idempotencyKey: meta?.idempotencyKey,
+  };
+
   if (isHttpErrorWithStatus(error)) {
-    let preview = '';
+    const palremitMessage = extractPalremitErrorMessage(error.data);
+    const msg = buildPalremitFailureLogMsg({
+      category: logCategory,
+      responseData: error.data,
+      method,
+      path,
+      httpStatus: error.status,
+    });
+
+    let responseBody: unknown = error.data;
     if (error.data !== undefined) {
       const raw =
         typeof error.data === 'string' ? error.data : JSON.stringify(error.data);
-      preview = raw.length > 800 ? `${raw.slice(0, 800)}…` : raw;
+      responseBody =
+        raw.length > 2000 ? `${raw.slice(0, 2000)}…` : error.data;
     }
     const debugBits: string[] = [];
     if (meta?.hasAuth !== undefined) debugBits.push(`auth=${meta.hasAuth ? 'present' : 'missing'}`);
     if (meta?.authScheme) debugBits.push(`scheme=${meta.authScheme}`);
-    if (meta?.idempotencyKey) debugBits.push('idempotency=present');
     const wwwAuth = error.headers?.['www-authenticate'];
     if (wwwAuth) debugBits.push(`www-authenticate=${wwwAuth}`);
     const reqId =
@@ -71,18 +126,29 @@ function logPalremitRequestFailure(
     if (reqId) debugBits.push(`req=${reqId}`);
     logger.error(
       {
-        api,
-        method,
-        url,
+        ...baseFields,
+        operation: `${method} ${path}`,
         httpStatus: error.status,
+        palremitMessage,
+        responseBody,
         debug: debugBits.length ? debugBits.join(', ') : undefined,
-        bodyPreview: preview || undefined,
       },
-      'Palremit request failed'
+      msg
     );
     return;
   }
-  logger.error({ api, method, url, err: error }, 'Palremit request failed');
+
+  const errMsg = error instanceof Error ? error.message : undefined;
+  const msg = buildPalremitFailureLogMsg({
+    category: logCategory,
+    method,
+    path,
+    responseData: errMsg,
+  });
+  logger.error(
+    { ...baseFields, operation: `${method} ${path}`, palremitMessage: errMsg, err: error },
+    msg
+  );
 }
 
 /**
@@ -101,7 +167,7 @@ export async function palremitCurrencyRequest<T = unknown>(
       timeoutMs: options.timeoutMs ?? PALREMIT_TIMEOUT_MS,
     });
   } catch (e) {
-    logPalremitRequestFailure('currency', method, url, e);
+    logPalremitRequestFailure('currency', method, url, e, { requestBody: options.body });
     throw e;
   }
 }
@@ -129,6 +195,7 @@ export async function palremitLiquidityRequest<T = unknown>(
   } catch (e) {
     const authHeader = headers.Authorization;
     logPalremitRequestFailure('liquidity', method, url, e, {
+      requestBody: options.body,
       hasAuth: Boolean(authHeader && authHeader.trim()),
       authScheme: typeof authHeader === 'string' ? authHeader.split(/\s+/)[0] : undefined,
       idempotencyKey: headers['Idempotency-Key'],

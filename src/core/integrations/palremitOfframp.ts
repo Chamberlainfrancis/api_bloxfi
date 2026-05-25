@@ -14,6 +14,11 @@ import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { isHttpError } from '@/services/http';
 import { logger } from '@/lib/logger';
+import {
+  buildPalremitFailureLogMsg,
+  extractPalremitErrorMessage,
+  getPalremitLogCategory,
+} from '@/services/palremitErrorMessage';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   usdOfframpOptionalMetadataSchema,
@@ -303,16 +308,32 @@ export async function createPalremitOfframpFiatWithdrawal(
       context?.offrampId != null && context.offrampId.trim() !== ''
         ? context.offrampId.trim()
         : undefined;
+    const logCategory = getPalremitLogCategory({
+      api: 'liquidity',
+      method: 'POST',
+      path: '/v1/withdrawals',
+      idempotencyKey,
+    });
+    const palremitMessage = isHttpError(e) ? extractPalremitErrorMessage(e.data) : undefined;
     logger.error(
       {
+        logCategory,
         offrampId,
         path: '/v1/withdrawals',
-        body,
+        operation: 'POST /v1/withdrawals',
+        requestPayload: body,
+        palremitMessage,
         ...(isHttpError(e)
-          ? { httpStatus: e.status, upstream: e.data }
+          ? { httpStatus: e.status, responseBody: e.data }
           : { err: e }),
       },
-      'Palremit offramp fiat withdrawal failed'
+      buildPalremitFailureLogMsg({
+        category: logCategory,
+        responseData: isHttpError(e) ? e.data : undefined,
+        method: 'POST',
+        path: '/v1/withdrawals',
+        httpStatus: isHttpError(e) ? e.status : undefined,
+      })
     );
     throw e;
   }

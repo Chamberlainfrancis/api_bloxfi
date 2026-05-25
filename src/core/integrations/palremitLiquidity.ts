@@ -1,4 +1,10 @@
 import { logger } from '@/lib/logger';
+import {
+  buildPalremitFailureLogMsg,
+  buildPalremitInfoLogMsg,
+  extractPalremitErrorMessage,
+  getPalremitLogCategory,
+} from '@/services/palremitErrorMessage';
 
 /**
  * Palremit Liquidity Orchestrator — /v1/provisioned-accounts, /v1/deposits, /v1/withdrawals.
@@ -206,16 +212,44 @@ export async function createPalremitWithdrawal(
   body: Record<string, unknown>,
   idempotencyKey: string
 ): Promise<PalremitWithdrawalCreateResult | null> {
+  const payload = { ...body, _idempotencyKey: idempotencyKey };
+  const logCategory = getPalremitLogCategory({
+    api: 'liquidity',
+    method: 'POST',
+    path: '/v1/withdrawals',
+    idempotencyKey,
+  });
   logger.info(
-    { path: '/v1/withdrawals', payload: { ...body, _idempotencyKey: idempotencyKey } },
-    'Palremit withdrawal request'
+    { logCategory, path: '/v1/withdrawals', operation: 'POST /v1/withdrawals', requestPayload: payload },
+    buildPalremitInfoLogMsg(logCategory, 'request')
   );
   const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
     method: 'POST',
     body,
     headers: { 'Idempotency-Key': idempotencyKey },
   });
-  if (res.status !== 202) return null;
+  if (res.status !== 202) {
+    const palremitMessage = extractPalremitErrorMessage(res.data);
+    logger.error(
+      {
+        logCategory,
+        path: '/v1/withdrawals',
+        operation: 'POST /v1/withdrawals',
+        httpStatus: res.status,
+        requestPayload: payload,
+        palremitMessage,
+        responseBody: res.data,
+      },
+      buildPalremitFailureLogMsg({
+        category: logCategory,
+        responseData: res.data,
+        method: 'POST',
+        path: '/v1/withdrawals',
+        httpStatus: res.status,
+      })
+    );
+    return null;
+  }
   const wrap = res.data as { data?: Record<string, unknown> };
   const d = wrap?.data;
   if (!d || typeof d !== 'object') return null;
