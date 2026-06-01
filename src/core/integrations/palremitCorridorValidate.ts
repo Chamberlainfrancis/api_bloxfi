@@ -1,5 +1,10 @@
 /**
- * Validate client destination against Palremit corridor detail destination_fields.
+ * Validate client destination structure against Palremit corridor detail destination_fields.
+ *
+ * Structure-only: presence of required (and conditionally-required) fields and basic
+ * type checks. Value rules (enum membership, pattern, min/max length) are intentionally
+ * NOT enforced here — Palremit owns those and validates them at withdrawal time with its
+ * current, authoritative rules.
  */
 
 import type { PalremitDestinationFieldDescriptor } from '@/core/integrations/palremitCorridors';
@@ -51,27 +56,6 @@ function validateFieldValue(
     }
     return null;
   }
-  const str = String(value);
-  if (field.minLength != null && str.length < field.minLength) {
-    return `${field.label} must be at least ${field.minLength} characters`;
-  }
-  if (field.maxLength != null && str.length > field.maxLength) {
-    return `${field.label} must be at most ${field.maxLength} characters`;
-  }
-  if (field.pattern) {
-    try {
-      const re = new RegExp(field.pattern);
-      if (!re.test(str)) return `${field.label} format is invalid`;
-    } catch {
-      /* ignore invalid pattern from provider */
-    }
-  }
-  const enumChoices =
-    field.conditional_required?.find((b) => b.enum?.length)?.enum ?? field.enum;
-  if (enumChoices?.length) {
-    const allowed = new Set(enumChoices.map((c) => String(c.value)));
-    if (!allowed.has(str)) return `${field.label} must be one of the allowed values`;
-  }
   return null;
 }
 
@@ -81,7 +65,8 @@ export interface CorridorValidationResult {
 }
 
 /**
- * Validate destination object against corridor detail fields (skips beneficiary.type — set by corridor).
+ * Validate destination structure against corridor detail fields (skips beneficiary.type — set by corridor).
+ * Only checks required-field presence and basic types; provider-owned value rules are not enforced.
  */
 export function validateDestinationAgainstCorridorFields(
   destination: Record<string, unknown>,
