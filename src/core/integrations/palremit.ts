@@ -25,6 +25,11 @@ export interface PalremitCurrencyRequestFn {
   }>;
 }
 
+/** BloxFi uses Palremit B2B pricing on all `/pairs/conversion` calls. */
+function palremitConversionBody(from: string, to: string, amount: number): Record<string, unknown> {
+  return { from, to, amount, b2b: true };
+}
+
 /**
  * Fetch onramp rate from Palremit Currency API.
  * Uses POST /pairs/conversion with amount=1 to get rate for fromCurrency → toCurrency.
@@ -42,7 +47,7 @@ export async function getPalremitOnrampRates(
 
   const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
     method: 'POST',
-    body: { from, to, amount: 1 },
+    body: palremitConversionBody(from, to, 1),
   });
   if (res.status !== 200 || !res.data?.data) return null;
   if (res.data.status !== 'success') return null;
@@ -72,8 +77,7 @@ export async function getPalremitOnrampQuote(
   currencyRequest: PalremitCurrencyRequestFn,
   fromCurrency: string,
   toCurrency: string,
-  amount: number,
-  b2b?: boolean
+  amount: number
 ): Promise<GetOnrampQuoteResponse | null> {
   const from = (fromCurrency ?? '').trim().toUpperCase();
   const to = (toCurrency ?? '').trim().toUpperCase();
@@ -82,7 +86,7 @@ export async function getPalremitOnrampQuote(
 
   const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
     method: 'POST',
-    body: { from, to, amount: amt, b2b: b2b === true ? true : undefined },
+    body: palremitConversionBody(from, to, amt),
   });
   if (res.status !== 200 || !res.data?.data) return null;
   if (res.data.status !== 'success') return null;
@@ -117,7 +121,7 @@ export async function getPalremitOfframpRates(
 
   const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
     method: 'POST',
-    body: { from, to, amount: 1 },
+    body: palremitConversionBody(from, to, 1),
   });
   if (res.status !== 200 || !res.data?.data) return null;
   if (res.data.status !== 'success') return null;
