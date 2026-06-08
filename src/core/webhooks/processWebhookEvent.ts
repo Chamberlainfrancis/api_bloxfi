@@ -17,6 +17,12 @@ import {
 } from '@/core/integrations/palremitOnramp';
 import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/palremitOfframp';
 import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
+import {
+  expectedOfframpCryptoAmount,
+  isOfframpCryptoDepositComplete,
+  parseDepositWebhookAmount,
+  priorCryptoReceivedAmount,
+} from '@/core/offramps/offrampDepositAmount';
 
 export interface WebhookRepos {
   user: {
@@ -227,25 +233,72 @@ export async function processWebhookEvent(
         const wantNet = (src.chain ?? '').trim().toUpperCase();
         if (depNetwork && wantNet && depNetwork.toUpperCase() !== wantNet) break;
 
+        const incomingAmount = parseDepositWebhookAmount(dep);
+        const expectedAmount = expectedOfframpCryptoAmount(offramp);
+        if (incomingAmount == null || expectedAmount == null) {
+          logger.warn(
+            { offrampId: offramp.id, txnRef: clientRef, incomingAmount, expectedAmount },
+            'offramp deposit.credited missing amount; skipping status update'
+          );
+          break;
+        }
+
+        const existingTimeline =
+          offramp.timeline != null &&
+          typeof offramp.timeline === 'object' &&
+          !Array.isArray(offramp.timeline)
+            ? (offramp.timeline as Record<string, unknown>)
+            : {};
+        const totalReceived = priorCryptoReceivedAmount(existingTimeline) + incomingAmount;
+        const depositComplete = isOfframpCryptoDepositComplete(totalReceived, expectedAmount);
+        const now = new Date().toISOString();
+
         const depId = typeof dep.id === 'string' ? dep.id.trim() : '';
-        await repos.offramp.updateOfframpStatus(offramp.id, 'CRYPTO_CONFIRMED', {
+        const nextStatus: OfframpStatus = depositComplete ? 'CRYPTO_CONFIRMED' : 'CRYPTO_RECEIVED';
+        const nextTimeline: Record<string, unknown> = {
+          ...existingTimeline,
+          cryptoReceivedAmount: totalReceived,
+          cryptoExpectedAmount: expectedAmount,
+          lastDepositCreditedAt: now,
+          ...(depositComplete
+            ? { cryptoConfirmedAt: now }
+            : { cryptoReceivedAt: existingTimeline.cryptoReceivedAt ?? now }),
+        };
+
+        await repos.offramp.updateOfframpStatus(offramp.id, nextStatus, {
           receipt: { provider: 'palremit', eventType, deposit: dep, client_reference: clientRef },
-          timeline: { cryptoConfirmedAt: new Date().toISOString() } as object,
+          timeline: nextTimeline,
           providerRefs: {
             palremitOrchestrator: {
               ...(orch ?? {}),
               palremitDepositId: depId || undefined,
-              depositStatus: 'credited',
+              depositStatus: depositComplete ? 'credited' : 'partial',
+              cryptoReceivedAmount: totalReceived,
+              cryptoExpectedAmount: expectedAmount,
               rawDepositCreditedPayload: d,
             },
           },
         });
-        if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
-          try {
-            await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
-          } catch (e) {
-            logger.error({ offrampId: offramp.id, err: e }, 'webhooks advanceOfframpAfterCryptoWebhook failed');
+
+        if (depositComplete) {
+          if (repos.offramp.advanceOfframpAfterCryptoWebhook) {
+            try {
+              await repos.offramp.advanceOfframpAfterCryptoWebhook(offramp.id);
+            } catch (e) {
+              logger.error({ offrampId: offramp.id, err: e }, 'webhooks advanceOfframpAfterCryptoWebhook failed');
+            }
           }
+        } else {
+          logger.info(
+            {
+              offrampId: offramp.id,
+              txnRef: clientRef,
+              totalReceived,
+              expectedAmount,
+              incomingAmount,
+            },
+            'offramp partial crypto deposit; awaiting remaining funds before fiat payout'
+          );
         }
       }
       break;
