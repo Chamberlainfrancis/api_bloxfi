@@ -75,6 +75,10 @@ export const createOnrampBodySchema = z
 export const getOnrampRatesQuerySchema = z.object({
   fromCurrency: z.string().min(1),
   toCurrency: z.string().min(1),
+  // Optional fee preview: when amount + chain are supplied, the response
+  // includes a `quote` with the Palremit payout fee deducted from receive.
+  amount: z.coerce.number().positive().optional(),
+  chain: z.string().min(1).optional(),
 });
 
 export const listOnrampsQuerySchema = z.object({

@@ -17,7 +17,9 @@ import {
 import {
   createOfframpPalremitCryptoDeposit,
   getPalremitOfframpRates,
+  fetchPalremitWithdrawalFeeQuote,
 } from '@/core/integrations';
+import { buildRampFeePreview } from '@/core/payments';
 import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
@@ -95,6 +97,26 @@ export async function getOfframpRates(
       parsed.data.fromChain,
       { getRateFromPalremit }
     );
+    // Optional fee preview when amount + corridor inputs are supplied.
+    const q = parsed.data;
+    if (q.amount != null && q.country && q.destinationType) {
+      const rateNum = parseFloat(result.conversionRate) || 0;
+      const feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
+        asset: result.toCurrency,
+        amount: q.amount * rateNum,
+        destinationType: q.destinationType,
+        country: q.country,
+        beneficiaryType: q.beneficiaryType ?? undefined,
+      });
+      result.quote = buildRampFeePreview({
+        sendAmount: q.amount,
+        sendCurrency: result.fromCurrency,
+        receiveCurrency: result.toCurrency,
+        rate: rateNum,
+        receiveDecimals: 2,
+        feeQuote,
+      });
+    }
     sendSuccess(res, result);
   } catch (e) {
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
@@ -161,6 +183,8 @@ export async function createOfframp(
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
+        getProviderWithdrawalFeeQuote: (input) =>
+          fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
       }
     );
     sendSuccess(res, result, 201);
@@ -193,6 +217,16 @@ export async function createOfframp(
     }
     if (e instanceof Error && e.message === 'USER_EMAIL_REQUIRED_FOR_OFFRAMP') {
       next(new AppError('User business email is required for offramp', 'UNPROCESSABLE_ENTITY', 422));
+      return;
+    }
+    if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
+      next(
+        new AppError(
+          'Amount too low: the Palremit payout fee meets or exceeds the receive amount',
+          'UNPROCESSABLE_ENTITY',
+          422
+        )
+      );
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_DEPOSIT_ADDRESS_FAILED') {

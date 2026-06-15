@@ -5,6 +5,8 @@
 import { applyOfframpPlatformFee } from '@/core/payments';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 import { isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
+import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
+import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
@@ -51,6 +53,18 @@ export interface CreateOfframpOptions {
     correlationId: string;
     providerRefs: Record<string, unknown>;
   } | null>;
+  /**
+   * Fetch Palremit's payout fee for this corridor (POST /v1/withdrawals/quote).
+   * Deducted from the receive amount. Returns null on failure → fee treated as
+   * unavailable (no deduction), so a quote outage never blocks offramp creation.
+   */
+  getProviderWithdrawalFeeQuote?: (input: {
+    asset: string;
+    amount: number;
+    destinationType: string;
+    country?: string | null;
+    beneficiaryType?: 'individual' | 'business' | null;
+  }) => Promise<PalremitWithdrawalFeeQuote | null>;
 }
 
 export interface OfframpRepoCreate {
@@ -207,7 +221,43 @@ export async function createOfframp(
     platformFee
   );
   const rateNum = parseFloat(rate) || 1;
-  const fiatNet = netCryptoAmount * rateNum;
+  // Gross fiat before Palremit's payout fee; the fee is then deducted from the
+  // receive amount (fee transparency — the crypto the user sends is unchanged).
+  const fiatGross = netCryptoAmount * rateNum;
+
+  const pp = parseProviderPayout(account.providerPayout);
+  let providerFeeFiat = 0;
+  let providerFeeBreakdown: OfframpFees['providerFee'];
+  if (options.getProviderWithdrawalFeeQuote && pp) {
+    const quote = await options.getProviderWithdrawalFeeQuote({
+      asset: pp.corridor.asset,
+      amount: fiatGross,
+      destinationType: pp.corridor.destinationType,
+      country: pp.corridor.country,
+      beneficiaryType: pp.corridor.beneficiaryType,
+    });
+    const usable =
+      quote != null &&
+      !quote.feeUnavailable &&
+      quote.totalFee != null &&
+      quote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
+    if (usable && quote) {
+      const parsedFee = Number(quote.totalFee!.amount);
+      if (Number.isFinite(parsedFee) && parsedFee > 0) providerFeeFiat = parsedFee;
+      providerFeeBreakdown = { fees: quote.fees, total: quote.totalFee, unavailable: false };
+    } else {
+      providerFeeBreakdown = {
+        fees: quote?.fees ?? [],
+        total: quote?.totalFee ?? null,
+        unavailable: true,
+      };
+    }
+  }
+
+  if (providerFeeFiat >= fiatGross) {
+    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
+  const fiatNet = Math.max(0, fiatGross - providerFeeFiat);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const depositBy = expiresAt.toISOString();
@@ -252,6 +302,7 @@ export async function createOfframp(
       currency: fromCurrency,
       walletAddress: platformFee.walletAddress,
     },
+    ...(providerFeeBreakdown ? { providerFee: providerFeeBreakdown } : {}),
   };
 
   const timeline = {
