@@ -1,9 +1,13 @@
 /**
  * Self-contained admin dashboard page, served by GET /dashboard.
  * Vanilla HTML/CSS/JS — no framework, no build step. Calls /dashboard/api/*.
+ *
+ * The inline <script> carries a per-request CSP nonce so it runs under the
+ * app's helmet Content-Security-Policy (which otherwise blocks inline scripts).
  */
 
-export const DASHBOARD_HTML = `<!doctype html>
+export function renderDashboardHtml(nonce: string): string {
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -76,7 +80,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div class="dbody" id="dBody"></div>
 </dialog>
 
-<script>
+<script nonce="${nonce}">
 const ONRAMP_STATUSES = ["CREATED","AWAITING_FUNDS","FIAT_PENDING","FIAT_PROCESSED","CRYPTO_INITIATED","CRYPTO_PENDING","COMPLETED","FIAT_FAILED","FIAT_RETURNED","CRYPTO_FAILED","EXPIRED"];
 const OFFRAMP_STATUSES = ["CREATED","AWAITING_CRYPTO","CRYPTO_PENDING","CRYPTO_RECEIVED","CRYPTO_CONFIRMED","PROCESSING_FEE","FEE_PROCESSED","FIAT_INITIATED","FIAT_PENDING","COMPLETED","FAILED","CANCELLED","REFUNDED","CRYPTO_FAILED","FIAT_FAILED","EXPIRED"];
 const OK = new Set(["COMPLETED"]);
@@ -203,3 +207,4 @@ load(true);
 </script>
 </body>
 </html>`;
+}

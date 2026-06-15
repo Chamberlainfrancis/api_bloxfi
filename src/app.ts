@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import { randomBytes } from 'crypto';
 import { env } from '@/config';
 import { errorMiddleware } from '@/middleware/error';
 import { authMiddleware } from '@/middleware/auth';
@@ -11,7 +12,7 @@ import { pingDb } from '@/db/repositories/health.repo';
 import { sendSuccess } from '@/utils';
 import { getRedis } from '@/services/redis';
 import { adminRouter } from '@/api/admin/routes';
-import { DASHBOARD_HTML } from '@/api/admin/page';
+import { renderDashboardHtml } from '@/api/admin/page';
 
 const app = express();
 
@@ -58,8 +59,24 @@ app.get('/api/v1/health', (_req, res) => {
 
 // Internal ops dashboard (NO AUTH — do not expose publicly).
 // See docs/superpowers/specs/2026-06-15-bloxfi-admin-dashboard-design.md
+// The page's inline <script> is blocked by helmet's default CSP (script-src
+// 'self'); serve it with a per-request nonce so the script runs.
 app.get('/dashboard', (_req, res) => {
-  res.type('html').send(DASHBOARD_HTML);
+  const nonce = randomBytes(16).toString('base64');
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join('; ')
+  );
+  res.type('html').send(renderDashboardHtml(nonce));
 });
 app.use('/dashboard/api', adminRouter);
 
