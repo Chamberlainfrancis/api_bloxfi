@@ -19,6 +19,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
+# Prisma schema + migrations + config so the deploy-time `prisma migrate deploy`
+# (Railway pre-deploy command) can run inside the runtime image. Copied before
+# install so the @prisma/client postinstall can resolve the schema.
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN npm ci --omit=dev
 
 COPY tsconfig.json ./
