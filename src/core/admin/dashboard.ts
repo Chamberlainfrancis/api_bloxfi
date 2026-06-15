@@ -223,12 +223,13 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
   const completedAt = new Date().toISOString();
 
   if (outcome === 'success') {
+    // NOTE: the operator note/actor are deliberately NOT stored here. `receipt`
+    // is returned by the partner-facing GET /offramps|/onramps API; the note is
+    // internal and lives only in the AdminAction audit table below.
     const receipt = {
       provider: 'palremit',
       completedManually: true,
       completedAt,
-      note: note ?? null,
-      actor: actor ?? null,
     };
     const palremitOrchestrator = { ...orch, withdrawalStatus: 'successful', completedAt, markedManually: true };
     if (type === 'onramp') {
@@ -251,8 +252,10 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
       });
     }
   } else {
-    // failed
-    const failedReason = note ?? 'Marked failed via dashboard';
+    // failed — failedReason is partner-facing (returned by the public API), so use
+    // a generic operator message rather than the internal note. The note/actor are
+    // kept internal in the AdminAction audit table below.
+    const failedReason = 'Marked failed by operator';
     const palremitOrchestrator = { ...orch, withdrawalStatus: 'failed', markedManually: true };
     if (type === 'onramp') {
       await onrampRepo.updateOnrampStatus(id, toStatus as never, {
