@@ -6,7 +6,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
-import { logger } from '@/lib/logger';
+import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
 
 function parseType(raw: unknown): dashboard.TxnType {
@@ -30,12 +30,6 @@ export async function listTransactions(
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
     const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
     const result = await dashboard.listTransactions({ type, status, cursor, limit });
-    // Surfaces how many rows the configured DB returned — the key signal when
-    // the dashboard table looks empty (empty/wrong DB vs. a query bug).
-    logger.info(
-      { type, status: status ?? null, count: result.items.length, hasMore: result.nextCursor !== null },
-      'dashboard list transactions'
-    );
     sendSuccess(res, result);
   } catch (e) {
     next(e);
@@ -63,7 +57,21 @@ export async function markTransaction(
 ): Promise<void> {
   try {
     const type = parseType(req.params.type);
-    const body = (req.body ?? {}) as { outcome?: unknown; note?: unknown; actor?: unknown };
+    const body = (req.body ?? {}) as {
+      outcome?: unknown;
+      note?: unknown;
+      actor?: unknown;
+      secret?: unknown;
+    };
+    // Marking mutates transaction state — require the shared passcode
+    // (DASHBOARD_MARK_SECRET, default "pr2026"). Accept it via header or body.
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
     if (body.outcome !== 'success' && body.outcome !== 'failed') {
       throw new AppError('outcome must be "success" or "failed"', 'INVALID_REQUEST', 400);
     }

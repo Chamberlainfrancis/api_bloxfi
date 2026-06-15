@@ -69,7 +69,8 @@ app.get('/dashboard', (_req, res) => {
       "default-src 'self'",
       `script-src 'self' 'nonce-${nonce}'`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data:",
+      // https: so beneficiary document thumbnails (presigned S3 URLs) can render.
+      "img-src 'self' data: https:",
       "connect-src 'self'",
       "base-uri 'self'",
       "form-action 'self'",

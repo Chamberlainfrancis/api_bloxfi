@@ -12,6 +12,11 @@ const envSchema = z.object({
   API_KEY: z.string().min(16, "API_KEY is required"),
   API_KEY_HEADER: z.string().default("Authorization"),
   CORS_ORIGINS: z.string().optional(),
+  /**
+   * Shared passcode required to mark transactions from the (no-auth) admin
+   * dashboard. Defaults to "pr2026"; override in env to rotate.
+   */
+  DASHBOARD_MARK_SECRET: z.string().min(1).default("pr2026"),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().min(1).default(60),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().min(1).default(100),
   IDEMPOTENCY_TTL_SECONDS: z.coerce.number().min(1).default(86400),
