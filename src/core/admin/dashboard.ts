@@ -177,8 +177,9 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
 
   const fromStatus = existing.status;
   const toStatus = resolveMarkStatus(type, outcome);
-  // failedReason only set on failure; undefined leaves the column untouched.
-  const failedReason = outcome === 'failed' ? note ?? null : undefined;
+  // On failure, record the note as failedReason; on success, explicitly clear any
+  // stale failedReason from a prior failed mark (null is written, undefined would skip).
+  const failedReason = outcome === 'failed' ? note ?? null : null;
 
   if (type === 'onramp') {
     await onrampRepo.updateOnrampStatus(id, toStatus as never, { failedReason });
