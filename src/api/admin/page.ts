@@ -17,7 +17,7 @@ export function renderDashboardHtml(nonce: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BloxFi Transactions</title>
 <style>
-  :root { --bg:#0f1419; --panel:#1a2230; --line:#2a3547; --txt:#e6edf3; --mut:#8b97a7; --accent:#3b82f6; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  :root { --bg:#ffffff; --panel:#f4f6f8; --line:#e2e6ea; --txt:#1a2230; --mut:#5b6675; --accent:#2563eb; --ok:#15803d; --warn:#b45309; --bad:#dc2626; }
   * { box-sizing: border-box; }
   body { margin:0; font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
   a { color:var(--accent); }
