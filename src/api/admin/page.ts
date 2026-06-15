@@ -99,14 +99,23 @@ function fillStatusFilter() {
   $("statusFilter").innerHTML = '<option value="">All</option>' + list.map((s) => '<option value="' + s + '">' + s + '</option>').join("");
 }
 
+// Escape dynamic values before they go into innerHTML/insertAdjacentHTML.
+// Server data includes externally-influenced fields (txnRef, source/destination)
+// and free-form notes — treat all of it as untrusted text.
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
 function rowHtml(t) {
-  const amt = t.amount != null ? t.amount + " " + (t.currency || "") : "—";
-  return '<tr class="row" data-id="' + t.id + '">' +
-    "<td>" + (t.txnRef || '<span class="muted">' + t.id.slice(0, 8) + "</span>") + "</td>" +
-    '<td><span class="' + badgeClass(t.status) + '">' + t.status + "</span></td>" +
-    '<td class="muted">' + t.userId.slice(0, 8) + "</td>" +
+  const amt = t.amount != null ? esc(t.amount + " " + (t.currency || "")) : "—";
+  return '<tr class="row" data-id="' + esc(t.id) + '">' +
+    "<td>" + (t.txnRef ? esc(t.txnRef) : '<span class="muted">' + esc(t.id.slice(0, 8)) + "</span>") + "</td>" +
+    '<td><span class="' + badgeClass(t.status) + '">' + esc(t.status) + "</span></td>" +
+    '<td class="muted">' + esc(t.userId.slice(0, 8)) + "</td>" +
     "<td>" + amt + "</td>" +
-    '<td class="muted">' + new Date(t.createdAt).toLocaleString() + "</td>" +
+    '<td class="muted">' + esc(new Date(t.createdAt).toLocaleString()) + "</td>" +
     "</tr>";
 }
 
@@ -126,7 +135,7 @@ async function load(reset) {
 
 function kv(obj) {
   return Object.entries(obj).map(([k, v]) =>
-    "<div>" + k + "</div><div>" + (v == null ? "—" : String(v)) + "</div>"
+    "<div>" + esc(k) + "</div><div>" + (v == null ? "—" : esc(v)) + "</div>"
   ).join("");
 }
 
@@ -138,12 +147,12 @@ async function openDetail(id) {
     const dest = t.destination || {};
     const src = t.source || {};
     const hist = (t.adminActions || []).map((a) =>
-      "<li>" + new Date(a.createdAt).toLocaleString() + " — <b>" + a.fromStatus + " → " + a.toStatus + "</b>" +
-      (a.actor ? " by " + a.actor : "") + (a.note ? ': "' + a.note + '"' : "") + "</li>"
+      "<li>" + esc(new Date(a.createdAt).toLocaleString()) + " — <b>" + esc(a.fromStatus) + " → " + esc(a.toStatus) + "</b>" +
+      (a.actor ? " by " + esc(a.actor) : "") + (a.note ? ': "' + esc(a.note) + '"' : "") + "</li>"
     ).join("") || '<li class="muted">No manual actions yet.</li>';
     $("dBody").innerHTML =
-      '<div class="section"><h3>Destination</h3><pre>' + JSON.stringify(dest, null, 2) + "</pre></div>" +
-      '<div class="section"><h3>Source</h3><pre>' + JSON.stringify(src, null, 2) + "</pre></div>" +
+      '<div class="section"><h3>Destination</h3><pre>' + esc(JSON.stringify(dest, null, 2)) + "</pre></div>" +
+      '<div class="section"><h3>Source</h3><pre>' + esc(JSON.stringify(src, null, 2)) + "</pre></div>" +
       '<div class="section"><h3>Summary</h3><div class="kv">' +
         kv({ id: t.id, txnRef: t.txnRef, userId: t.userId, status: t.status, failedReason: t.failedReason, createdAt: t.createdAt, updatedAt: t.updatedAt }) +
       "</div></div>" +
