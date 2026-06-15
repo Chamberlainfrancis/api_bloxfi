@@ -82,20 +82,32 @@ export async function getOnrampRates(
       getRateFromPalremit,
     });
     // Optional fee preview when amount + destination chain are supplied.
+    // Onramp: fiat in → crypto out. Use the amount-specific conversion
+    // (like createOnramp) rather than rate*amount, since conversionRate is
+    // fiat-per-crypto and would invert the math.
     const q = parsed.data;
     if (q.amount != null && q.chain) {
-      const rateNum = parseFloat(result.conversionRate) || 0;
-      const feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
-        asset: result.toCurrency,
-        amount: q.amount * rateNum,
-        destinationType: 'crypto_address',
-        network: q.chain,
-      });
+      const oq = await getPalremitOnrampQuote(
+        palremitCurrency,
+        result.fromCurrency,
+        result.toCurrency,
+        q.amount
+      );
+      const grossReceive = oq?.conversion ?? 0;
+      const feeQuote =
+        grossReceive > 0
+          ? await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
+              asset: result.toCurrency,
+              amount: grossReceive,
+              destinationType: 'crypto_address',
+              network: q.chain,
+            })
+          : null;
       result.quote = buildRampFeePreview({
         sendAmount: q.amount,
         sendCurrency: result.fromCurrency,
         receiveCurrency: result.toCurrency,
-        rate: rateNum,
+        grossReceive,
         receiveDecimals: 8,
         feeQuote,
       });

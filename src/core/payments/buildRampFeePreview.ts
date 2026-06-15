@@ -12,13 +12,17 @@ export function buildRampFeePreview(params: {
   sendCurrency: string;
   /** Receive currency (fiat for offramp; crypto for onramp). */
   receiveCurrency: string;
-  /** Receive per 1 unit of send. */
-  rate: number;
+  /**
+   * Gross receive before the provider fee, computed by the caller in the
+   * correct direction (offramp: crypto × rate; onramp: the amount-specific
+   * fiat→crypto conversion). Passed in to avoid rate-direction guessing.
+   */
+  grossReceive: number;
   /** Decimal places to format receive amounts (fiat=2, crypto=8). */
   receiveDecimals: number;
   feeQuote: PalremitWithdrawalFeeQuote | null;
 }): RampFeePreview {
-  const grossReceive = params.sendAmount * params.rate;
+  const grossReceive = params.grossReceive;
   const fq = params.feeQuote;
   const usable =
     fq != null &&

@@ -18,7 +18,7 @@ describe('buildRampFeePreview', () => {
       sendAmount: 100,
       sendCurrency: 'usdt',
       receiveCurrency: 'ngn',
-      rate: 1500,
+      grossReceive: 150000,
       receiveDecimals: 2,
       feeQuote: fiatFee,
     });
@@ -33,7 +33,7 @@ describe('buildRampFeePreview', () => {
       sendAmount: 100,
       sendCurrency: 'usdt',
       receiveCurrency: 'ngn',
-      rate: 1500,
+      grossReceive: 150000,
       receiveDecimals: 2,
       feeQuote: { feeUnavailable: true, fees: [], totalFee: null, destinationAmount: null, effectiveRate: null, expiresAt: null },
     });
@@ -46,7 +46,7 @@ describe('buildRampFeePreview', () => {
       sendAmount: 100,
       sendCurrency: 'usdt',
       receiveCurrency: 'ngn',
-      rate: 1500,
+      grossReceive: 150000,
       receiveDecimals: 2,
       feeQuote: null,
     });
@@ -59,7 +59,7 @@ describe('buildRampFeePreview', () => {
       sendAmount: 100,
       sendCurrency: 'usdt',
       receiveCurrency: 'ngn',
-      rate: 1500,
+      grossReceive: 150000,
       receiveDecimals: 2,
       feeQuote: { feeUnavailable: false, fees: [], totalFee: { amount: '5', currency: 'USD' }, destinationAmount: null, effectiveRate: null, expiresAt: null },
     });
@@ -72,7 +72,7 @@ describe('buildRampFeePreview', () => {
       sendAmount: 100,
       sendCurrency: 'usd',
       receiveCurrency: 'usdt',
-      rate: 1,
+      grossReceive: 100,
       receiveDecimals: 8,
       feeQuote: { feeUnavailable: false, fees: [{ kind: 'network_fee', amount: '2', currency: 'USDT' }], totalFee: { amount: '2', currency: 'USDT' }, destinationAmount: null, effectiveRate: null, expiresAt: null },
     });

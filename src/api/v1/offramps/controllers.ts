@@ -100,10 +100,12 @@ export async function getOfframpRates(
     // Optional fee preview when amount + corridor inputs are supplied.
     const q = parsed.data;
     if (q.amount != null && q.country && q.destinationType) {
+      // Offramp: crypto in → fiat out. conversionRate is fiat-per-crypto.
       const rateNum = parseFloat(result.conversionRate) || 0;
+      const grossReceive = q.amount * rateNum;
       const feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
         asset: result.toCurrency,
-        amount: q.amount * rateNum,
+        amount: grossReceive,
         destinationType: q.destinationType,
         country: q.country,
         beneficiaryType: q.beneficiaryType ?? undefined,
@@ -112,7 +114,7 @@ export async function getOfframpRates(
         sendAmount: q.amount,
         sendCurrency: result.fromCurrency,
         receiveCurrency: result.toCurrency,
-        rate: rateNum,
+        grossReceive,
         receiveDecimals: 2,
         feeQuote,
       });
