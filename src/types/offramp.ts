@@ -104,6 +104,16 @@ export interface OfframpFees {
   };
   railFee?: { amount: string; currency: string };
   networkFee?: { amount: string; currency: string; description?: string };
+  /**
+   * Palremit payout fee, itemized for transparency. Deducted from the receive
+   * amount. `unavailable` is true when Palremit could not preview a fee
+   * (the receive then reflects no provider-fee deduction).
+   */
+  providerFee?: {
+    fees: Array<{ kind: string; amount: string; currency: string }>;
+    total: { amount: string; currency: string } | null;
+    unavailable: boolean;
+  };
   totalFees?: string;
 }
 
@@ -155,6 +165,24 @@ export interface OfframpRateLimits {
   currency?: string;
 }
 
+/**
+ * Optional fee preview attached to a rate when enough quote inputs are given.
+ * `netReceive` is `grossReceive` minus Palremit's payout fee (deduct-from-receive).
+ * `providerFee.unavailable` means no fee could be previewed (no deduction applied).
+ */
+export interface RampFeePreview {
+  // Money fields mirror the existing onramp QuoteInformation shape:
+  // `{ amount, currency }` objects named sendGross / receiveGross / receiveNet.
+  sendGross: { amount: string; currency: string };
+  receiveGross: { amount: string; currency: string };
+  receiveNet: { amount: string; currency: string };
+  providerFee: {
+    fees: Array<{ kind: string; amount: string; currency: string }>;
+    total: { amount: string; currency: string } | null;
+    unavailable: boolean;
+  };
+}
+
 export interface GetOfframpRatesResponse {
   fromCurrency: string;
   toCurrency: string;
@@ -171,6 +199,8 @@ export interface GetOfframpRatesResponse {
     methods: string[];
     processingTime: string;
   }>;
+  /** Fee preview, present only when amount + corridor inputs are supplied. */
+  quote?: RampFeePreview;
 }
 
 // --- POST /offramps (create) ---

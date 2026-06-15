@@ -3,6 +3,8 @@
  * Fee object: type (FIX | PERCENT) and value only.
  */
 
+import type { RampFeePreview } from '@/types/offramp';
+
 export type OnrampStatus =
   | 'CREATED'
   | 'AWAITING_FUNDS'
@@ -63,6 +65,16 @@ export interface QuoteInformation {
   receiveNet: { amount: string; currency: string };
   rate: string;
   expiresAt?: string;
+  /**
+   * Palremit payout (crypto network) fee, itemized for transparency. Deducted
+   * from the receive amount. `unavailable` is true when Palremit could not
+   * preview a fee (the receive then reflects no provider-fee deduction).
+   */
+  providerFee?: {
+    fees: Array<{ kind: string; amount: string; currency: string }>;
+    total: { amount: string; currency: string } | null;
+    unavailable: boolean;
+  };
 }
 
 export interface DepositInfoAch {
@@ -150,6 +162,8 @@ export interface GetOnrampRatesResponse {
   toCurrency: string;
   conversionRate: string;
   conversionRates?: ConversionRateByTransfer[];
+  /** Fee preview, present only when amount + chain inputs are supplied. */
+  quote?: RampFeePreview;
 }
 
 // --- POST /onramps (create) ---

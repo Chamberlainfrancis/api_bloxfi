@@ -18,7 +18,9 @@ import {
   executePalremitOnrampCryptoWithdrawal,
   getPalremitOnrampRates,
   getPalremitOnrampQuote,
+  fetchPalremitWithdrawalFeeQuote,
 } from '@/core/integrations';
+import { buildRampFeePreview } from '@/core/payments';
 import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
@@ -79,6 +81,37 @@ export async function getOnrampRates(
     const result = await onrampCore.getOnrampRate(parsed.data.fromCurrency, parsed.data.toCurrency, {
       getRateFromPalremit,
     });
+    // Optional fee preview when amount + destination chain are supplied.
+    // Onramp: fiat in → crypto out. Use the amount-specific conversion
+    // (like createOnramp) rather than rate*amount, since conversionRate is
+    // fiat-per-crypto and would invert the math.
+    const q = parsed.data;
+    if (q.amount != null && q.chain) {
+      const oq = await getPalremitOnrampQuote(
+        palremitCurrency,
+        result.fromCurrency,
+        result.toCurrency,
+        q.amount
+      );
+      const grossReceive = oq?.conversion ?? 0;
+      const feeQuote =
+        grossReceive > 0
+          ? await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
+              asset: result.toCurrency,
+              amount: grossReceive,
+              destinationType: 'crypto_address',
+              network: q.chain,
+            })
+          : null;
+      result.quote = buildRampFeePreview({
+        sendAmount: q.amount,
+        sendCurrency: result.fromCurrency,
+        receiveCurrency: result.toCurrency,
+        grossReceive,
+        receiveDecimals: 8,
+        feeQuote,
+      });
+    }
     sendSuccess(res, result);
   } catch (e) {
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
@@ -139,6 +172,8 @@ export async function createOnramp(
         resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
+        getProviderWithdrawalFeeQuote: (input) =>
+          fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
       }
     );
     sendSuccess(res, result, 201);
@@ -153,6 +188,16 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'WALLET_NOT_FOUND') {
       next(new AppError('Wallet not found', 'NOT_FOUND', 404));
+      return;
+    }
+    if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
+      next(
+        new AppError(
+          'Amount too low: the Palremit payout fee meets or exceeds the receive amount',
+          'UNPROCESSABLE_ENTITY',
+          422
+        )
+      );
       return;
     }
     if (e instanceof Error && e.message === 'SOURCE_DESTINATION_USER_MISMATCH') {

@@ -9,3 +9,5 @@ generated
 .cursor
 docs/
 CURSOR_RULES.md
+# git worktrees (superpowers)
+.worktrees/

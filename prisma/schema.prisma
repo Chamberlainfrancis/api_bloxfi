@@ -340,3 +340,19 @@ model ApiKey {
 
   @@index([keyHash, isActive])
 }
+
+// --- Admin dashboard: manual transaction status changes (audit trail) ---
+// Written by the no-auth internal ops dashboard. See docs/superpowers/specs/2026-06-15-bloxfi-admin-dashboard-design.md
+model AdminAction {
+  id         String   @id @default(uuid())
+  txnType    String // "onramp" | "offramp"
+  txnId      String
+  fromStatus String
+  toStatus   String
+  note       String?  @db.Text
+  actor      String? // free-form name typed in the UI (optional; no auth)
+  createdAt  DateTime @default(now())
+
+  @@index([txnType, txnId])
+  @@index([createdAt])
+}

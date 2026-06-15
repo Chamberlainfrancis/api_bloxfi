@@ -58,6 +58,12 @@ export {
   mapPalremitCorridorDetailToApi,
 } from '@/core/integrations/palremitCorridors';
 export { validateDestinationAgainstCorridorFields } from '@/core/integrations/palremitCorridorValidate';
+export { fetchPalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
+export type {
+  PalremitWithdrawalFeeQuote,
+  PalremitWithdrawalQuoteFee,
+  FetchWithdrawalFeeQuoteInput,
+} from '@/core/integrations/palremitWithdrawalQuote';
 export type {
   PalremitBankRow,
   PalremitBankResolveInput,

@@ -3,3 +3,4 @@ export {
   applyOfframpPlatformFee,
   type OfframpPlatformFeeResult,
 } from '@/core/payments/applyOfframpPlatformFee';
+export { buildRampFeePreview } from '@/core/payments/buildRampFeePreview';

@@ -4,6 +4,7 @@
  */
 
 import { applyOnrampFee } from '@/core/payments';
+import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import type {
   CreateOnrampRequest,
@@ -47,6 +48,17 @@ export interface CreateOnrampOptions {
     depositByIso: string;
     txnRef: string;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
+  /**
+   * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
+   * from the receive amount. Returns null on failure → fee treated as
+   * unavailable (no deduction), so a quote outage never blocks onramp creation.
+   */
+  getProviderWithdrawalFeeQuote?: (input: {
+    asset: string;
+    amount: number;
+    destinationType: string;
+    network?: string | null;
+  }) => Promise<PalremitWithdrawalFeeQuote | null>;
 }
 
 export interface OnrampRepoCreate {
@@ -236,7 +248,44 @@ export async function createOnramp(
 
   const grossFiat = src.amount;
   const receiveGross = quote.conversion;
-  const { feeAmount: developerFeeAmount, netAmount: receiveNet } = applyOnrampFee(receiveGross, fee);
+  const { feeAmount: developerFeeAmount, netAmount: receiveAfterDevFee } = applyOnrampFee(
+    receiveGross,
+    fee
+  );
+
+  // Deduct Palremit's crypto payout fee from the receive amount (fee transparency).
+  // The fiat the user sends is unchanged.
+  let providerFeeCrypto = 0;
+  let providerFeeBreakdown: QuoteInformation['providerFee'];
+  if (options.getProviderWithdrawalFeeQuote) {
+    const feeQuote = await options.getProviderWithdrawalFeeQuote({
+      asset: toCurrency,
+      amount: receiveAfterDevFee,
+      destinationType: 'crypto_address',
+      network: destinationNetwork,
+    });
+    const usable =
+      feeQuote != null &&
+      !feeQuote.feeUnavailable &&
+      feeQuote.totalFee != null &&
+      feeQuote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
+    if (usable && feeQuote) {
+      const parsedFee = Number(feeQuote.totalFee!.amount);
+      if (Number.isFinite(parsedFee) && parsedFee > 0) providerFeeCrypto = parsedFee;
+      providerFeeBreakdown = { fees: feeQuote.fees, total: feeQuote.totalFee, unavailable: false };
+    } else {
+      providerFeeBreakdown = {
+        fees: feeQuote?.fees ?? [],
+        total: feeQuote?.totalFee ?? null,
+        unavailable: true,
+      };
+    }
+  }
+
+  if (providerFeeCrypto >= receiveAfterDevFee) {
+    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
+  const receiveNet = Math.max(0, receiveAfterDevFee - providerFeeCrypto);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
@@ -252,6 +301,7 @@ export async function createOnramp(
     receiveNet: receiveNetStr,
     rate: conversionRate,
     expiresAt: expiresAt.toISOString(),
+    ...(providerFeeBreakdown ? { providerFee: providerFeeBreakdown } : {}),
   };
 
   const developerFee: DeveloperFeeAmount = {

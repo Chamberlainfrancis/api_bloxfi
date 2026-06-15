@@ -131,6 +131,12 @@ export const getOfframpRatesQuerySchema = z.object({
   fromCurrency: z.string().min(1),
   toCurrency: z.string().min(1),
   fromChain: z.string().optional(),
+  // Optional fee preview: when amount + country + destinationType are supplied,
+  // the response includes a `quote` with the Palremit payout fee deducted.
+  amount: z.coerce.number().positive().optional(),
+  country: z.string().length(2).optional(),
+  destinationType: z.string().min(1).optional(),
+  beneficiaryType: z.enum(['individual', 'business']).optional(),
 });
 
 export const listOfframpsQuerySchema = z.object({
