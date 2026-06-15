@@ -6,6 +6,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
+import { logger } from '@/lib/logger';
 import * as dashboard from '@/core/admin/dashboard';
 
 function parseType(raw: unknown): dashboard.TxnType {
@@ -29,6 +30,12 @@ export async function listTransactions(
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
     const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
     const result = await dashboard.listTransactions({ type, status, cursor, limit });
+    // Surfaces how many rows the configured DB returned — the key signal when
+    // the dashboard table looks empty (empty/wrong DB vs. a query bug).
+    logger.info(
+      { type, status: status ?? null, count: result.items.length, hasMore: result.nextCursor !== null },
+      'dashboard list transactions'
+    );
     sendSuccess(res, result);
   } catch (e) {
     next(e);
