@@ -10,6 +10,8 @@ import { webhooksRouter } from '@/api/v1/webhooks/routes';
 import { pingDb } from '@/db/repositories/health.repo';
 import { sendSuccess } from '@/utils';
 import { getRedis } from '@/services/redis';
+import { adminRouter } from '@/api/admin/routes';
+import { DASHBOARD_HTML } from '@/api/admin/page';
 
 const app = express();
 
@@ -53,6 +55,13 @@ app.get('/ready', async (_req, res) => {
 app.get('/api/v1/health', (_req, res) => {
   sendSuccess(res, { status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Internal ops dashboard (NO AUTH — do not expose publicly).
+// See docs/superpowers/specs/2026-06-15-bloxfi-admin-dashboard-design.md
+app.get('/dashboard', (_req, res) => {
+  res.type('html').send(DASHBOARD_HTML);
+});
+app.use('/dashboard/api', adminRouter);
 
 app.use('/api/v1', rateLimitMiddleware, authMiddleware(), v1Router);
 
