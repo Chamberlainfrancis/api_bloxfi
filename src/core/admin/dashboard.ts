@@ -150,7 +150,28 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
       : await offrampRepo.findOfframpById(id);
   if (!row) throw new AppError('Transaction not found', 'NOT_FOUND', 404);
   const adminActions = await adminActionRepo.listAdminActionsForTxn(type, id);
-  return { ...row, type, adminActions };
+
+  // For offramps, the beneficiary bank details live on the linked payout Account
+  // (destination.accountId), not on the offramp row. Join it in (unmasked — this
+  // is the internal ops view) so the dashboard can show who gets paid.
+  let beneficiaryAccount: unknown = null;
+  if (type === 'offramp') {
+    const dest = (row.destination ?? {}) as { accountId?: unknown };
+    if (typeof dest.accountId === 'string' && dest.accountId) {
+      try {
+        const [accountRepo, mapMod] = await Promise.all([
+          import('@/db/repositories/account.repo'),
+          import('@/core/accounts/mapAccountRow'),
+        ]);
+        const acct = await accountRepo.findOfframpAccountByIdAndUser(dest.accountId, row.userId);
+        if (acct) beneficiaryAccount = mapMod.mapAccountRowToApi(acct, { mask: false });
+      } catch {
+        // Best-effort: never fail the detail view if the account can't be resolved.
+      }
+    }
+  }
+
+  return { ...row, type, adminActions, beneficiaryAccount };
 }
 
 export interface MarkParams {

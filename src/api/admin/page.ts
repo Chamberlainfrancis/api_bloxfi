@@ -287,6 +287,22 @@ async function openDetail(id) {
 
     if (t.type === "offramp") {
       body += section("Beneficiary — who gets paid", kvBlock(dest));
+      const ba = t.beneficiaryAccount;
+      if (ba) {
+        const ah = ba.accountHolder || {};
+        const det = ba.details || {};
+        let inner = kvPairs([
+          ["Account holder", ah.name],
+          ["Currency", det.currency ? String(det.currency).toUpperCase() : null],
+          ["Country", det.country],
+          ["Email", ah.email],
+          ["Phone", ah.phone]
+        ]);
+        if (ba.providerPayout && ba.providerPayout.destination) {
+          inner += '<div style="margin-top:8px">' + kvBlock(ba.providerPayout.destination) + "</div>";
+        }
+        body += section("Beneficiary bank account", inner);
+      }
     } else {
       body += section("Cash deposit — where the customer pays in", hasContent(t.depositInfo) ? kvBlock(t.depositInfo) : "");
       body += section("Crypto delivered to", kvBlock(dest));
