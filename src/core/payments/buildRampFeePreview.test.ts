@@ -24,8 +24,8 @@ describe('buildRampFeePreview', () => {
     });
     expect(p.receiveGross.amount).toBe('150000.00');
     expect(p.receiveNet.amount).toBe('147750.00');
-    expect(p.providerFee.unavailable).toBe(false);
-    expect(p.providerFee.total).toEqual({ amount: '2250.00', currency: 'NGN' });
+    expect(p.transferFee.unavailable).toBe(false);
+    expect(p.transferFee.total).toEqual({ amount: '2250.00', currency: 'NGN' });
   });
 
   it('marks unavailable and does not deduct when fee is unavailable', () => {
@@ -38,7 +38,7 @@ describe('buildRampFeePreview', () => {
       feeQuote: { feeUnavailable: true, fees: [], totalFee: null, destinationAmount: null, effectiveRate: null, expiresAt: null },
     });
     expect(p.receiveNet.amount).toBe('150000.00');
-    expect(p.providerFee.unavailable).toBe(true);
+    expect(p.transferFee.unavailable).toBe(true);
   });
 
   it('marks unavailable when feeQuote is null', () => {
@@ -51,7 +51,7 @@ describe('buildRampFeePreview', () => {
       feeQuote: null,
     });
     expect(p.receiveNet.amount).toBe('150000.00');
-    expect(p.providerFee.unavailable).toBe(true);
+    expect(p.transferFee.unavailable).toBe(true);
   });
 
   it('ignores a mismatched-currency fee (no wrong deduction)', () => {
@@ -64,7 +64,7 @@ describe('buildRampFeePreview', () => {
       feeQuote: { feeUnavailable: false, fees: [], totalFee: { amount: '5', currency: 'USD' }, destinationAmount: null, effectiveRate: null, expiresAt: null },
     });
     expect(p.receiveNet.amount).toBe('150000.00');
-    expect(p.providerFee.unavailable).toBe(true);
+    expect(p.transferFee.unavailable).toBe(true);
   });
 
   it('onramp: formats crypto receive to 8 decimals', () => {

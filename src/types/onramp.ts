@@ -70,7 +70,7 @@ export interface QuoteInformation {
    * from the receive amount. `unavailable` is true when Palremit could not
    * preview a fee (the receive then reflects no provider-fee deduction).
    */
-  providerFee?: {
+  transferFee?: {
     fees: Array<{ kind: string; amount: string; currency: string }>;
     total: { amount: string; currency: string } | null;
     unavailable: boolean;

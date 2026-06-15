@@ -98,18 +98,18 @@ describe('createOnramp — Palremit crypto payout fee deducted from receive', ()
     const data = d.created.data!;
     expect(destAmount(data)).toBe(98); // 100 − 2 network fee
     expect((data.source as { amount: number }).amount).toBe(100); // fiat send unchanged
-    const qi = data.quoteInformation as { receiveNet: { amount: string }; providerFee?: { total: unknown; unavailable: boolean } };
+    const qi = data.quoteInformation as { receiveNet: { amount: string }; transferFee?: { total: unknown; unavailable: boolean } };
     expect(qi.receiveNet.amount).toBe('98.00000000');
-    expect(qi.providerFee?.unavailable).toBe(false);
-    expect(qi.providerFee?.total).toEqual({ amount: '2', currency: 'USDT' });
+    expect(qi.transferFee?.unavailable).toBe(false);
+    expect(qi.transferFee?.total).toEqual({ amount: '2', currency: 'USDT' });
   });
 
   it('does not deduct when the fee is unavailable (fail-soft)', async () => {
     const d = makeDeps({ feeUnavailable: true, fees: [], totalFee: null, destinationAmount: null, effectiveRate: null, expiresAt: null });
     await createOnramp(d.onrampRepo, d.userRepo, d.walletRepo, d.kybRepo, 'ON-req-2', BODY, d.options);
     expect(destAmount(d.created.data!)).toBe(100);
-    const qi = d.created.data!.quoteInformation as { providerFee?: { unavailable: boolean } };
-    expect(qi.providerFee?.unavailable).toBe(true);
+    const qi = d.created.data!.quoteInformation as { transferFee?: { unavailable: boolean } };
+    expect(qi.transferFee?.unavailable).toBe(true);
   });
 
   it('does not deduct when the quote call fails entirely (null)', async () => {
@@ -145,7 +145,7 @@ describe('createOnramp — Palremit crypto payout fee deducted from receive', ()
     const d = makeDeps(quote);
     await createOnramp(d.onrampRepo, d.userRepo, d.walletRepo, d.kybRepo, 'ON-req-5', BODY, d.options);
     expect(destAmount(d.created.data!)).toBe(100);
-    const qi = d.created.data!.quoteInformation as { providerFee?: { unavailable: boolean } };
-    expect(qi.providerFee?.unavailable).toBe(true);
+    const qi = d.created.data!.quoteInformation as { transferFee?: { unavailable: boolean } };
+    expect(qi.transferFee?.unavailable).toBe(true);
   });
 });
