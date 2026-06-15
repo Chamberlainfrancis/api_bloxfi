@@ -242,13 +242,16 @@ function gatherDocs(t) {
 }
 function docsHtml(docs) {
   return '<div class="docs">' + docs.map(function (d) {
-    const url = d.url ? esc(d.url) : "";
+    // Only trust http(s) document URLs; reject javascript:/data:/etc. before
+    // putting them in an href or img src.
+    const safeUrl = (typeof d.url === "string" && /^https?:\\/\\//i.test(d.url)) ? d.url : "";
+    const url = safeUrl ? esc(safeUrl) : "";
     const name = esc(d.name || "document");
     const type = esc(String(d.type || "file").replace(/_/g, " "));
     const img = isImg(d.name) || isImg(d.url);
     const thumb = (img && url) ? '<img class="thumb" src="' + url + '" alt="' + name + '" />' : '<div class="filethumb">📄</div>';
-    const top = url ? '<a href="' + url + '" target="_blank" rel="noopener">' + thumb + "</a>" : thumb;
-    const open = url ? '<a class="dopen" href="' + url + '" target="_blank" rel="noopener">Open</a>' : '<span class="muted">link expired</span>';
+    const top = url ? '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + thumb + "</a>" : thumb;
+    const open = url ? '<a class="dopen" href="' + url + '" target="_blank" rel="noopener noreferrer">Open</a>' : '<span class="muted">no link</span>';
     return '<div class="doc">' + top + '<div class="dmeta"><div class="dtype">' + type + '</div><div class="dname">' + name + "</div>" + open + "</div></div>";
   }).join("") + "</div>";
 }
