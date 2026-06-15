@@ -36,7 +36,7 @@ export function buildRampFeePreview(params: {
     sendGross: { amount: String(params.sendAmount), currency: params.sendCurrency },
     receiveGross: { amount: grossReceive.toFixed(params.receiveDecimals), currency: params.receiveCurrency },
     receiveNet: { amount: netReceive.toFixed(params.receiveDecimals), currency: params.receiveCurrency },
-    providerFee: {
+    transferFee: {
       fees: fq?.fees ?? [],
       total: fq?.totalFee ?? null,
       unavailable: !usable,

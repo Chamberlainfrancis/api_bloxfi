@@ -198,14 +198,73 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
 
   const fromStatus = existing.status;
   const toStatus = resolveMarkStatus(type, outcome);
-  // On failure, record the note as failedReason; on success, explicitly clear any
-  // stale failedReason from a prior failed mark (null is written, undefined would skip).
-  const failedReason = outcome === 'failed' ? note ?? null : null;
 
-  if (type === 'onramp') {
-    await onrampRepo.updateOnrampStatus(id, toStatus as never, { failedReason });
+  // Marking is the manual equivalent of the Palremit withdrawal webhook, applied
+  // unconditionally (skipping the webhook's status guards). It is DB-only: the
+  // real `withdrawal.successful`/`withdrawal.failed` handlers also make no outbound
+  // calls — they finalize the record. We replicate that finalization so receipts,
+  // timeline, and providerRefs.withdrawalStatus match a webhook-completed payout.
+  const ex = existing as {
+    providerRefs?: unknown;
+    timeline?: unknown;
+    lpReference?: string | null;
+    txnRef?: string | null;
+  };
+  const prevRefs =
+    ex.providerRefs && typeof ex.providerRefs === 'object' && !Array.isArray(ex.providerRefs)
+      ? (ex.providerRefs as Record<string, unknown>)
+      : {};
+  const orch =
+    prevRefs.palremitOrchestrator &&
+    typeof prevRefs.palremitOrchestrator === 'object' &&
+    !Array.isArray(prevRefs.palremitOrchestrator)
+      ? (prevRefs.palremitOrchestrator as Record<string, unknown>)
+      : {};
+  const completedAt = new Date().toISOString();
+
+  if (outcome === 'success') {
+    const receipt = {
+      provider: 'palremit',
+      completedManually: true,
+      completedAt,
+      note: note ?? null,
+      actor: actor ?? null,
+    };
+    const palremitOrchestrator = { ...orch, withdrawalStatus: 'successful', completedAt, markedManually: true };
+    if (type === 'onramp') {
+      await onrampRepo.updateOnrampStatus(id, 'COMPLETED', {
+        failedReason: null,
+        receipt,
+        providerRefs: { ...prevRefs, palremitOrchestrator },
+      });
+    } else {
+      const prevTimeline =
+        ex.timeline && typeof ex.timeline === 'object' && !Array.isArray(ex.timeline)
+          ? (ex.timeline as Record<string, unknown>)
+          : {};
+      await offrampRepo.updateOfframpStatus(id, 'COMPLETED', {
+        failedReason: null,
+        receipt,
+        timeline: { ...prevTimeline, completedAt, fiatWithdrawalCompleted: true },
+        lpReference: ex.lpReference ?? ex.txnRef ?? undefined,
+        providerRefs: { ...prevRefs, palremitOrchestrator },
+      });
+    }
   } else {
-    await offrampRepo.updateOfframpStatus(id, toStatus as never, { failedReason });
+    // failed
+    const failedReason = note ?? 'Marked failed via dashboard';
+    const palremitOrchestrator = { ...orch, withdrawalStatus: 'failed', markedManually: true };
+    if (type === 'onramp') {
+      await onrampRepo.updateOnrampStatus(id, toStatus as never, {
+        failedReason,
+        providerRefs: { ...prevRefs, palremitOrchestrator },
+      });
+    } else {
+      await offrampRepo.updateOfframpStatus(id, toStatus as never, {
+        failedReason,
+        providerRefs: { ...prevRefs, palremitOrchestrator },
+      });
+    }
   }
 
   // Sequential (not transactional): repos share one prisma client and don't expose

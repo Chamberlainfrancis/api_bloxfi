@@ -255,8 +255,8 @@ export async function createOnramp(
 
   // Deduct Palremit's crypto payout fee from the receive amount (fee transparency).
   // The fiat the user sends is unchanged.
-  let providerFeeCrypto = 0;
-  let providerFeeBreakdown: QuoteInformation['providerFee'];
+  let transferFeeCrypto = 0;
+  let transferFeeBreakdown: QuoteInformation['transferFee'];
   if (options.getProviderWithdrawalFeeQuote) {
     const feeQuote = await options.getProviderWithdrawalFeeQuote({
       asset: toCurrency,
@@ -271,10 +271,10 @@ export async function createOnramp(
       feeQuote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
     if (usable && feeQuote) {
       const parsedFee = Number(feeQuote.totalFee!.amount);
-      if (Number.isFinite(parsedFee) && parsedFee > 0) providerFeeCrypto = parsedFee;
-      providerFeeBreakdown = { fees: feeQuote.fees, total: feeQuote.totalFee, unavailable: false };
+      if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeCrypto = parsedFee;
+      transferFeeBreakdown = { fees: feeQuote.fees, total: feeQuote.totalFee, unavailable: false };
     } else {
-      providerFeeBreakdown = {
+      transferFeeBreakdown = {
         fees: feeQuote?.fees ?? [],
         total: feeQuote?.totalFee ?? null,
         unavailable: true,
@@ -282,10 +282,10 @@ export async function createOnramp(
     }
   }
 
-  if (providerFeeCrypto >= receiveAfterDevFee) {
+  if (transferFeeCrypto >= receiveAfterDevFee) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
-  const receiveNet = Math.max(0, receiveAfterDevFee - providerFeeCrypto);
+  const receiveNet = Math.max(0, receiveAfterDevFee - transferFeeCrypto);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
@@ -301,7 +301,7 @@ export async function createOnramp(
     receiveNet: receiveNetStr,
     rate: conversionRate,
     expiresAt: expiresAt.toISOString(),
-    ...(providerFeeBreakdown ? { providerFee: providerFeeBreakdown } : {}),
+    ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
   };
 
   const developerFee: DeveloperFeeAmount = {

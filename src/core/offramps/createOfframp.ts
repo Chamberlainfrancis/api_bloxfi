@@ -226,8 +226,8 @@ export async function createOfframp(
   const fiatGross = netCryptoAmount * rateNum;
 
   const pp = parseProviderPayout(account.providerPayout);
-  let providerFeeFiat = 0;
-  let providerFeeBreakdown: OfframpFees['providerFee'];
+  let transferFeeFiat = 0;
+  let transferFeeBreakdown: OfframpFees['transferFee'];
   if (options.getProviderWithdrawalFeeQuote && pp) {
     const quote = await options.getProviderWithdrawalFeeQuote({
       asset: pp.corridor.asset,
@@ -243,10 +243,10 @@ export async function createOfframp(
       quote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
     if (usable && quote) {
       const parsedFee = Number(quote.totalFee!.amount);
-      if (Number.isFinite(parsedFee) && parsedFee > 0) providerFeeFiat = parsedFee;
-      providerFeeBreakdown = { fees: quote.fees, total: quote.totalFee, unavailable: false };
+      if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeFiat = parsedFee;
+      transferFeeBreakdown = { fees: quote.fees, total: quote.totalFee, unavailable: false };
     } else {
-      providerFeeBreakdown = {
+      transferFeeBreakdown = {
         fees: quote?.fees ?? [],
         total: quote?.totalFee ?? null,
         unavailable: true,
@@ -254,10 +254,10 @@ export async function createOfframp(
     }
   }
 
-  if (providerFeeFiat >= fiatGross) {
+  if (transferFeeFiat >= fiatGross) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
-  const fiatNet = Math.max(0, fiatGross - providerFeeFiat);
+  const fiatNet = Math.max(0, fiatGross - transferFeeFiat);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const depositBy = expiresAt.toISOString();
@@ -302,7 +302,7 @@ export async function createOfframp(
       currency: fromCurrency,
       walletAddress: platformFee.walletAddress,
     },
-    ...(providerFeeBreakdown ? { providerFee: providerFeeBreakdown } : {}),
+    ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
   };
 
   const timeline = {

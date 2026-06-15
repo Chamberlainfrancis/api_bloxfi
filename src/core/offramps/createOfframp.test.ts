@@ -133,10 +133,10 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     // Receive = gross − provider fee. Deposit (source.amount) is unchanged.
     expect((persisted.destination as { amount: number }).amount).toBe(FIAT_GROSS - 2250);
     expect((persisted.source as { amount: number }).amount).toBe(100);
-    const fees = persisted.fees as { providerFee?: { fees: unknown[]; total: unknown; unavailable: boolean } };
-    expect(fees.providerFee?.unavailable).toBe(false);
-    expect(fees.providerFee?.total).toEqual({ amount: '2250.00', currency: 'NGN' });
-    expect(fees.providerFee?.fees).toHaveLength(2);
+    const fees = persisted.fees as { transferFee?: { fees: unknown[]; total: unknown; unavailable: boolean } };
+    expect(fees.transferFee?.unavailable).toBe(false);
+    expect(fees.transferFee?.total).toEqual({ amount: '2250.00', currency: 'NGN' });
+    expect(fees.transferFee?.fees).toHaveLength(2);
   });
 
   it('does not deduct when the fee is unavailable (fail-soft) and marks it unavailable', async () => {
@@ -153,8 +153,8 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
 
     const persisted = d.created.data!;
     expect((persisted.destination as { amount: number }).amount).toBe(FIAT_GROSS);
-    const fees = persisted.fees as { providerFee?: { unavailable: boolean } };
-    expect(fees.providerFee?.unavailable).toBe(true);
+    const fees = persisted.fees as { transferFee?: { unavailable: boolean } };
+    expect(fees.transferFee?.unavailable).toBe(true);
   });
 
   it('does not deduct when the quote call fails entirely (null)', async () => {
@@ -190,7 +190,7 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     const d = makeDeps(quote);
     await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'OFF-req-5', BODY, d.options);
     expect((d.created.data!.destination as { amount: number }).amount).toBe(FIAT_GROSS);
-    const fees = d.created.data!.fees as { providerFee?: { unavailable: boolean } };
-    expect(fees.providerFee?.unavailable).toBe(true);
+    const fees = d.created.data!.fees as { transferFee?: { unavailable: boolean } };
+    expect(fees.transferFee?.unavailable).toBe(true);
   });
 });
