@@ -34,6 +34,7 @@ describe('toListRow', () => {
       userId: 'user-1',
       amount: 100,
       currency: 'USD',
+      beneficiaryName: null,
       createdAt: '2026-06-15T10:00:00.000Z',
     });
   });
@@ -50,6 +51,55 @@ describe('toListRow', () => {
     const out = toListRow('offramp', row);
     expect(out.amount).toBeNull();
     expect(out.currency).toBeNull();
+  });
+
+  it('prefers the explicit beneficiary account name over embedded user snapshots', () => {
+    const row = {
+      id: 'x',
+      txnRef: null,
+      status: 'COMPLETED',
+      userId: 'u',
+      source: { user: { firstName: 'Source', lastName: 'Person' } },
+      destination: { user: { businessName: 'Dest Co' } },
+      createdAt: new Date('2026-06-15T10:00:00.000Z'),
+    };
+    expect(toListRow('offramp', row, 'Acme Bank Account').beneficiaryName).toBe('Acme Bank Account');
+  });
+
+  it('falls back to the embedded source user name, then destination user name', () => {
+    const withSourceUser = {
+      id: 'x',
+      txnRef: null,
+      status: 'COMPLETED',
+      userId: 'u',
+      source: { user: { firstName: 'Source', lastName: 'Person' } },
+      destination: { user: { businessName: 'Dest Co' } },
+      createdAt: new Date('2026-06-15T10:00:00.000Z'),
+    };
+    expect(toListRow('onramp', withSourceUser).beneficiaryName).toBe('Source Person');
+
+    const destOnly = {
+      id: 'x',
+      txnRef: null,
+      status: 'COMPLETED',
+      userId: 'u',
+      source: {},
+      destination: { user: { businessName: 'Dest Co' } },
+      createdAt: new Date('2026-06-15T10:00:00.000Z'),
+    };
+    expect(toListRow('onramp', destOnly).beneficiaryName).toBe('Dest Co');
+  });
+
+  it('returns null beneficiaryName when no names are available', () => {
+    const row = {
+      id: 'x',
+      txnRef: null,
+      status: 'COMPLETED',
+      userId: 'u',
+      source: {},
+      createdAt: new Date('2026-06-15T10:00:00.000Z'),
+    };
+    expect(toListRow('offramp', row).beneficiaryName).toBeNull();
   });
 });
 

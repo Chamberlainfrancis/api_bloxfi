@@ -97,7 +97,7 @@ export function renderDashboardHtml(nonce: string): string {
 </div>
 <div id="err" class="err" style="display:none"></div>
 <table>
-  <thead><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Customer</th><th>Created</th></tr></thead>
+  <thead><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
 <div style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
@@ -171,7 +171,7 @@ function rowHtml(t) {
     "<td>" + (t.txnRef ? esc(t.txnRef) : '<span class="muted">' + esc(t.id.slice(0, 8)) + "</span>") + "</td>" +
     '<td><span class="' + badgeClass(t.status) + '">' + esc(t.status) + "</span></td>" +
     '<td class="amt">' + (t.amount != null ? fmtMoney(t.amount, t.currency) : "—") + "</td>" +
-    '<td class="muted">' + esc(t.userId.slice(0, 8)) + "</td>" +
+    "<td>" + (t.beneficiaryName ? esc(t.beneficiaryName) : '<span class="muted">' + esc(t.userId.slice(0, 8)) + "</span>") + "</td>" +
     '<td class="muted">' + esc(new Date(t.createdAt).toLocaleString()) + "</td>" +
     "</tr>";
 }

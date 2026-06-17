@@ -68,6 +68,7 @@ export interface ListRow {
   userId: string;
   amount: number | null;
   currency: string | null;
+  beneficiaryName: string | null;
   createdAt: string;
 }
 
@@ -77,11 +78,34 @@ interface ListRowInput {
   status: string;
   userId: string;
   source: unknown;
+  destination?: unknown;
   createdAt: Date;
 }
 
-export function toListRow(type: TxnType, row: ListRowInput): ListRow {
-  const s = (row.source ?? {}) as { amount?: unknown; currency?: unknown };
+type EmbeddedUser = { businessName?: unknown; firstName?: unknown; lastName?: unknown };
+
+/** Best-effort name out of the embedded `user` snapshot stored on source/destination. */
+function nameFromEmbeddedUser(user: unknown): string | null {
+  const u = (user ?? {}) as EmbeddedUser;
+  if (typeof u.businessName === 'string' && u.businessName) return u.businessName;
+  const first = typeof u.firstName === 'string' ? u.firstName : '';
+  const last = typeof u.lastName === 'string' ? u.lastName : '';
+  const full = `${first} ${last}`.trim();
+  return full || null;
+}
+
+export function toListRow(
+  type: TxnType,
+  row: ListRowInput,
+  beneficiaryAccountName?: string | null
+): ListRow {
+  const s = (row.source ?? {}) as { amount?: unknown; currency?: unknown; user?: unknown };
+  const d = (row.destination ?? {}) as { user?: unknown };
+  // Offramps prefer the linked payout account's holder name (the actual fiat
+  // beneficiary, which can differ from the BloxFi customer); fall back to the
+  // embedded user snapshots so the column is never empty when one exists.
+  const beneficiaryName =
+    beneficiaryAccountName || nameFromEmbeddedUser(s.user) || nameFromEmbeddedUser(d.user) || null;
   return {
     id: row.id,
     txnRef: row.txnRef,
@@ -90,6 +114,7 @@ export function toListRow(type: TxnType, row: ListRowInput): ListRow {
     userId: row.userId,
     amount: typeof s.amount === 'number' ? s.amount : null,
     currency: typeof s.currency === 'string' ? s.currency : null,
+    beneficiaryName,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -132,8 +157,30 @@ export async function listTransactions(
     limit,
     createdBefore,
   });
+
+  const accountIds = [
+    ...new Set(
+      offramps
+        .map((r) => (r.destination as { accountId?: unknown } | null)?.accountId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    ),
+  ];
+  const accountNameById = new Map<string, string>();
+  if (accountIds.length) {
+    const accountRepo = await import('@/db/repositories/account.repo');
+    const accounts = await accountRepo.findAccountsByIds(accountIds);
+    for (const acct of accounts) {
+      const name = (acct.accountHolder as { name?: unknown } | null)?.name;
+      if (typeof name === 'string' && name) accountNameById.set(acct.id, name);
+    }
+  }
+
   return {
-    items: offramps.map((r) => toListRow('offramp', r)),
+    items: offramps.map((r) => {
+      const accountId = (r.destination as { accountId?: unknown } | null)?.accountId;
+      const beneficiaryName = typeof accountId === 'string' ? accountNameById.get(accountId) : undefined;
+      return toListRow('offramp', r, beneficiaryName ?? null);
+    }),
     nextCursor: nextCursor ? nextCursor.toISOString() : null,
   };
 }

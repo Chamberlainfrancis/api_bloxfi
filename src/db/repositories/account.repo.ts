@@ -52,6 +52,15 @@ export async function findOfframpAccountByIdAndUser(accountId: string, userId: s
   return account as AccountRow | null;
 }
 
+/** Batch lookup for the admin dashboard list view (resolves beneficiary names for many rows at once). */
+export async function findAccountsByIds(accountIds: string[]): Promise<AccountRow[]> {
+  if (!accountIds.length) return [];
+  const accounts = await prisma.account.findMany({
+    where: { id: { in: accountIds } },
+  });
+  return accounts as AccountRow[];
+}
+
 export interface ListAccountsParams {
   userId: string;
   limit: number;
