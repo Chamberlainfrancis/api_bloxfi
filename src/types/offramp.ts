@@ -174,9 +174,19 @@ export interface RampFeePreview {
   // Money fields mirror the existing onramp QuoteInformation shape:
   // `{ amount, currency }` objects named sendGross / receiveGross / receiveNet.
   sendGross: { amount: string; currency: string };
+  // Offramp only: the send amount AFTER the provider transfer fee has been
+  // deducted (in the send currency). This is the amount that is converted at
+  // the rate to produce `receiveNet`. Omitted for onramp, whose provider fee
+  // is a crypto network fee denominated in the receive currency and is
+  // deducted from the receive side instead.
+  sendNet?: { amount: string; currency: string };
   receiveGross: { amount: string; currency: string };
   receiveNet: { amount: string; currency: string };
   transferFee: {
+    // Surfaced verbatim in the fee's own currency (for an offramp this is the
+    // provider's funding-asset fee, e.g. USDC — NOT converted to the payout
+    // fiat). `unavailable` is true when the fee could not be previewed or
+    // priced, in which case no deduction is applied.
     fees: Array<{ kind: string; amount: string; currency: string }>;
     total: { amount: string; currency: string } | null;
     unavailable: boolean;

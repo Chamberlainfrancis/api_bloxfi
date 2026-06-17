@@ -2,7 +2,7 @@
  * Core: create offramp. Palremit crypto provision + fiat withdrawal after `deposit.credited` (see advanceOfframpPayout).
  */
 
-import { applyOfframpPlatformFee } from '@/core/payments';
+import { applyOfframpPlatformFee, resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 import { isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
@@ -208,7 +208,8 @@ export async function createOfframp(
   if (!options.getRateFromPalremit) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
-  const rateResponse = await options.getRateFromPalremit(fromCurrency, toCurrency, chain);
+  const getRate = options.getRateFromPalremit;
+  const rateResponse = await getRate(fromCurrency, toCurrency, chain);
   if (!rateResponse) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
@@ -216,17 +217,20 @@ export async function createOfframp(
   const inverseRate = rateResponse.inverseRate;
 
   const cryptoAmount = src.amount;
-  const { feeAmount: platformFeeAmount, netAmount: netCryptoAmount } = applyOfframpPlatformFee(
+  const { feeAmount: platformFeeAmount, netAmount: netCryptoAfterPlatform } = applyOfframpPlatformFee(
     cryptoAmount,
     platformFee
   );
   const rateNum = parseFloat(rate) || 1;
-  // Gross fiat before Palremit's payout fee; the fee is then deducted from the
-  // receive amount (fee transparency — the crypto the user sends is unchanged).
-  const fiatGross = netCryptoAmount * rateNum;
+  // Gross fiat after BloxFi's own platform fee but BEFORE the provider payout
+  // fee. The provider fee is deducted from the SEND crypto (not this fiat),
+  // because the downstream provider is destination-amount-fixed and charges
+  // its fee on the funding leg in its own currency (e.g. USDC) — see
+  // resolveTransferFeeInSendCurrency.
+  const fiatGross = netCryptoAfterPlatform * rateNum;
 
   const pp = parseProviderPayout(account.providerPayout);
-  let transferFeeFiat = 0;
+  let transferFeeInSend = 0; // provider fee expressed in the send crypto
   let transferFeeBreakdown: OfframpFees['transferFee'];
   if (options.getProviderWithdrawalFeeQuote && pp) {
     const quote = await options.getProviderWithdrawalFeeQuote({
@@ -236,15 +240,21 @@ export async function createOfframp(
       country: pp.corridor.country,
       beneficiaryType: pp.corridor.beneficiaryType,
     });
-    const usable =
-      quote != null &&
-      !quote.feeUnavailable &&
-      quote.totalFee != null &&
-      quote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
-    if (usable && quote) {
-      const parsedFee = Number(quote.totalFee!.amount);
-      if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeFiat = parsedFee;
-      transferFeeBreakdown = { fees: quote.fees, total: quote.totalFee, unavailable: false };
+    // Convert the provider fee (its own currency) into the send crypto. Null →
+    // unavailable/unpriceable → fail soft (no deduction); the recipient still
+    // receives the full quoted amount and the treasury absorbs the fee.
+    const feeInSend = await resolveTransferFeeInSendCurrency({
+      feeQuote: quote,
+      sendCurrency: fromCurrency,
+      getRate,
+    });
+    if (feeInSend != null) {
+      transferFeeInSend = feeInSend > 0 ? feeInSend : 0;
+      transferFeeBreakdown = {
+        fees: quote?.fees ?? [],
+        total: quote?.totalFee ?? null,
+        unavailable: false,
+      };
     } else {
       transferFeeBreakdown = {
         fees: quote?.fees ?? [],
@@ -254,10 +264,14 @@ export async function createOfframp(
     }
   }
 
-  if (transferFeeFiat >= fiatGross) {
+  if (transferFeeInSend >= netCryptoAfterPlatform) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
-  const fiatNet = Math.max(0, fiatGross - transferFeeFiat);
+  // Deduct the provider fee from the send crypto, then convert the remainder
+  // at the rate → the net fiat the recipient actually receives (== what we
+  // quote). This is the amount sent to the orchestrator as destination.amount.
+  const netCryptoAfterTransfer = Math.max(0, netCryptoAfterPlatform - transferFeeInSend);
+  const fiatNet = netCryptoAfterTransfer * rateNum;
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const depositBy = expiresAt.toISOString();

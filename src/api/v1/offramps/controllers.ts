@@ -19,7 +19,7 @@ import {
   getPalremitOfframpRates,
   fetchPalremitWithdrawalFeeQuote,
 } from '@/core/integrations';
-import { buildRampFeePreview } from '@/core/payments';
+import { buildOfframpFeePreview, resolveTransferFeeInSendCurrency } from '@/core/payments';
 import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
@@ -110,12 +110,23 @@ export async function getOfframpRates(
         country: q.country,
         beneficiaryType: q.beneficiaryType ?? undefined,
       });
-      result.quote = buildRampFeePreview({
+      // The provider fee is charged on the funding leg (its own currency, e.g.
+      // USDC) — convert it into the send currency and deduct it from the send,
+      // then convert the remainder to fiat (deduct-from-send). This keeps the
+      // recipient's receive amount exactly what we quote.
+      const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
+        feeQuote,
+        sendCurrency: result.fromCurrency,
+        getRate: getRateFromPalremit,
+      });
+      result.quote = buildOfframpFeePreview({
         sendAmount: q.amount,
         sendCurrency: result.fromCurrency,
         receiveCurrency: result.toCurrency,
         grossReceive,
         receiveDecimals: 2,
+        sendDecimals: 8,
+        feeInSendCurrency,
         feeQuote,
       });
     }

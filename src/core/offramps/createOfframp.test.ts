@@ -8,7 +8,7 @@ import type {
   KybRepoForOfframp,
   CreateOfframpOptions,
 } from '@/core/offramps/createOfframp';
-import type { CreateOfframpRequest } from '@/types/offramp';
+import type { CreateOfframpRequest, GetOfframpRatesResponse } from '@/types/offramp';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 
 const VALID_PROVIDER_PAYOUT = {
@@ -16,6 +16,28 @@ const VALID_PROVIDER_PAYOUT = {
   schemaVersion: 2,
   corridor: { asset: 'NGN', country: 'NG', destinationType: 'local_bank', beneficiaryType: 'individual' },
   destination: { account_number: '0123456789', bank_code: '058' },
+};
+
+function rateResponse(from: string, to: string, conversionRate: string): GetOfframpRatesResponse {
+  return {
+    fromCurrency: from,
+    toCurrency: to,
+    conversionRate,
+    inverseRate: String(1 / (parseFloat(conversionRate) || 1)),
+    rateValidUntil: new Date(Date.now() + 300000).toISOString(),
+    minimumAmount: '10',
+    maximumAmount: '100000',
+    estimatedProcessingTime: '1-3 business days',
+    availableRails: [],
+  } as unknown as GetOfframpRatesResponse;
+}
+
+// Direction-aware rate mock: the main offramp rate (usdt→ngn) and the fee
+// conversion rate (the fee's funding asset → send currency). Pairs not listed
+// return null (cannot be priced).
+const RATES: Record<string, string> = {
+  'usdt->ngn': '1500',
+  'usdc->usdt': '1', // USDC funding-asset fee → USDT send (≈1:1)
 };
 
 function makeDeps(feeQuote: PalremitWithdrawalFeeQuote | null | undefined) {
@@ -74,17 +96,10 @@ function makeDeps(feeQuote: PalremitWithdrawalFeeQuote | null | undefined) {
     getKybRailStatuses: vi.fn(async () => [{ rail: 'NGN', status: 'approved' }]),
   };
   const options: CreateOfframpOptions = {
-    getRateFromPalremit: vi.fn(async () => ({
-      fromCurrency: 'usdt',
-      toCurrency: 'ngn',
-      conversionRate: '1500',
-      inverseRate: '0.000666',
-      rateValidUntil: new Date(Date.now() + 300000).toISOString(),
-      minimumAmount: '10',
-      maximumAmount: '100000',
-      estimatedProcessingTime: '1-3 business days',
-      availableRails: [],
-    })),
+    getRateFromPalremit: vi.fn(async (from: string, to: string) => {
+      const cr = RATES[`${from}->${to}`];
+      return cr ? rateResponse(from, to, cr) : null;
+    }),
     resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
     createPalremitDeposit: vi.fn(async () => ({
       depositInstructions: {
@@ -110,18 +125,21 @@ const BODY: Omit<CreateOfframpRequest, 'requestId'> = {
   platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee' },
 } as unknown as Omit<CreateOfframpRequest, 'requestId'>;
 
-// Baseline: 100 USDT − 1% platform = 99 net crypto; 99 × 1500 = 148,500 NGN gross.
+// Baseline: 100 USDT − 1% platform = 99 net crypto; 99 × 1500 = 148,500 NGN
+// gross (before the provider fee).
 const FIAT_GROSS = 148500;
 
-describe('createOfframp — Palremit payout fee deducted from receive', () => {
-  it('deducts the provider fee from the receive and persists the itemized breakdown', async () => {
+describe('createOfframp — provider fee deducted from the SEND crypto', () => {
+  it('converts the funding-asset fee to the send crypto, deducts it there, and persists the itemized breakdown verbatim', async () => {
+    // Provider fee is 5 USDC (funding asset) → at 1:1 → 5 USDT off the send.
+    // Net crypto = 99 − 5 = 94 USDT; receive = 94 × 1500 = 141,000 NGN.
     const quote: PalremitWithdrawalFeeQuote = {
       feeUnavailable: false,
       fees: [
-        { kind: 'network_fee', amount: '1800.00', currency: 'NGN' },
-        { kind: 'conversion_fee', amount: '450.00', currency: 'NGN' },
+        { kind: 'Wire fee', amount: '4.50', currency: 'USDC' },
+        { kind: 'Commission fee', amount: '0.50', currency: 'USDC' },
       ],
-      totalFee: { amount: '2250.00', currency: 'NGN' },
+      totalFee: { amount: '5.00', currency: 'USDC' },
       destinationAmount: '148500',
       effectiveRate: '1500',
       expiresAt: null,
@@ -130,12 +148,14 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'OFF-req-1', BODY, d.options);
 
     const persisted = d.created.data!;
-    // Receive = gross − provider fee. Deposit (source.amount) is unchanged.
-    expect((persisted.destination as { amount: number }).amount).toBe(FIAT_GROSS - 2250);
+    // Receive reflects the fee taken off the SEND side then converted.
+    expect((persisted.destination as { amount: number }).amount).toBe(94 * 1500);
+    // The crypto the user sends is unchanged (sendGross stays 100).
     expect((persisted.source as { amount: number }).amount).toBe(100);
     const fees = persisted.fees as { transferFee?: { fees: unknown[]; total: unknown; unavailable: boolean } };
     expect(fees.transferFee?.unavailable).toBe(false);
-    expect(fees.transferFee?.total).toEqual({ amount: '2250.00', currency: 'NGN' });
+    // Fee surfaced verbatim in its own (funding-asset) currency — not converted.
+    expect(fees.transferFee?.total).toEqual({ amount: '5.00', currency: 'USDC' });
     expect(fees.transferFee?.fees).toHaveLength(2);
   });
 
@@ -163,11 +183,12 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     expect((d.created.data!.destination as { amount: number }).amount).toBe(FIAT_GROSS);
   });
 
-  it('throws AMOUNT_TOO_LOW_AFTER_FEES when the fee meets or exceeds the gross receive', async () => {
+  it('throws AMOUNT_TOO_LOW_AFTER_FEES when the fee (in send crypto) meets or exceeds the net send', async () => {
+    // 100 USDC fee → 100 USDT; net send after platform fee is 99 USDT → too low.
     const quote: PalremitWithdrawalFeeQuote = {
       feeUnavailable: false,
-      fees: [{ kind: 'network_fee', amount: '148500', currency: 'NGN' }],
-      totalFee: { amount: '148500', currency: 'NGN' },
+      fees: [{ kind: 'Wire fee', amount: '100', currency: 'USDC' }],
+      totalFee: { amount: '100', currency: 'USDC' },
       destinationAmount: '0',
       effectiveRate: '1500',
       expiresAt: null,
@@ -178,11 +199,14 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     ).rejects.toThrow('AMOUNT_TOO_LOW_AFTER_FEES');
   });
 
-  it('ignores a fee quoted in a mismatched currency (no silent wrong deduction)', async () => {
+  it('fails soft (no deduction) when the fee currency cannot be priced into the send currency', async () => {
+    // 'XAU' has no rate pair in the mock → resolveTransferFeeInSendCurrency
+    // returns null → no deduction, marked unavailable, recipient gets the full
+    // quoted amount (treasury absorbs rather than risk under-quoting).
     const quote: PalremitWithdrawalFeeQuote = {
       feeUnavailable: false,
-      fees: [{ kind: 'network_fee', amount: '5', currency: 'USD' }],
-      totalFee: { amount: '5', currency: 'USD' }, // not NGN → must not be subtracted
+      fees: [{ kind: 'odd_fee', amount: '5', currency: 'XAU' }],
+      totalFee: { amount: '5', currency: 'XAU' },
       destinationAmount: '148500',
       effectiveRate: '1500',
       expiresAt: null,
@@ -192,5 +216,21 @@ describe('createOfframp — Palremit payout fee deducted from receive', () => {
     expect((d.created.data!.destination as { amount: number }).amount).toBe(FIAT_GROSS);
     const fees = d.created.data!.fees as { transferFee?: { unavailable: boolean } };
     expect(fees.transferFee?.unavailable).toBe(true);
+  });
+
+  it('deducts a same-currency fee without a conversion lookup', async () => {
+    // Fee already in the send currency (USDT) → no rate call needed; 3 USDT off.
+    const quote: PalremitWithdrawalFeeQuote = {
+      feeUnavailable: false,
+      fees: [{ kind: 'Wire fee', amount: '3', currency: 'USDT' }],
+      totalFee: { amount: '3', currency: 'USDT' },
+      destinationAmount: '148500',
+      effectiveRate: '1500',
+      expiresAt: null,
+    };
+    const d = makeDeps(quote);
+    await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'OFF-req-6', BODY, d.options);
+    // 99 − 3 = 96 USDT → 96 × 1500 = 144,000 NGN.
+    expect((d.created.data!.destination as { amount: number }).amount).toBe(96 * 1500);
   });
 });
