@@ -27,7 +27,12 @@ BloxFi API
 ├── Networks
 ├── Banks
 ├── Onramps
+│   ├── Get Onramp Rates
+│   └── Get Onramp Rates (with fee preview)
 ├── Offramps
+│   ├── Get Offramp Rates
+│   ├── Get Offramp Rates (with fee preview)
+│   └── Get Offramp Rates (with fee preview, corridor vars)
 └── Webhooks
 ```
 
@@ -52,8 +57,8 @@ BloxFi API
 
 1. **List payout corridors** — `GET /api/v1/payout-corridors?asset=…&country=…`
 2. **Get corridor requirements** — four query params; build form from `destinationFields`.
-3. **Create Account (offramp)** — `corridor` + snake_case `destination` → stored as **`providerPayout`**.
-4. **Create Offramp** — `destination.accountId` = `{{accountId}}`.
+3. **Create Account (offramp)** — `corridor` + snake_case `destination` → stored as **`providerPayout`**. Corridor list/detail may include **`payoutRailLabel`** (display name, e.g. Fedwire).
+4. **Create Offramp** — `destination.accountId` = `{{accountId}}`; omit `destination.amount` (server-computed net fiat after **`transferFee`**).
 
 For **NGN**, use **Create Account (offramp, NGN)** after **Get corridor requirements (NGN local_bank)**.
 
@@ -63,7 +68,7 @@ For **NGN**, use **Create Account (offramp, NGN)** after **Get corridor requirem
 2. **Create Business User** → KYB flow → approved for target fiat rail
 3. **Payout corridors** → **Create Account (offramp)**
 4. **Add External Wallet** + **List networks** for chain code
-5. **Create Offramp** → webhooks → **Get Offramp** / **Retry Fiat Payout**
+5. **Get ramp rates** (optional fee preview) → **Create Offramp** → webhooks → **Get Offramp** / **Retry Fiat Payout**
 
 **Apply DB migration** (once per environment):
 

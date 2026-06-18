@@ -79,7 +79,7 @@ User must have **`businessInfo.email`** for Palremit fiat provision.
 
 | Step | Request | Notes |
 |------|---------|--------|
-| 6 | `GET /api/v1/onramps/rates` | Sanity-check pair |
+| 6 | `GET /api/v1/onramps/rates` | Optional: add `amount` + `chain` for **`quote`** / **`transferFee`** preview (fee deducted from receive) |
 | 7 | **`POST /api/v1/onramps`** | Header **`requestId`** = body `requestId`; fresh UUID each time. Expect **`AWAITING_FUNDS`**, **`txnRef`** saved as **`onrampTxnRef`**. Fiat VA is provisioned by Palremit — no BloxFi **Account** id in the body. |
 
 ### C. Deposit confirmation (fiat) — webhook
@@ -132,8 +132,8 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 
 | Step | Request | Notes |
 |------|---------|--------|
-| 6 | `GET /api/v1/offramps/rates` | Optional |
-| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`platformFee.walletAddress`** + **`destination.purposeOfPayment`** required. Optional **`platformFee.currency`** (USDC) and **`platformFee.network`** (e.g. MATIC) for automatic fee settlement after completion. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. |
+| 6 | `GET /api/v1/offramps/rates` | Optional fee preview: `amount` + `country` + `destinationType` (+ `beneficiaryType`) → **`quote`** with **`sendNet`**, **`receiveNet`**, **`transferFee`** (provider fee in its own currency, deducted from send) |
+| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`platformFee.walletAddress`** + **`destination.purposeOfPayment`** required. Omit **`destination.amount`** — server computes net fiat. Optional **`platformFee.currency`** / **`network`** for automatic USDC fee settlement after completion. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. Response includes **`fees.transferFee`**. |
 
 ### D. Deposit confirmation (crypto)
 
@@ -148,7 +148,7 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 |------|---------|-------------------|
 | 10 | **`GET /api/v1/offramps/{{offrampId}}`** | **`CRYPTO_CONFIRMED`** → **`FIAT_PENDING`** / **`COMPLETED`** after server + Palremit. Poll. |
 | 11 | Optional real/simulated **`withdrawal.successful`** orchestrator webhook | **`FIAT_WITHDRAWAL`** branch for off-ramp completion (collection may add a template mirroring on-ramp withdrawal request). |
-| 12 | **`GET /api/v1/offramps/{{offrampId}}`** | After **COMPLETED**, check **`fees.platformFee.settlement`** for USDC fee payout (`withdrawalId`, `transactionHash`, `status`). Fee withdrawal uses `client_reference` = `{offrampTxnRef}-FEE`. |
+| 12 | **`GET /api/v1/offramps/{{offrampId}}`** | After **COMPLETED**, check **`fees.platformFee.settlement`** for USDC fee payout (`withdrawalId`, `transactionHash`, `status`). Fee withdrawal uses `client_reference` = `{offrampTxnRef}-FEE`. Optional: **withdrawal.successful (offramp platform fee)** webhook to simulate settlement confirmation. |
 
 ---
 
@@ -160,7 +160,7 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 
 ### Off-ramp
 
-`AWAITING_CRYPTO` → (**crypto **`deposit.credited`**) → **`CRYPTO_CONFIRMED`** → (**GET** may start fiat withdrawal) → **`FIAT_PENDING`** / **`FIAT_INITIATED`** → (**`withdrawal.successful`** fiat) → **`COMPLETED`**.
+`AWAITING_CRYPTO` → (**crypto **`deposit.credited`**) → **`CRYPTO_CONFIRMED`** → (**GET** may start fiat withdrawal) → **`FIAT_PENDING`** / **`FIAT_INITIATED`** → (**`withdrawal.successful`** fiat) → **`COMPLETED`** → (**platform fee USDC withdrawal**) → **`PROCESSING_FEE`** / **`FEE_PROCESSED`** (optional; **`withdrawal.successful`** with `-FEE` suffix).
 
 Exact enums are defined in application types (`OnrampStatus`, `OfframpStatus`).
 
@@ -186,9 +186,9 @@ Exact enums are defined in application types (`OnrampStatus`, `OfframpStatus`).
 [ ] Health / Ready
 [ ] Coins (optional) + Networks (validate chain codes)
 [ ] User → KYB chain → Wallet (on-ramp) → [optional Account (offramp) before off-ramp]
-[ ] Onramps: Rates → Create → (DB: provisioned account id) → Webhook deposit.credited fiat → Get Onramp → (optional withdrawal.successful crypto)
-[ ] Account (offramp) if needed → Wallet aligned to crypto network
-[ ] Offramps: Rates → Create → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat when scripted)
+[ ] Onramps: Rates → [Rates with fee preview] → Create → (DB: provisioned account id) → Webhook deposit.credited fiat → Get Onramp → (optional withdrawal.successful crypto)
+[ ] Payout corridors (note payoutRailLabel) → Account (offramp) if needed → Wallet aligned to crypto network
+[ ] Offramps: Rates → [Rates with fee preview] → Create → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat) → (withdrawal successful platform fee)
 ```
 
 This document is the single reference for **Postman-only** ramp QA; pair it with `postman/README.md` for variable names and request naming.

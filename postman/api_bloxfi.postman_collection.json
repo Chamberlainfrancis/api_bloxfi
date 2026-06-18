@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "BloxFi API",
-    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**Offramp fiat payout:** Run **Payout corridors** → **Create Account (offramp)** (`corridor` + `destination`) → **Create Offramp**. After **`deposit.credited`**, server advances payout; use **Retry Fiat Payout** if needed.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
+    "description": "E2E testing for BloxFi API. Partner routes: `{{baseUrl}}/api/v1`.\n\n**Auth (default):** `Authorization: Bearer {{apiKey}}` — 32 alphanumeric chars (DB-backed API key). **JWT:** same header with user JWT (`sub`/`userId` in payload) for user-scoped calls.\n\n**Idempotent POSTs:** Pre-request Scripts generate a fresh UUID into `requestId`; the `requestId` header must match the body where required.\n\n**Create User:** `201` on first create, `200` when the same `requestId` + same body is replayed — test script saves `userId` for both. **Onramp:** user `businessInfo.email` is required (Palremit `POST /v1/provisioned-accounts`).\n\n**Fee previews:** `GET …/onramps/rates` and `GET …/offramps/rates` accept optional quote inputs and return a **`quote`** object (`sendGross`, `receiveGross`, `receiveNet`, **`transferFee`**). Offramp also returns **`sendNet`** (provider fee deducted from send crypto). Onramp deducts the provider fee from receive; offramp deducts from send.\n\n**Webhooks:** `POST /api/v1/webhooks` — no Bearer auth. Set **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator sends **`deposit.credited`** / **`withdrawal.*`** (see Webhooks folder). Scripts set `X-Liquidity-Event-Id` and `X-Webhook-Signature`.\n\n**Readiness:** `GET /ready` (root, not under `/api/v1`) — DB + Redis; no auth.\n\n**Palremit:** After **Create Onramp**, set collection variable **`palremitProvisionedAccountId`** from DB `Onramp.providerRefs.palremitOrchestrator.provisionedAccountId` (not returned in API). Then run **Webhook: deposit.credited (onramp fiat)** → **Get Onramp** to trigger crypto payout.\n\n**Offramp fiat payout:** Run **Payout corridors** → **Create Account (offramp)** (`corridor` + `destination`) → **Create Offramp**. After **`deposit.credited`**, server advances payout; use **Retry Fiat Payout** if needed. After **COMPLETED**, platform fee settles automatically; simulate confirmation with **withdrawal.successful (offramp platform fee)**.\n\n**E2E flow:** Readiness → Health → Create User → … → Limits (see `postman/README.md`). Variables auto-saved: `userId`, `fileId`, `accountId`, `walletId`, `onrampId`, `onrampTxnRef`, `offrampId`, `offrampTxnRef`, `highValueRequestId`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -699,6 +699,7 @@
                   "  pm.collectionVariables.set('payoutCorridorCountry', pick.country);",
                   "  pm.collectionVariables.set('payoutDestinationType', pick.destinationType);",
                   "  pm.collectionVariables.set('payoutBeneficiaryType', pick.beneficiaryType);",
+                  "  if (pick.payoutRailLabel) { console.log('payoutRailLabel:', pick.payoutRailLabel); }",
                   "  console.log('Corridor vars:', pick.asset, pick.country, pick.destinationType, pick.beneficiaryType);",
                   "}"
                 ],
@@ -738,7 +739,7 @@
                 }
               ]
             },
-            "description": "**GET** `/api/v1/payout-corridors?asset=USD&country=GE`\n\n**200 example:**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"corridors\": [\n      {\n        \"asset\": \"USD\",\n        \"country\": \"GE\",\n        \"destinationType\": \"wire\",\n        \"beneficiaryType\": \"business\",\n        \"amount\": { \"min\": 30, \"max\": 300000, \"currency\": \"USD\" }\n      }\n    ],\n    \"truncated\": false\n  }\n}\n```\n\n**404** `CORRIDOR_UNSUPPORTED` — tuple not in Palremit catalogue. **502** — Palremit unavailable."
+            "description": "**GET** `/api/v1/payout-corridors?asset=USD&country=GE`\n\n**200 example:**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"corridors\": [\n      {\n        \"asset\": \"USD\",\n        \"country\": \"GE\",\n        \"destinationType\": \"wire\",\n        \"beneficiaryType\": \"business\",\n        \"payoutRailLabel\": \"Fedwire\",\n        \"amount\": { \"min\": 30, \"max\": 300000, \"currency\": \"USD\" }\n      }\n    ],\n    \"truncated\": false\n  }\n}\n```\n\n**`payoutRailLabel`** — human-readable rail name from Palremit (e.g. `Fedwire`, `Bank Transfer`, `Nequi`); `null` when absent. **404** `CORRIDOR_UNSUPPORTED` — tuple not in Palremit catalogue. **502** — Palremit unavailable."
           }
         },
         {
@@ -821,7 +822,7 @@
                 }
               ]
             },
-            "description": "**GET** `/api/v1/payout-corridors/requirements?asset&country&destinationType&beneficiaryType`\n\n**200 example (truncated):**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"corridor\": {\n      \"asset\": \"USD\",\n      \"country\": \"GE\",\n      \"destinationType\": \"wire\",\n      \"beneficiaryType\": \"business\"\n    },\n    \"destinationFields\": [\n      { \"path\": \"account_number\", \"type\": \"string\", \"required\": true, \"label\": \"Account number\" },\n      { \"path\": \"bank_code\", \"type\": \"string\", \"required\": true, \"label\": \"Bank code\" }\n    ],\n    \"destinationTemplate\": {\n      \"beneficiary\": { \"type\": \"business\" }\n    },\n    \"amount\": { \"min\": 30, \"max\": 300000, \"currency\": \"USD\" }\n  }\n}\n```\n\nBuild the UI form from `destinationFields` (respect `conditional_required`). Submit user input as **`destination`** on **Create Account (offramp)** — **snake_case**, no `payout_rail`."
+            "description": "**GET** `/api/v1/payout-corridors/requirements?asset&country&destinationType&beneficiaryType`\n\n**200 example (truncated):**\n```json\n{\n  \"success\": true,\n  \"data\": {\n    \"corridor\": {\n      \"asset\": \"USD\",\n      \"country\": \"GE\",\n      \"destinationType\": \"wire\",\n      \"beneficiaryType\": \"business\",\n      \"payoutRailLabel\": \"Fedwire\"\n    },\n    \"destinationFields\": [\n      { \"path\": \"account_number\", \"type\": \"string\", \"required\": true, \"label\": \"Account number\" },\n      { \"path\": \"bank_code\", \"type\": \"string\", \"required\": true, \"label\": \"Bank code\" }\n    ],\n    \"destinationTemplate\": {\n      \"beneficiary\": { \"type\": \"business\" }\n    },\n    \"amount\": { \"min\": 30, \"max\": 300000, \"currency\": \"USD\" }\n  }\n}\n```\n\nBuild the UI form from `destinationFields` (respect `conditional_required`). Submit user input as **`destination`** on **Create Account (offramp)** — **snake_case**, no `payout_rail`."
           }
         },
         {
@@ -1252,10 +1253,60 @@
                 {
                   "key": "toCurrency",
                   "value": "USDT"
+                },
+                {
+                  "key": "amount",
+                  "value": "100",
+                  "disabled": true,
+                  "description": "With chain → fee preview in quote"
+                },
+                {
+                  "key": "chain",
+                  "value": "POLYGON",
+                  "disabled": true,
+                  "description": "Palremit network code for destination crypto"
                 }
               ]
             },
-            "description": "200: fromCurrency, toCurrency, conversionRate."
+            "description": "**200:** `fromCurrency`, `toCurrency`, `conversionRate`, `inverseRate`, limits. Optional **`amount`** + **`chain`** → response includes **`quote`** (`sendGross`, `receiveGross`, `receiveNet`, **`transferFee`**). Onramp provider fee is deducted from **receive** (crypto). See **Get Onramp Rates (with fee preview)**."
+          }
+        },
+        {
+          "name": "Get Onramp Rates (with fee preview)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/onramps/rates?fromCurrency=USD&toCurrency=USDT&amount=100&chain=POLYGON",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "onramps",
+                "rates"
+              ],
+              "query": [
+                {
+                  "key": "fromCurrency",
+                  "value": "USD"
+                },
+                {
+                  "key": "toCurrency",
+                  "value": "USDT"
+                },
+                {
+                  "key": "amount",
+                  "value": "100"
+                },
+                {
+                  "key": "chain",
+                  "value": "POLYGON"
+                }
+              ]
+            },
+            "description": "**Fee preview** for fiat → crypto. **`amount`** = fiat sent; **`chain`** = destination network code. **200** includes **`quote`**: `receiveNet` is after Palremit payout (network) fee; **`transferFee.total`** is in the receive currency (e.g. USDT). `transferFee.unavailable: true` means no fee could be previewed (no deduction applied)."
           }
         },
         {
@@ -1400,7 +1451,7 @@
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps may need **`destination.purposeOfPayment`** and **`metadata.isSelfTransfer`** unless stored in account `destination.extras`.",
+      "description": "Crypto → fiat (Palremit). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps need **`metadata.isSelfTransfer`** (and **`destination.purposeOfPayment`**). **`destination.amount`** is computed server-side (send crypto minus Palremit **`transferFee`** × rate). Response **`fees.transferFee`** itemizes the provider fee in its own currency (e.g. USDC). Platform fee settles in USDC after **COMPLETED**.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -1431,10 +1482,31 @@
                   "key": "fromChain",
                   "value": "POLYGON",
                   "disabled": true
+                },
+                {
+                  "key": "amount",
+                  "value": "50",
+                  "disabled": true,
+                  "description": "With country + destinationType → fee preview"
+                },
+                {
+                  "key": "country",
+                  "value": "NG",
+                  "disabled": true
+                },
+                {
+                  "key": "destinationType",
+                  "value": "local_bank",
+                  "disabled": true
+                },
+                {
+                  "key": "beneficiaryType",
+                  "value": "individual",
+                  "disabled": true
                 }
               ]
             },
-            "description": "200: fromCurrency, toCurrency, rate, inverseRate, fromChain?."
+            "description": "**200:** rate fields + limits. Optional **`amount`**, **`country`**, **`destinationType`** (and **`beneficiaryType`**) → **`quote`** with **`sendNet`** (send after provider fee), **`receiveNet`**, **`transferFee`** (fee in provider currency, e.g. USDC). Offramp deducts provider fee from **send** crypto. See **Get Offramp Rates (with fee preview)**."
           }
         },
         {
@@ -1469,7 +1541,108 @@
                 }
               ]
             },
-            "description": "Same as NGN rates example; **`toCurrency`** = **USD** for USDT→USD."
+            "description": "Same as NGN rates example; **`toCurrency`** = **USD** for USDT→USD. Enable optional query params from **Get Offramp Rates** for fee preview."
+          }
+        },
+        {
+          "name": "Get Offramp Rates (with fee preview)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/rates?fromCurrency=USDT&toCurrency=NGN&fromChain=POLYGON&amount=50&country=NG&destinationType=local_bank&beneficiaryType=individual",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "offramps",
+                "rates"
+              ],
+              "query": [
+                {
+                  "key": "fromCurrency",
+                  "value": "USDT"
+                },
+                {
+                  "key": "toCurrency",
+                  "value": "NGN"
+                },
+                {
+                  "key": "fromChain",
+                  "value": "POLYGON"
+                },
+                {
+                  "key": "amount",
+                  "value": "50"
+                },
+                {
+                  "key": "country",
+                  "value": "NG"
+                },
+                {
+                  "key": "destinationType",
+                  "value": "local_bank"
+                },
+                {
+                  "key": "beneficiaryType",
+                  "value": "individual"
+                }
+              ]
+            },
+            "description": "**Fee preview** for crypto → fiat (NGN example). **`amount`** = crypto sent; corridor keys must match the payout account. **200** includes **`quote`**: `sendNet` = send minus provider fee (in send currency); `receiveNet` = net fiat delivered; **`transferFee`** surfaced in provider currency (e.g. USDC), not converted to payout fiat. Use **`{{payoutCorridor*}}`** vars for USD/international corridors."
+          }
+        },
+        {
+          "name": "Get Offramp Rates (with fee preview, corridor vars)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/offramps/rates?fromCurrency=USDT&toCurrency={{payoutCorridorAsset}}&amount=50&country={{payoutCorridorCountry}}&destinationType={{payoutDestinationType}}&beneficiaryType={{payoutBeneficiaryType}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "offramps",
+                "rates"
+              ],
+              "query": [
+                {
+                  "key": "fromCurrency",
+                  "value": "USDT"
+                },
+                {
+                  "key": "toCurrency",
+                  "value": "{{payoutCorridorAsset}}"
+                },
+                {
+                  "key": "fromChain",
+                  "value": "POLYGON",
+                  "disabled": true
+                },
+                {
+                  "key": "amount",
+                  "value": "50"
+                },
+                {
+                  "key": "country",
+                  "value": "{{payoutCorridorCountry}}"
+                },
+                {
+                  "key": "destinationType",
+                  "value": "{{payoutDestinationType}}"
+                },
+                {
+                  "key": "beneficiaryType",
+                  "value": "{{payoutBeneficiaryType}}"
+                }
+              ]
+            },
+            "description": "Same fee preview as above but uses **`payoutCorridor*`** collection variables from **List payout corridors**. Run corridors list first."
           }
         },
         {
@@ -1522,7 +1695,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {}\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1535,7 +1708,7 @@
                 "offramps"
               ]
             },
-            "description": "Body.requestId must match requestId header. **destination.purposeOfPayment** (required) and **platformFee.walletAddress** (required) must be present per API schema. Optional **platformFee.currency** (USDC, default USDC) and **platformFee.network** (Palremit network code, e.g. MATIC) control post-completion fee settlement. After offramp **COMPLETED**, BloxFi sends the platform fee in USDC to `walletAddress`; check `transferDetails.fees.platformFee.settlement` on GET. 201: transferType OFFRAMP, transferDetails (id auto-saved). Use new requestId for each create."
+            "description": "Body.requestId must match requestId header. **`source.amount`** is crypto sent; **`destination.amount`** is omitted — server computes net fiat after Palremit **`transferFee`** (deducted from send). **`destination.purposeOfPayment`** and **`platformFee.walletAddress`** required. Optional **`platformFee.currency`** (USDC) / **`platformFee.network`** (e.g. MATIC) for post-completion fee settlement. **201:** `transferDetails` + **`fees.transferFee`** itemization. After **COMPLETED**, check **`fees.platformFee.settlement`** on GET. Fresh **`requestId`** per create."
           }
         },
         {
@@ -1588,7 +1761,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"amount\": 50,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1601,7 +1774,7 @@
                 "offramps"
               ]
             },
-            "description": "**USD** offramp using **`{{accountId}}`** from **Create Account (offramp)**. **`purposeOfPayment`:** UPPER_SNAKE (e.g. `FAMILY_MAINTENANCE`). **`metadata.isSelfTransfer`:** required boolean unless in account `destination.extras`."
+            "description": "**USD** offramp using **`{{accountId}}`**. **`purposeOfPayment`:** UPPER_SNAKE (e.g. `FAMILY_MAINTENANCE`). **`metadata.isSelfTransfer`:** required boolean. Net fiat **`destination.amount`** is server-computed; see **`fees.transferFee`** on response."
           }
         },
         {
@@ -1670,7 +1843,7 @@
                 "{{offrampId}}"
               ]
             },
-            "description": "200: transferDetails. Read-only. Fiat payout runs from the **`deposit.credited`** webhook path; use **Retry Fiat Payout** if you need to retry after fixing destination bank details. When status is **COMPLETED**, inspect **`fees.platformFee.settlement`** for automatic USDC fee payout status (`processing` | `completed` | `skipped` | `failed`), `withdrawalId`, and `transactionHash`."
+            "description": "**200:** `transferDetails` (read-only). Inspect **`fees.transferFee`** for Palremit payout fee itemization. Fiat payout runs from **`deposit.credited`**; use **Retry Fiat Payout** if needed. When **COMPLETED**, inspect **`fees.platformFee.settlement`** for USDC fee payout (`processing` | `completed` | `skipped` | `failed`), `withdrawalId`, `transactionHash`."
           }
         },
         {
@@ -1860,7 +2033,7 @@
     },
     {
       "name": "Webhooks",
-      "description": "`POST /api/v1/webhooks` — no Bearer auth. **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator uses **`event_id`**, **`event_type`**, **`occurred_at`**, **`data`**; scripts set **`X-Liquidity-Event-Id`** (new UUID per send, dedupe) and sign the **exact** JSON string with HMAC-SHA256 → **`X-Webhook-Signature`**.\n\n**Onramp:** **Create Onramp** → set **`palremitProvisionedAccountId`** from DB → **deposit.credited (onramp fiat)** → **Get Onramp**. **Offramp:** **Create Offramp** → same prov id + **deposit.credited (offramp crypto)** (webhook advances crypto + attempts fiat). If fiat did not start, **Retry Fiat Payout**. **Get Offramp** is read-only.",
+      "description": "`POST /api/v1/webhooks` — no Bearer auth. **`webhookSecret`** = server `WEBHOOK_SECRET`. Palremit Orchestrator uses **`event_id`**, **`event_type`**, **`occurred_at`**, **`data`**; scripts set **`X-Liquidity-Event-Id`** (new UUID per send, dedupe) and sign the **exact** JSON string with HMAC-SHA256 → **`X-Webhook-Signature`**.\n\n**Onramp:** **Create Onramp** → set **`palremitProvisionedAccountId`** from DB → **deposit.credited (onramp fiat)** → **Get Onramp**. **Offramp:** **Create Offramp** → same prov id + **deposit.credited (offramp crypto)** (webhook advances crypto + attempts fiat). If fiat did not start, **Retry Fiat Payout**. After offramp **COMPLETED**, simulate **withdrawal.successful (offramp platform fee)** to confirm USDC platform-fee settlement (`client_reference` = `{offrampTxnRef}-FEE`). **Get Offramp** is read-only.",
       "item": [
         {
           "name": "Inbound webhook (BloxFi-shaped)",
