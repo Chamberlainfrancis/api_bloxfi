@@ -16,6 +16,9 @@ export interface PalremitFiatCorridorRow {
   country: string;
   destination_type: string;
   beneficiary_type: string;
+  /** Human-readable rail label from Palremit/OwlPay (e.g. "Fedwire",
+   *  "Bank Transfer", "Nequi"); null when unknown. */
+  payout_rail_label?: string | null;
   amount: PalremitCorridorAmount;
 }
 
@@ -47,6 +50,7 @@ export interface PalremitCorridorDetailResponse {
     country: string;
     destination_type: string;
     beneficiary_type: string;
+    payout_rail_label?: string | null;
   };
   destination_fields: PalremitDestinationFieldDescriptor[];
   destination_template: Record<string, unknown>;
@@ -144,6 +148,7 @@ export function mapPalremitCorridorRowToApi(row: PalremitFiatCorridorRow): {
   country: string;
   destinationType: string;
   beneficiaryType: string;
+  payoutRailLabel: string | null;
   amount: PalremitCorridorAmount;
 } {
   return {
@@ -151,6 +156,7 @@ export function mapPalremitCorridorRowToApi(row: PalremitFiatCorridorRow): {
     country: row.country,
     destinationType: row.destination_type,
     beneficiaryType: row.beneficiary_type,
+    payoutRailLabel: row.payout_rail_label ?? null,
     amount: row.amount,
   };
 }
@@ -161,6 +167,7 @@ export function mapPalremitCorridorDetailToApi(detail: PalremitCorridorDetailRes
     country: string;
     destinationType: string;
     beneficiaryType: string;
+    payoutRailLabel: string | null;
   };
   destinationFields: PalremitDestinationFieldDescriptor[];
   destinationTemplate: Record<string, unknown>;
@@ -172,6 +179,7 @@ export function mapPalremitCorridorDetailToApi(detail: PalremitCorridorDetailRes
       country: detail.corridor.country,
       destinationType: detail.corridor.destination_type,
       beneficiaryType: detail.corridor.beneficiary_type,
+      payoutRailLabel: detail.corridor.payout_rail_label ?? null,
     },
     destinationFields: detail.destination_fields,
     destinationTemplate: detail.destination_template,
