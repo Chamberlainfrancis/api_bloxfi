@@ -9,7 +9,7 @@ import type { OnrampStatus } from '@/types/onramp';
 import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
-import { isOnrampTxnRef, isOfframpTxnRef } from '@/utils/txnRef';
+import { isOnrampTxnRef, isOfframpTxnRef, parseOfframpFeeClientReference } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
 import {
   beneficiaryDisplayNameFromOnrampSource,
@@ -85,6 +85,14 @@ export interface WebhookRepos {
       }
     ): Promise<unknown>;
     advanceOfframpAfterCryptoWebhook?(offrampId: string): Promise<void>;
+    /** Post-completion platform-fee settlement (fire-and-forget). */
+    afterOfframpCompleted?(offrampId: string): void;
+    applyPlatformFeeWithdrawalWebhook?(
+      parentTxnRef: string,
+      withdrawal: Record<string, unknown>,
+      terminal: 'completed' | 'failed',
+      failureNote?: string
+    ): Promise<boolean>;
   };
   highValueRequest: {
     findHighValueRequestById(id: string): Promise<{ id: string } | null>;
@@ -320,6 +328,15 @@ export async function processWebhookEvent(
       if (!clientRef) break;
       if (wstate && wstate !== 'successful') break;
 
+      const feeParentTxnRef = parseOfframpFeeClientReference(clientRef);
+      if (feeParentTxnRef && repos.offramp.applyPlatformFeeWithdrawalWebhook) {
+        const wmodeFee = wmode || 'CRYPTO_WITHDRAWAL';
+        if (!wmodeFee || wmodeFee === 'CRYPTO_WITHDRAWAL') {
+          await repos.offramp.applyPlatformFeeWithdrawalWebhook(feeParentTxnRef, w, 'completed');
+        }
+        break;
+      }
+
       if (isOnrampTxnRef(clientRef)) {
         if (wmode && wmode !== 'CRYPTO_WITHDRAWAL') break;
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
@@ -400,6 +417,7 @@ export async function processWebhookEvent(
             },
           },
         });
+        repos.offramp.afterOfframpCompleted?.(offramp.id);
       }
       break;
     }
@@ -429,6 +447,20 @@ export async function processWebhookEvent(
         (fail as { message: string }).message.trim() !== ''
           ? (fail as { message: string }).message.trim()
           : 'PALREMIT_WITHDRAW_FAILED';
+
+      const feeParentTxnRefFailed = parseOfframpFeeClientReference(clientRef);
+      if (feeParentTxnRefFailed && repos.offramp.applyPlatformFeeWithdrawalWebhook) {
+        const wmodeFee = wmode || 'CRYPTO_WITHDRAWAL';
+        if (!wmodeFee || wmodeFee === 'CRYPTO_WITHDRAWAL') {
+          await repos.offramp.applyPlatformFeeWithdrawalWebhook(
+            feeParentTxnRefFailed,
+            w,
+            'failed',
+            reason
+          );
+        }
+        break;
+      }
 
       if (isOnrampTxnRef(clientRef)) {
         if (wmode !== 'CRYPTO_WITHDRAWAL') break;
@@ -868,6 +900,7 @@ export async function processWebhookEvent(
         await repos.offramp.updateOfframpStatus(offrampId, 'COMPLETED', {
           timeline: { completedAt: new Date().toISOString() } as object,
         });
+        repos.offramp.afterOfframpCompleted?.(offrampId);
       }
       break;
     }

@@ -1522,7 +1522,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\"\n  },\n  \"metadata\": {}\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"amount\": 50000,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1535,7 +1535,7 @@
                 "offramps"
               ]
             },
-            "description": "Body.requestId must match requestId header. **destination.purposeOfPayment** (required) and **platformFee.walletAddress** (required) must be present per API schema. 201: transferType OFFRAMP, transferDetails (id auto-saved). Use new requestId for each create."
+            "description": "Body.requestId must match requestId header. **destination.purposeOfPayment** (required) and **platformFee.walletAddress** (required) must be present per API schema. Optional **platformFee.currency** (USDC, default USDC) and **platformFee.network** (Palremit network code, e.g. MATIC) control post-completion fee settlement. After offramp **COMPLETED**, BloxFi sends the platform fee in USDC to `walletAddress`; check `transferDetails.fees.platformFee.settlement` on GET. 201: transferType OFFRAMP, transferDetails (id auto-saved). Use new requestId for each create."
           }
         },
         {
@@ -1588,7 +1588,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"amount\": 50,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"amount\": 50,\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1670,7 +1670,7 @@
                 "{{offrampId}}"
               ]
             },
-            "description": "200: transferDetails. Read-only. Fiat payout runs from the **`deposit.credited`** webhook path; use **Retry Fiat Payout** if you need to retry after fixing destination bank details."
+            "description": "200: transferDetails. Read-only. Fiat payout runs from the **`deposit.credited`** webhook path; use **Retry Fiat Payout** if you need to retry after fixing destination bank details. When status is **COMPLETED**, inspect **`fees.platformFee.settlement`** for automatic USDC fee payout status (`processing` | `completed` | `skipped` | `failed`), `withdrawalId`, and `transactionHash`."
           }
         },
         {
@@ -2146,6 +2146,83 @@
               ]
             },
             "description": "After onramp reaches **`CRYPTO_PENDING`** and Palremit completes payout. If DB has **`palremitWithdrawalId`**, it must match **`withdrawal.id`** or this is ignored."
+          }
+        },
+        {
+          "name": "Palremit: withdrawal.successful (offramp platform fee)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function uuidv4() {",
+                  "  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {",
+                  "    var r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;",
+                  "    return v.toString(16);",
+                  "  });",
+                  "}",
+                  "const secret = pm.collectionVariables.get('webhookSecret');",
+                  "const txnRef = pm.collectionVariables.get('offrampTxnRef');",
+                  "if (!txnRef) { console.warn('Need offrampTxnRef'); }",
+                  "const feeRef = txnRef ? txnRef + '-FEE' : 'OFF-000000000000000000000000-FEE';",
+                  "const wid = 'postman-fee-wd-' + uuidv4().slice(0, 8);",
+                  "const eventId = uuidv4();",
+                  "const payload = {",
+                  "  event_id: eventId,",
+                  "  event_type: 'withdrawal.successful',",
+                  "  occurred_at: new Date().toISOString(),",
+                  "  data: {",
+                  "    withdrawal: {",
+                  "      id: wid,",
+                  "      client_reference: feeRef,",
+                  "      state: 'successful',",
+                  "      mode: 'CRYPTO_WITHDRAWAL',",
+                  "      settlement_reference: '0x' + uuidv4().replace(/-/g, '').slice(0, 40)",
+                  "    }",
+                  "  }",
+                  "};",
+                  "const raw = JSON.stringify(payload);",
+                  "pm.request.body.raw = raw;",
+                  "pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+                  "pm.request.headers.upsert({ key: 'X-Liquidity-Event-Id', value: uuidv4() });",
+                  "if (!secret) { console.warn('Set webhookSecret'); }",
+                  "else {",
+                  "  const sig = CryptoJS.HmacSHA256(raw, secret).toString(CryptoJS.enc.Hex);",
+                  "  pm.request.headers.upsert({ key: 'X-Webhook-Signature', value: sig });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/webhooks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhooks"
+              ]
+            },
+            "description": "Simulates Palremit confirming USDC platform-fee settlement after offramp **COMPLETED**. Uses **`client_reference`** = `{offrampTxnRef}-FEE`. Updates **`fees.platformFee.settlement`** to **completed** with **`transactionHash`** from **`settlement_reference`**."
           }
         }
       ]

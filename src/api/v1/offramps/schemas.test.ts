@@ -92,4 +92,30 @@ describe('createOfframpBodySchema', () => {
     });
     expect(r.success).toBe(true);
   });
+
+  it('accepts platformFee without currency or network (backward compatible)', () => {
+    const r = createOfframpBodySchema.safeParse(baseBody);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.platformFee.walletAddress).toBe(baseBody.platformFee.walletAddress);
+      expect(r.data.platformFee.currency).toBeUndefined();
+      expect(r.data.platformFee.network).toBeUndefined();
+    }
+  });
+
+  it('accepts optional platformFee.currency and platformFee.network', () => {
+    const r = createOfframpBodySchema.safeParse({
+      ...baseBody,
+      platformFee: {
+        ...baseBody.platformFee,
+        currency: 'USDC',
+        network: 'MATIC',
+      },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.platformFee.currency).toBe('USDC');
+      expect(r.data.platformFee.network).toBe('MATIC');
+    }
+  });
 });

@@ -37,3 +37,22 @@ export function isOnrampTxnRef(s: string): boolean {
 export function isOfframpTxnRef(s: string): boolean {
   return OFF_RE.test(s.trim());
 }
+
+const OFF_FEE_SUFFIX = '-FEE';
+
+/** Palremit `client_reference` for offramp platform-fee settlement withdrawal. */
+export function buildOfframpFeeClientReference(txnRef: string): string {
+  return `${txnRef.trim()}${OFF_FEE_SUFFIX}`;
+}
+
+/** Parent offramp `txnRef` when `client_reference` is a fee settlement ref. */
+export function parseOfframpFeeClientReference(clientRef: string): string | null {
+  const trimmed = clientRef.trim();
+  if (!trimmed.endsWith(OFF_FEE_SUFFIX)) return null;
+  const parent = trimmed.slice(0, -OFF_FEE_SUFFIX.length);
+  return isOfframpTxnRef(parent) ? parent : null;
+}
+
+export function isOfframpFeeClientReference(clientRef: string): boolean {
+  return parseOfframpFeeClientReference(clientRef) != null;
+}

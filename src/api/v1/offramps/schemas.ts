@@ -9,6 +9,8 @@ const platformFeeSchema = z.object({
   type: z.enum(['PERCENTAGE', 'FLAT']),
   value: z.coerce.number().min(0),
   walletAddress: z.string().min(1),
+  currency: z.string().min(1).optional(),
+  network: z.string().min(1).optional(),
 });
 
 const createOfframpSourceSchema = z.object({

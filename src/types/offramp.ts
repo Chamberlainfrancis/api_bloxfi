@@ -21,11 +21,35 @@ export type OfframpStatus =
   | 'FIAT_FAILED'
   | 'EXPIRED';
 
+/** Platform fee settlement lifecycle (post offramp completion). */
+export type PlatformFeeSettlementStatus =
+  | 'skipped'
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed';
+
+export interface PlatformFeeSettlement {
+  status: PlatformFeeSettlementStatus;
+  /** Palremit Liquidity withdrawal id */
+  withdrawalId?: string;
+  /** On-chain transaction hash when available */
+  transactionHash?: string;
+  /** Why settlement was skipped or failed */
+  notes?: string[];
+  attemptedAt?: string;
+  completedAt?: string;
+}
+
 /** Platform fee: PERCENTAGE (e.g. 0.01 = 1%) or FLAT amount. */
 export interface PlatformFee {
   type: 'PERCENTAGE' | 'FLAT';
   value: number;
   walletAddress: string;
+  /** Settlement asset — USDC expected; defaults to USDC when omitted */
+  currency?: string;
+  /** Palremit network code for fee payout (e.g. MATIC, ERC20) */
+  network?: string;
 }
 
 export interface OfframpSource {
@@ -98,9 +122,14 @@ export interface OfframpFees {
     type: 'PERCENTAGE' | 'FLAT';
     value: string;
     amount: string;
+    /** Source crypto currency the fee was computed in */
     currency: string;
     walletAddress: string;
+    /** USDC settlement destination (from create request) */
+    settlementCurrency?: string;
+    settlementNetwork?: string;
     transactionHash?: string;
+    settlement?: PlatformFeeSettlement;
   };
   railFee?: { amount: string; currency: string };
   networkFee?: { amount: string; currency: string; description?: string };

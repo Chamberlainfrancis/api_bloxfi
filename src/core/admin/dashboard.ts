@@ -297,6 +297,10 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
         lpReference: ex.lpReference ?? ex.txnRef ?? undefined,
         providerRefs: { ...prevRefs, palremitOrchestrator },
       });
+      const { scheduleOfframpPlatformFeeSettlement } = await import(
+        '@/core/offramps/triggerOfframpPlatformFeeSettlement'
+      );
+      scheduleOfframpPlatformFeeSettlement(id);
     }
   } else {
     // failed — failedReason is partner-facing (returned by the public API), so use

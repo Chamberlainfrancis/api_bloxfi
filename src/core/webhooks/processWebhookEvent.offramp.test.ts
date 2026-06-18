@@ -158,3 +158,91 @@ describe('processWebhookEvent offramp deposit.credited', () => {
     expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
   });
 });
+
+describe('processWebhookEvent offramp withdrawal.successful (fiat)', () => {
+  it('marks offramp COMPLETED and triggers fee settlement hook', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const afterOfframpCompleted = vi.fn();
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue({
+      id: 'offramp-1',
+      status: 'FIAT_PENDING',
+      txnRef: TXN_REF,
+      providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-fiat-1' } },
+      source: {},
+      depositInstructions: null,
+      timeline: { fiatWithdrawalId: 'wd-fiat-1' },
+      rateInformation: {},
+    });
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          afterOfframpCompleted,
+        },
+      },
+      {
+        eventId: 'evt-wd-1',
+        eventType: 'withdrawal.successful',
+        timestamp: new Date().toISOString(),
+        data: {
+          withdrawal: {
+            id: 'wd-fiat-1',
+            client_reference: TXN_REF,
+            state: 'successful',
+            mode: 'FIAT_WITHDRAWAL',
+          },
+        },
+      }
+    );
+
+    expect(updateOfframpStatus).toHaveBeenCalledWith('offramp-1', 'COMPLETED', expect.any(Object));
+    expect(afterOfframpCompleted).toHaveBeenCalledWith('offramp-1');
+  });
+
+  it('does not treat fee client_reference as fiat offramp completion', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const afterOfframpCompleted = vi.fn();
+    const applyPlatformFeeWithdrawalWebhook = vi.fn().mockResolvedValue(true);
+    const findOfframpByTxnRef = vi.fn();
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          afterOfframpCompleted,
+          applyPlatformFeeWithdrawalWebhook,
+        },
+      },
+      {
+        eventId: 'evt-fee-1',
+        eventType: 'withdrawal.successful',
+        timestamp: new Date().toISOString(),
+        data: {
+          withdrawal: {
+            id: 'wd-fee-1',
+            client_reference: `${TXN_REF}-FEE`,
+            state: 'successful',
+            mode: 'CRYPTO_WITHDRAWAL',
+            settlement_reference: '0xabc',
+          },
+        },
+      }
+    );
+
+    expect(findOfframpByTxnRef).not.toHaveBeenCalled();
+    expect(updateOfframpStatus).not.toHaveBeenCalled();
+    expect(afterOfframpCompleted).not.toHaveBeenCalled();
+    expect(applyPlatformFeeWithdrawalWebhook).toHaveBeenCalledWith(
+      TXN_REF,
+      expect.objectContaining({ client_reference: `${TXN_REF}-FEE` }),
+      'completed'
+    );
+  });
+});

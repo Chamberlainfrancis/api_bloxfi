@@ -315,6 +315,8 @@ export async function createOfframp(
       amount: platformFeeAmount.toFixed(6),
       currency: fromCurrency,
       walletAddress: platformFee.walletAddress,
+      settlementCurrency: platformFee.currency?.trim().toUpperCase() || 'USDC',
+      ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
     },
     ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
   };

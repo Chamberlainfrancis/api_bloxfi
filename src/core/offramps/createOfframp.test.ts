@@ -233,4 +233,41 @@ describe('createOfframp — provider fee deducted from the SEND crypto', () => {
     // 99 − 3 = 96 USDT → 96 × 1500 = 144,000 NGN.
     expect((d.created.data!.destination as { amount: number }).amount).toBe(96 * 1500);
   });
+
+  it('persists default USDC settlement currency when platformFee omits currency/network', async () => {
+    const d = makeDeps(null);
+    await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'OFF-req-7', BODY, d.options);
+    const pf = (d.created.data!.fees as { platformFee?: Record<string, unknown> }).platformFee;
+    expect(pf?.settlementCurrency).toBe('USDC');
+    expect(pf?.settlementNetwork).toBeUndefined();
+    expect(pf?.walletAddress).toBe('0xFee');
+    expect(pf?.settlement).toBeUndefined();
+  });
+
+  it('persists platformFee settlement network when provided', async () => {
+    const d = makeDeps(null);
+    const bodyWithNetwork = {
+      ...BODY,
+      platformFee: {
+        type: 'PERCENTAGE' as const,
+        value: 0.01,
+        walletAddress: '0xFee',
+        currency: 'USDC',
+        network: 'MATIC',
+      },
+    };
+    await createOfframp(
+      d.offrampRepo,
+      d.userRepo,
+      d.accountRepo,
+      d.walletRepo,
+      d.kybRepo,
+      'OFF-req-8',
+      bodyWithNetwork,
+      d.options
+    );
+    const pf = (d.created.data!.fees as { platformFee?: Record<string, unknown> }).platformFee;
+    expect(pf?.settlementCurrency).toBe('USDC');
+    expect(pf?.settlementNetwork).toBe('MATIC');
+  });
 });

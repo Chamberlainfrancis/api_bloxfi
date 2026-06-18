@@ -133,7 +133,7 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 | Step | Request | Notes |
 |------|---------|--------|
 | 6 | `GET /api/v1/offramps/rates` | Optional |
-| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`platformFee.walletAddress`** + **`destination.purposeOfPayment`** required. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. |
+| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`platformFee.walletAddress`** + **`destination.purposeOfPayment`** required. Optional **`platformFee.currency`** (USDC) and **`platformFee.network`** (e.g. MATIC) for automatic fee settlement after completion. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. |
 
 ### D. Deposit confirmation (crypto)
 
@@ -148,6 +148,7 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 |------|---------|-------------------|
 | 10 | **`GET /api/v1/offramps/{{offrampId}}`** | **`CRYPTO_CONFIRMED`** → **`FIAT_PENDING`** / **`COMPLETED`** after server + Palremit. Poll. |
 | 11 | Optional real/simulated **`withdrawal.successful`** orchestrator webhook | **`FIAT_WITHDRAWAL`** branch for off-ramp completion (collection may add a template mirroring on-ramp withdrawal request). |
+| 12 | **`GET /api/v1/offramps/{{offrampId}}`** | After **COMPLETED**, check **`fees.platformFee.settlement`** for USDC fee payout (`withdrawalId`, `transactionHash`, `status`). Fee withdrawal uses `client_reference` = `{offrampTxnRef}-FEE`. |
 
 ---
 
