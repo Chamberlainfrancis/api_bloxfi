@@ -19,7 +19,16 @@ const baseRow = {
     externalWalletId: 'wallet-1',
     amount: 99.5,
   },
-  developerFee: { amount: '0.5', currency: 'usdt' },
+  fees: {
+    platformFee: {
+      type: 'FLAT',
+      value: '0.5',
+      amount: '0.5',
+      currency: 'usdt',
+      walletAddress: '0xFee',
+    },
+  },
+  developerFee: null,
   receipt: null,
   providerRefs: { palremitOrchestrator: { provisionedAccountId: 'prov-1' } },
 };

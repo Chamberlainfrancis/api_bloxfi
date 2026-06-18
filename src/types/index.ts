@@ -51,7 +51,7 @@ export type {
 } from "@/types/account";
 export type {
   OnrampStatus,
-  OnrampFee,
+  OnrampFees,
   OnrampSource,
   OnrampDestination,
   QuoteInformation,

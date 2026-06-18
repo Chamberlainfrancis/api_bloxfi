@@ -2,6 +2,7 @@
  * Core: get single onramp by id. Spec §4.3 GET /onramps/:onrampId.
  */
 
+import { resolveOnrampFees } from '@/core/onramps/resolveOnrampFees';
 import type {
   GetOnrampResponse,
   OnrampTransferDetails,
@@ -10,7 +11,6 @@ import type {
   QuoteInformation,
   DepositInfo,
   Receipt,
-  DeveloperFeeAmount,
   OnrampStatus,
 } from '@/types/onramp';
 
@@ -26,6 +26,7 @@ export interface OnrampRepoGet {
     quoteInformation: unknown;
     depositInfo: unknown;
     receipt: unknown;
+    fees: unknown;
     developerFee: unknown;
     failedReason: string | null;
     createdAt: Date;
@@ -43,6 +44,7 @@ function rowToTransferDetails(row: {
   quoteInformation: unknown;
   depositInfo: unknown;
   receipt: unknown;
+  fees: unknown;
   developerFee: unknown;
   failedReason: string | null;
   createdAt: Date;
@@ -62,7 +64,7 @@ function rowToTransferDetails(row: {
     quoteInformation: row.quoteInformation as QuoteInformation,
     depositInfo: (row.depositInfo as DepositInfo) ?? null,
     receipt: (row.receipt as Receipt) ?? null,
-    developerFee: (row.developerFee as DeveloperFeeAmount) ?? null,
+    fees: resolveOnrampFees(row),
     failedReason: row.failedReason ?? null,
   };
 }

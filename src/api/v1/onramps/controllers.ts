@@ -25,7 +25,7 @@ import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
 } from '@/core/integrations/palremitCoinNetworks';
-import type { OnrampFee } from '@/types/onramp';
+import type { PlatformFee } from '@/types/offramp';
 import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
 import {
   createOnrampBodySchema,
@@ -153,12 +153,12 @@ export async function createOnramp(
       source: CreateOnrampSourceInput;
       destination: CreateOnrampDestinationInput;
       purposeOfPayment?: string;
-      fee: OnrampFee;
+      platformFee: PlatformFee;
     } = {
       source: parsed.data.source as CreateOnrampSourceInput,
       destination: parsed.data.destination as CreateOnrampDestinationInput,
       purposeOfPayment: parsed.data.purposeOfPayment,
-      fee: parsed.data.fee,
+      platformFee: parsed.data.platformFee,
     };
     const result = await onrampCore.createOnramp(
       repos.onramp,

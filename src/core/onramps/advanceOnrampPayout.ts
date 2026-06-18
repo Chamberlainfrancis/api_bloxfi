@@ -5,6 +5,7 @@
  */
 
 import type { OnrampStatus } from '@/types/onramp';
+import { resolveOnrampFees } from '@/core/onramps/resolveOnrampFees';
 
 export interface OnrampRepoAdvance {
   findOnrampById(id: string): Promise<{
@@ -16,6 +17,7 @@ export interface OnrampRepoAdvance {
     source: unknown;
     destination: unknown;
     developerFee: unknown;
+    fees: unknown;
     receipt: unknown;
     providerRefs: unknown;
   } | null>;
@@ -37,7 +39,7 @@ export interface ExecutePalremitOnrampWithdrawalFn {
         externalWalletId: string;
       };
       purposeOfPayment?: string;
-      fee: { type: 'FIX' | 'PERCENT'; value: number };
+      platformFee: { type: 'PERCENTAGE' | 'FLAT'; value: number; walletAddress: string };
     },
     requestId: string,
     receiveNetCryptoAmount: number,
@@ -89,9 +91,10 @@ export async function advanceOnrampIfFiatProcessed(
     userId?: string;
     memo?: string;
   };
-  const developerFee = row.developerFee as { amount?: string; currency?: string } | null;
+  const storedFees = resolveOnrampFees(row);
+  const platformFeeAmount = Number(storedFees?.platformFee?.amount ?? 0);
+  const platformFeeWallet = storedFees?.platformFee?.walletAddress ?? '';
   const receiveNet = Number(destination.amount);
-  const feeAmount = Number(developerFee?.amount ?? 0);
 
   if (
     !source.userId ||
@@ -135,7 +138,11 @@ export async function advanceOnrampIfFiatProcessed(
           userId: destination.userId,
           externalWalletId: destination.externalWalletId,
         },
-        fee: { type: 'FIX', value: Number.isFinite(feeAmount) ? feeAmount : 0 },
+        platformFee: {
+          type: 'FLAT',
+          value: Number.isFinite(platformFeeAmount) ? platformFeeAmount : 0,
+          walletAddress: platformFeeWallet,
+        },
       },
       row.requestId,
       receiveNet,

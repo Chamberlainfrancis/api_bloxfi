@@ -26,7 +26,8 @@ function makeDeps(feeQuote: PalremitWithdrawalFeeQuote | null | undefined) {
         quoteInformation: data.quoteInformation,
         depositInfo: data.depositInfo ?? null,
         receipt: data.receipt ?? null,
-        developerFee: data.developerFee ?? null,
+        fees: data.fees ?? null,
+        developerFee: null,
         failedReason: null,
         createdAt: new Date('2026-06-11T00:00:00Z'),
         updatedAt: new Date('2026-06-11T00:00:00Z'),
@@ -72,11 +73,11 @@ function makeDeps(feeQuote: PalremitWithdrawalFeeQuote | null | undefined) {
   return { onrampRepo, userRepo, walletRepo, kybRepo, options, created };
 }
 
-// fee FIX 0 → no developer fee, so receive-after-dev = 100 USDT (isolates the provider fee).
+// platformFee 0% → no platform fee, so receive-after-platform = 100 USDT (isolates the provider fee).
 const BODY: Omit<CreateOnrampRequest, 'requestId'> = {
   source: { userId: 'user_1', currency: 'usd', amount: 100 },
   destination: { userId: 'user_1', currency: 'usdt', chain: 'tron', externalWalletId: 'wal_1' },
-  fee: { type: 'FIX', value: 0 },
+  platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
 } as unknown as Omit<CreateOnrampRequest, 'requestId'>;
 
 function destAmount(data: NonNullable<ReturnType<typeof makeDeps>['created']['data']>): number {
@@ -147,5 +148,32 @@ describe('createOnramp — Palremit crypto payout fee deducted from receive', ()
     expect(destAmount(d.created.data!)).toBe(100);
     const qi = d.created.data!.quoteInformation as { transferFee?: { unavailable: boolean } };
     expect(qi.transferFee?.unavailable).toBe(true);
+  });
+
+  it('persists platformFee on fees without settlement', async () => {
+    const quote: PalremitWithdrawalFeeQuote = {
+      feeUnavailable: false,
+      fees: [{ kind: 'network_fee', amount: '2', currency: 'USDT' }],
+      totalFee: { amount: '2', currency: 'USDT' },
+      destinationAmount: '98',
+      effectiveRate: null,
+      expiresAt: null,
+    };
+    const d = makeDeps(quote);
+    await createOnramp(d.onrampRepo, d.userRepo, d.walletRepo, d.kybRepo, 'ON-req-pf', {
+      ...BODY,
+      platformFee: {
+        type: 'PERCENTAGE',
+        value: 0.01,
+        walletAddress: '0xFeeWallet',
+        currency: 'USDC',
+        network: 'MATIC',
+      },
+    }, d.options);
+    const pf = (d.created.data!.fees as { platformFee?: Record<string, unknown> }).platformFee;
+    expect(pf?.walletAddress).toBe('0xFeeWallet');
+    expect(pf?.settlementCurrency).toBe('USDC');
+    expect(pf?.settlementNetwork).toBe('MATIC');
+    expect(pf?.settlement).toBeUndefined();
   });
 });

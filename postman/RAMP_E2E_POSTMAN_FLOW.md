@@ -80,7 +80,7 @@ User must have **`businessInfo.email`** for Palremit fiat provision.
 | Step | Request | Notes |
 |------|---------|--------|
 | 6 | `GET /api/v1/onramps/rates` | Optional: add `amount` + `chain` for **`quote`** / **`transferFee`** preview (fee deducted from receive) |
-| 7 | **`POST /api/v1/onramps`** | Header **`requestId`** = body `requestId`; fresh UUID each time. Expect **`AWAITING_FUNDS`**, **`txnRef`** saved as **`onrampTxnRef`**. Fiat VA is provisioned by Palremit — no BloxFi **Account** id in the body. |
+| 7 | **`POST /api/v1/onramps`** | Header **`requestId`** = body `requestId`; **`platformFee.walletAddress`** required. Optional **`platformFee.currency`** / **`network`** are stored for reference only (no automatic fee payout on onramp). Fresh UUID each time. Expect **`AWAITING_FUNDS`**, **`txnRef`** saved as **`onrampTxnRef`**. Response includes **`fees.platformFee`**. Fiat VA is provisioned by Palremit — no BloxFi **Account** id in the body. |
 
 ### C. Deposit confirmation (fiat) — webhook
 

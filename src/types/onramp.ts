@@ -1,9 +1,9 @@
 /**
  * Onramp types per docs/bloxfi-api-specmd.md §4.
- * Fee object: type (FIX | PERCENT) and value only.
+ * Platform fee uses the same request shape as offramp (no automatic settlement payout).
  */
 
-import type { RampFeePreview } from '@/types/offramp';
+import type { PlatformFee, RampFeePreview } from '@/types/offramp';
 
 export type OnrampStatus =
   | 'CREATED'
@@ -18,10 +18,18 @@ export type OnrampStatus =
   | 'CRYPTO_FAILED'
   | 'EXPIRED';
 
-/** Onramp fee: complete as specified — type and value only (spec-clarifications §3). */
-export interface OnrampFee {
-  type: 'FIX' | 'PERCENT';
-  value: number; // fixed amount or percentage (e.g. 0.01 = 1%)
+export interface OnrampFees {
+  platformFee?: {
+    type: 'PERCENTAGE' | 'FLAT';
+    value: string;
+    amount: string;
+    /** Receive crypto currency the fee was computed in */
+    currency: string;
+    walletAddress: string;
+    /** USDC settlement destination (from create request) */
+    settlementCurrency?: string;
+    settlementNetwork?: string;
+  };
 }
 
 export interface OnrampSource {
@@ -116,11 +124,6 @@ export interface Receipt {
   provider?: string;
 }
 
-export interface DeveloperFeeAmount {
-  amount: string;
-  currency: string;
-}
-
 export interface OnrampTransferDetails {
   id: string;
   requestId: string;
@@ -136,7 +139,7 @@ export interface OnrampTransferDetails {
   quoteInformation: QuoteInformation;
   depositInfo?: DepositInfo | null;
   receipt?: Receipt | null;
-  developerFee?: DeveloperFeeAmount | null;
+  fees?: OnrampFees | null;
   failedReason?: string | null;
 }
 
@@ -187,7 +190,7 @@ export interface CreateOnrampRequest {
   source: CreateOnrampSourceInput;
   destination: CreateOnrampDestinationInput;
   purposeOfPayment?: string;
-  fee: OnrampFee;
+  platformFee: PlatformFee;
 }
 
 export type CreateOnrampResponse = OnrampResponse;

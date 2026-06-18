@@ -4,9 +4,12 @@
 
 import { z } from 'zod';
 
-const onrampFeeSchema = z.object({
-  type: z.enum(['FIX', 'PERCENT']),
-  value: z.number().min(0),
+const platformFeeSchema = z.object({
+  type: z.enum(['PERCENTAGE', 'FLAT']),
+  value: z.coerce.number().min(0),
+  walletAddress: z.string().min(1),
+  currency: z.string().min(1).optional(),
+  network: z.string().min(1).optional(),
 });
 
 const createOnrampSourceSchema = z.object({
@@ -33,7 +36,7 @@ export const createOnrampBodySchema = z
     source: createOnrampSourceSchema,
     destination: createOnrampDestinationSchema,
     purposeOfPayment: z.string().optional(),
-    fee: onrampFeeSchema,
+    platformFee: platformFeeSchema,
   })
   .transform((val) => ({
     requestId: val.requestId ?? val.requestld,
@@ -47,7 +50,7 @@ export const createOnrampBodySchema = z
       externalWalletId: val.destination.externalWalletId ?? val.destination.externalWalletld,
     },
     purposeOfPayment: val.purposeOfPayment,
-    fee: val.fee,
+    platformFee: val.platformFee,
   }))
   .superRefine((val, ctx) => {
     if (!val.requestId) {

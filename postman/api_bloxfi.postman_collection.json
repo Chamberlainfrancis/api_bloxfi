@@ -1362,7 +1362,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 100,\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"transferType\": \"ach\"\n  },\n  \"destination\": {\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"purposeOfPayment\": \"Investment\",\n  \"fee\": {\n    \"type\": \"PERCENT\",\n    \"value\": 0.01\n  }\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 100,\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"transferType\": \"ach\"\n  },\n  \"destination\": {\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"purposeOfPayment\": \"Investment\",\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.01,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\"\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/onramps",
@@ -1375,7 +1375,7 @@
                 "onramps"
               ]
             },
-            "description": "Body.requestId must match requestId header. **502** if Palremit provision fails; **422** if user has no `businessInfo.email`.\n\n**201:** **`AWAITING_FUNDS`**, `depositInfo`, `txnRef` saved as **`onrampTxnRef`**. Then orchestrator **`deposit.credited`** webhook (see Webhooks) → **Get Onramp**."
+            "description": "Body.requestId must match requestId header. **`platformFee.walletAddress`** required (same shape as offramp; no post-completion fee payout on onramp). **502** if Palremit provision fails; **422** if user has no `businessInfo.email`.\n\n**201:** **`AWAITING_FUNDS`**, `depositInfo`, `fees.platformFee`, `txnRef` saved as **`onrampTxnRef`**. Then orchestrator **`deposit.credited`** webhook (see Webhooks) → **Get Onramp**."
           }
         },
         {

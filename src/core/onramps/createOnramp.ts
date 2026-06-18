@@ -3,7 +3,7 @@
  * create intent + deposit instructions, then execute crypto withdrawal after fiat is credited.
  */
 
-import { applyOnrampFee } from '@/core/payments';
+import { applyOfframpPlatformFee } from '@/core/payments';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import type {
@@ -15,7 +15,7 @@ import type {
   OnrampDestination,
   QuoteInformation,
   DepositInfo,
-  DeveloperFeeAmount,
+  OnrampFees,
   OnrampTransferDetails,
   Receipt,
 } from '@/types/onramp';
@@ -73,7 +73,7 @@ export interface OnrampRepoCreate {
     quoteInformation: object;
     depositInfo?: object | null;
     receipt?: object | null;
-    developerFee?: object | null;
+    fees?: object | null;
     failedReason?: string | null;
   }): Promise<{
     id: string;
@@ -86,7 +86,7 @@ export interface OnrampRepoCreate {
     quoteInformation: unknown;
     depositInfo: unknown;
     receipt: unknown;
-    developerFee: unknown;
+    fees: unknown;
     failedReason: string | null;
     createdAt: Date;
     updatedAt: Date;
@@ -211,7 +211,7 @@ export async function createOnramp(
   body: Omit<CreateOnrampRequest, 'requestId'>,
   options: CreateOnrampOptions
 ): Promise<CreateOnrampResponse> {
-  const { source: src, destination: dest, fee } = body;
+  const { source: src, destination: dest, platformFee } = body;
   const userId = src.userId;
   if (dest.userId !== userId) {
     throw new Error('SOURCE_DESTINATION_USER_MISMATCH');
@@ -248,9 +248,9 @@ export async function createOnramp(
 
   const grossFiat = src.amount;
   const receiveGross = quote.conversion;
-  const { feeAmount: developerFeeAmount, netAmount: receiveAfterDevFee } = applyOnrampFee(
+  const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } = applyOfframpPlatformFee(
     receiveGross,
-    fee
+    platformFee
   );
 
   // Deduct Palremit's crypto payout fee from the receive amount (fee transparency).
@@ -260,7 +260,7 @@ export async function createOnramp(
   if (options.getProviderWithdrawalFeeQuote) {
     const feeQuote = await options.getProviderWithdrawalFeeQuote({
       asset: toCurrency,
-      amount: receiveAfterDevFee,
+      amount: receiveAfterPlatformFee,
       destinationType: 'crypto_address',
       network: destinationNetwork,
     });
@@ -282,10 +282,10 @@ export async function createOnramp(
     }
   }
 
-  if (transferFeeCrypto >= receiveAfterDevFee) {
+  if (transferFeeCrypto >= receiveAfterPlatformFee) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
-  const receiveNet = Math.max(0, receiveAfterDevFee - transferFeeCrypto);
+  const receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
 
   const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
   const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
@@ -304,9 +304,16 @@ export async function createOnramp(
     ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
   };
 
-  const developerFee: DeveloperFeeAmount = {
-    amount: developerFeeAmount.toFixed(8),
-    currency: toCurrency,
+  const fees: OnrampFees = {
+    platformFee: {
+      type: platformFee.type,
+      value: String(platformFee.value),
+      amount: platformFeeAmount.toFixed(8),
+      currency: toCurrency,
+      walletAddress: platformFee.walletAddress,
+      settlementCurrency: platformFee.currency?.trim().toUpperCase() || 'USDC',
+      ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
+    },
   };
 
   const userDisplayInfo = userDisplay(user);
@@ -365,7 +372,7 @@ export async function createOnramp(
     quoteInformation,
     depositInfo,
     receipt: null,
-    developerFee,
+    fees,
     failedReason: null,
   });
 
@@ -383,7 +390,7 @@ export async function createOnramp(
     quoteInformation: row.quoteInformation as QuoteInformation,
     depositInfo: (row.depositInfo as DepositInfo) ?? null,
     receipt: row.receipt ? (row.receipt as Receipt) : null,
-    developerFee: (row.developerFee as DeveloperFeeAmount) ?? null,
+    fees: (row.fees as OnrampFees) ?? null,
     failedReason: row.failedReason ?? null,
   };
 

@@ -31,7 +31,7 @@ export interface CreateOnrampData {
   quoteInformation: object;
   depositInfo?: object | null;
   receipt?: object | null;
-  developerFee?: object | null;
+  fees?: object | null;
   failedReason?: string | null;
 }
 
@@ -47,6 +47,7 @@ export interface OnrampRow {
   quoteInformation: unknown;
   depositInfo: unknown;
   receipt: unknown;
+  fees: unknown;
   developerFee: unknown;
   failedReason: string | null;
   createdAt: Date;
@@ -66,7 +67,7 @@ export async function createOnramp(data: CreateOnrampData): Promise<OnrampRow> {
       quoteInformation: data.quoteInformation as object,
       depositInfo: data.depositInfo as object | undefined,
       receipt: data.receipt as object | undefined,
-      developerFee: data.developerFee as object | undefined,
+      fees: data.fees as object | undefined,
       failedReason: data.failedReason ?? null,
     },
   });
