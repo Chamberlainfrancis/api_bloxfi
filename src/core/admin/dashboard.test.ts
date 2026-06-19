@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMarkStatus, toListRow, isValidStatus } from '@/core/admin/dashboard';
+import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing } from '@/core/admin/dashboard';
 
 describe('resolveMarkStatus', () => {
   it('maps success to COMPLETED for both types', () => {
@@ -113,5 +113,41 @@ describe('isValidStatus', () => {
     expect(isValidStatus('onramp', 'REFUNDED')).toBe(false);
     expect(isValidStatus('offramp', 'AWAITING_FUNDS')).toBe(false);
     expect(isValidStatus('onramp', 'NONSENSE')).toBe(false);
+  });
+});
+
+describe('isWithdrawalProcessing', () => {
+  it('is true when payout was sent and withdrawal status is pending', () => {
+    expect(
+      isWithdrawalProcessing('offramp', 'FIAT_PENDING', {
+        palremitOrchestrator: { palremitWithdrawalId: 'wd-1', withdrawalStatus: 'pending' },
+      })
+    ).toBe(true);
+    expect(
+      isWithdrawalProcessing('onramp', 'CRYPTO_PENDING', {
+        palremitOrchestrator: { withdrawalStatus: 'pending' },
+      })
+    ).toBe(true);
+  });
+
+  it('is false once the LP reports a terminal withdrawal status', () => {
+    expect(
+      isWithdrawalProcessing('offramp', 'FIAT_PENDING', {
+        palremitOrchestrator: { withdrawalStatus: 'successful' },
+      })
+    ).toBe(false);
+    expect(
+      isWithdrawalProcessing('offramp', 'FAILED', {
+        palremitOrchestrator: { withdrawalStatus: 'failed', markedManually: true },
+      })
+    ).toBe(false);
+  });
+
+  it('is false before payout has been sent to Palremit', () => {
+    expect(
+      isWithdrawalProcessing('offramp', 'CRYPTO_CONFIRMED', {
+        palremitOrchestrator: { depositStatus: 'credited' },
+      })
+    ).toBe(false);
   });
 });

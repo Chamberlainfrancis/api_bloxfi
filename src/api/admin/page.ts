@@ -74,6 +74,7 @@ export function renderDashboardHtml(nonce: string): string {
   .doc .dtype { font-size:11px; font-weight:700; text-transform:capitalize; color:var(--accent); }
   .doc .dname { font-size:11px; color:var(--mut); word-break:break-all; max-height:30px; overflow:hidden; margin:2px 0 6px; }
   .actions { display:flex; gap:10px; margin-top:6px; }
+  .notice { background:#f59e0b14; border:1px solid #f59e0b55; color:var(--warn); border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
   .hist { font-size:13px; margin:0; padding-left:18px; }
   .hist li { margin-bottom:6px; }
   details.raw { margin-top:6px; }
@@ -343,15 +344,20 @@ async function openDetail(id) {
         (a.actor ? " by " + esc(a.actor) : "") + (a.note ? ': "' + esc(a.note) + '"' : "") + "</li>";
     }).join("") || '<li class="muted">No manual changes yet.</li>';
 
+    const processingWarn = t.withdrawalProcessing
+      ? '<div class="notice">⚠ Palremit withdrawal is still processing. Wait for the LP webhook if you can — marking now may conflict with an in-flight payout.</div>'
+      : "";
+
     body += '<div class="section"><h3>Mark this transaction</h3><div class="card">' +
+      processingWarn +
       '<div class="actions"><button class="ok" id="markOk">Mark Successful</button><button class="danger" id="markFail">Mark Failed</button></div>' +
       '<ul class="hist" style="margin-top:12px">' + hist + "</ul></div></div>";
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
 
     $("dBody").innerHTML = body;
-    $("markOk").onclick = function () { mark(id, "success"); };
-    $("markFail").onclick = function () { mark(id, "failed"); };
+    $("markOk").onclick = function () { mark(id, "success", t.withdrawalProcessing); };
+    $("markFail").onclick = function () { mark(id, "failed", t.withdrawalProcessing); };
     $("detail").showModal();
     $("dBody").scrollTop = 0;
   } catch (e) { showErr(e.message); }
@@ -368,7 +374,13 @@ function getSecret(force) {
   return s;
 }
 
-async function mark(id, outcome) {
+async function mark(id, outcome, withdrawalProcessing) {
+  if (withdrawalProcessing) {
+    const proceed = confirm(
+      "The Palremit withdrawal is still processing. Marking it now may conflict with an in-flight payout. Continue anyway?"
+    );
+    if (!proceed) return;
+  }
   const verb = outcome === "success" ? "successful" : "failed";
   const note = prompt("Why are you marking this " + verb + "? (note)", "");
   if (note === null) return;

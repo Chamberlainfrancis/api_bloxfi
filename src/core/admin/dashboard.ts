@@ -60,6 +60,42 @@ export function resolveMarkStatus(type: TxnType, outcome: MarkOutcome): string {
   return type === 'offramp' ? 'FAILED' : 'FIAT_FAILED';
 }
 
+const TERMINAL_WITHDRAWAL_STATUSES = new Set(['successful', 'failed']);
+
+/** Statuses where the LP payout handoff has started but the withdrawal webhook may not have arrived. */
+const PAYOUT_SENT_STATUSES: Record<TxnType, readonly string[]> = {
+  onramp: ['CRYPTO_INITIATED', 'CRYPTO_PENDING'],
+  offramp: ['FIAT_INITIATED', 'FIAT_PENDING'],
+};
+
+function getPalremitOrchestrator(providerRefs: unknown): Record<string, unknown> {
+  if (providerRefs == null || typeof providerRefs !== 'object' || Array.isArray(providerRefs)) {
+    return {};
+  }
+  const o = (providerRefs as Record<string, unknown>).palremitOrchestrator;
+  if (o == null || typeof o !== 'object' || Array.isArray(o)) return {};
+  return o as Record<string, unknown>;
+}
+
+/** True when Palremit has an in-flight withdrawal (pending webhook). */
+export function isWithdrawalProcessing(
+  type: TxnType,
+  status: string,
+  providerRefs: unknown
+): boolean {
+  const orch = getPalremitOrchestrator(providerRefs);
+  const ws =
+    typeof orch.withdrawalStatus === 'string' ? orch.withdrawalStatus.trim().toLowerCase() : '';
+  if (TERMINAL_WITHDRAWAL_STATUSES.has(ws)) return false;
+
+  const hasWithdrawalId =
+    typeof orch.palremitWithdrawalId === 'string' && orch.palremitWithdrawalId.trim() !== '';
+  const payoutSent = hasWithdrawalId || PAYOUT_SENT_STATUSES[type].includes(status);
+  if (!payoutSent) return false;
+
+  return ws === 'pending' || ws === 'processing' || ws === '';
+}
+
 export interface ListRow {
   id: string;
   txnRef: string | null;
@@ -218,7 +254,13 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     }
   }
 
-  return { ...row, type, adminActions, beneficiaryAccount };
+  return {
+    ...row,
+    type,
+    adminActions,
+    beneficiaryAccount,
+    withdrawalProcessing: isWithdrawalProcessing(type, row.status, row.providerRefs),
+  };
 }
 
 export interface MarkParams {

@@ -245,4 +245,58 @@ describe('processWebhookEvent offramp withdrawal.successful (fiat)', () => {
       'completed'
     );
   });
+
+  it('completes offramp from FAILED when LP later confirms fiat payout', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const afterOfframpCompleted = vi.fn();
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue({
+      id: 'offramp-failed',
+      status: 'FAILED',
+      txnRef: TXN_REF,
+      failedReason: 'Marked failed by operator',
+      providerRefs: {
+        palremitOrchestrator: {
+          palremitWithdrawalId: 'wd-fiat-1',
+          withdrawalStatus: 'failed',
+          markedManually: true,
+        },
+      },
+      source: {},
+      depositInstructions: null,
+      timeline: { fiatWithdrawalId: 'wd-fiat-1' },
+      rateInformation: {},
+    });
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          afterOfframpCompleted,
+        },
+      },
+      {
+        eventId: 'evt-wd-recover',
+        eventType: 'withdrawal.successful',
+        timestamp: new Date().toISOString(),
+        data: {
+          withdrawal: {
+            id: 'wd-fiat-1',
+            client_reference: TXN_REF,
+            state: 'successful',
+            mode: 'FIAT_WITHDRAWAL',
+          },
+        },
+      }
+    );
+
+    expect(updateOfframpStatus).toHaveBeenCalledWith(
+      'offramp-failed',
+      'COMPLETED',
+      expect.objectContaining({ failedReason: null })
+    );
+    expect(afterOfframpCompleted).toHaveBeenCalledWith('offramp-failed');
+  });
 });

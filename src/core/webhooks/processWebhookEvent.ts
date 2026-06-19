@@ -387,7 +387,15 @@ export async function processWebhookEvent(
         if (!offramp) break;
         // Include CRYPTO_CONFIRMED: fiat can succeed at LP while our row never reached FIAT_*
         // (e.g. advanceOfframpIfDepositReady returned early or LP lag vs DB).
-        if (!['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED'].includes(offramp.status)) break;
+        // Include FAILED/FIAT_FAILED so a late LP success webhook can recover a row
+        // the operator marked failed while the withdrawal was still in flight.
+        if (
+          !['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED', 'FAILED', 'FIAT_FAILED'].includes(
+            offramp.status
+          )
+        ) {
+          break;
+        }
         const orch = getPalremitOrchestrator(offramp.providerRefs);
         const wid = typeof w.id === 'string' ? w.id.trim() : '';
         const expectedWid =
@@ -402,6 +410,7 @@ export async function processWebhookEvent(
         if (expectedFromDb && wid && expectedFromDb !== wid) break;
 
         await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
+          failedReason: null,
           receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
           timeline: {
             ...timeline,
