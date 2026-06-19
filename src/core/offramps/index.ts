@@ -7,7 +7,12 @@ export { advanceOfframpIfDepositReady } from '@/core/offramps/advanceOfframpPayo
 export { retryOfframpFiatPayout, type RetryOfframpFiatPayoutResult } from '@/core/offramps/retryOfframpFiatPayout';
 export {
   settleOfframpPlatformFee,
+  queueOfframpPlatformFeeSettlement,
   applyOfframpPlatformFeeWithdrawalWebhook,
   type SettleOfframpPlatformFeeResult,
 } from '@/core/offramps/settleOfframpPlatformFee';
-export { scheduleOfframpPlatformFeeSettlement, triggerOfframpPlatformFeeSettlement } from '@/core/offramps/triggerOfframpPlatformFeeSettlement';
+export {
+  scheduleOfframpPlatformFeeSettlement,
+  triggerOfframpPlatformFeeSettlement,
+  triggerOfframpPlatformFeeSettlementQueue,
+} from '@/core/offramps/triggerOfframpPlatformFeeSettlement';

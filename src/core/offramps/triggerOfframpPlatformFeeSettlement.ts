@@ -6,7 +6,10 @@ import * as offrampRepo from '@/db/repositories/offramp.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 import { getPalremitOfframpRates } from '@/core/integrations/palremit';
 import { createPalremitCurrencyAdapter } from '@/services/palremitAdapters';
-import { settleOfframpPlatformFee } from '@/core/offramps/settleOfframpPlatformFee';
+import {
+  queueOfframpPlatformFeeSettlement,
+  settleOfframpPlatformFee,
+} from '@/core/offramps/settleOfframpPlatformFee';
 import { logger } from '@/lib/logger';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
@@ -18,21 +21,29 @@ const settlementRepo = {
   updateOfframpStatus: offrampRepo.updateOfframpStatus,
 };
 
-async function getRateForFeeSettlement(from: string, to: string) {
-  const row = await getPalremitOfframpRates(palremitCurrency, from, to);
-  if (!row) return null;
-  return { conversionRate: row.conversionRate };
-}
+const settlementDeps = {
+  liquidityRequest: palremitLiquidity,
+  getRate: async (from: string, to: string) => {
+    const row = await getPalremitOfframpRates(palremitCurrency, from, to);
+    if (!row) return null;
+    return { conversionRate: row.conversionRate };
+  },
+};
 
-export async function triggerOfframpPlatformFeeSettlement(offrampId: string): Promise<void> {
-  await settleOfframpPlatformFee(settlementRepo, {
-    liquidityRequest: palremitLiquidity,
-    getRate: getRateForFeeSettlement,
-  }, offrampId);
+/** Queue settlement as pending (called automatically when an offramp completes). */
+export async function triggerOfframpPlatformFeeSettlementQueue(
+  offrampId: string
+): Promise<void> {
+  await queueOfframpPlatformFeeSettlement(settlementRepo, settlementDeps, offrampId);
 }
 
 export function scheduleOfframpPlatformFeeSettlement(offrampId: string): void {
-  void triggerOfframpPlatformFeeSettlement(offrampId).catch((err) => {
-    logger.error({ offrampId, err }, 'offramp platform fee settlement trigger failed');
+  void triggerOfframpPlatformFeeSettlementQueue(offrampId).catch((err) => {
+    logger.error({ offrampId, err }, 'offramp platform fee settlement queue failed');
   });
+}
+
+/** Execute an admin-approved pending settlement. */
+export async function triggerOfframpPlatformFeeSettlement(offrampId: string) {
+  return settleOfframpPlatformFee(settlementRepo, settlementDeps, offrampId);
 }

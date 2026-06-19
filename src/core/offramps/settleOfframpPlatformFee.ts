@@ -1,5 +1,6 @@
 /**
  * Post-completion offramp platform-fee settlement via Palremit USDC crypto withdrawal.
+ * Queued as `pending` on offramp completion; admin approval triggers the withdrawal.
  * Soft validation: invalid config is recorded on the offramp and no withdrawal is sent.
  */
 
@@ -49,9 +50,28 @@ export interface SettleOfframpPlatformFeeDeps {
   ) => Promise<{ conversionRate: string } | null>;
 }
 
+export type SettleOfframpPlatformFeeOutcome =
+  | 'skipped'
+  | 'pending'
+  | 'processing'
+  | 'already_settled'
+  | 'already_queued'
+  | 'not_ready';
+
 export interface SettleOfframpPlatformFeeResult {
-  outcome: 'skipped' | 'processing' | 'already_settled' | 'not_ready';
+  outcome: SettleOfframpPlatformFeeOutcome;
   settlement?: PlatformFeeSettlement;
+}
+
+interface FeeSettlementValidation {
+  fees: OfframpFees | null;
+  notes: string[];
+  txnRef: string;
+  wallet: string;
+  settlementAsset: string;
+  networkRaw: string;
+  settlementAmount: number;
+  resolvedNetwork: string | null;
 }
 
 function parseFees(raw: unknown): OfframpFees | null {
@@ -72,11 +92,16 @@ function mergePlatformFeeSettlement(
     walletAddress: '',
   };
   const prev = pf.settlement;
-  const notes = [...(prev?.notes ?? []), ...(patch.notes ?? [])].filter(Boolean);
+  const resetNotes =
+    prev?.status === 'failed' &&
+    (patch.status === 'processing' || patch.status === 'pending');
+  const notes = resetNotes
+    ? [...(patch.notes ?? [])].filter(Boolean)
+    : [...(prev?.notes ?? []), ...(patch.notes ?? [])].filter(Boolean);
   const settlement: PlatformFeeSettlement = {
     ...(prev ?? {}),
     ...patch,
-    ...(notes.length > 0 ? { notes } : {}),
+    ...(notes.length > 0 ? { notes } : resetNotes ? { notes: [] } : {}),
   };
   return {
     ...base,
@@ -131,29 +156,21 @@ export async function persistPlatformFeeSettlement(
   return merged.platformFee!.settlement!;
 }
 
-export async function settleOfframpPlatformFee(
-  repo: SettleOfframpPlatformFeeRepo,
-  deps: SettleOfframpPlatformFeeDeps,
-  offrampId: string
-): Promise<SettleOfframpPlatformFeeResult> {
-  const row = await repo.findOfframpById(offrampId);
-  if (!row) {
-    return { outcome: 'not_ready' };
-  }
-  if (row.status !== 'COMPLETED') {
-    return { outcome: 'not_ready' };
-  }
+function terminalSettlementStatus(status: string | undefined): boolean {
+  return (
+    status === 'processing' ||
+    status === 'completed' ||
+    status === 'skipped' ||
+    status === 'failed'
+  );
+}
 
+async function validatePlatformFeeSettlement(
+  row: { txnRef: string | null; fees: unknown },
+  deps: SettleOfframpPlatformFeeDeps
+): Promise<FeeSettlementValidation> {
   const fees = parseFees(row.fees);
   const pf = fees?.platformFee;
-  const existing = pf?.settlement;
-  if (existing?.status === 'processing' || existing?.status === 'completed') {
-    return { outcome: 'already_settled', settlement: existing };
-  }
-  if (existing?.status === 'skipped' || existing?.status === 'failed') {
-    return { outcome: 'already_settled', settlement: existing };
-  }
-
   const notes: string[] = [];
   const txnRef = row.txnRef?.trim() ?? '';
   if (!txnRef) {
@@ -214,26 +231,108 @@ export async function settleOfframpPlatformFee(
     }
   }
 
+  return {
+    fees,
+    notes,
+    txnRef,
+    wallet,
+    settlementAsset,
+    networkRaw,
+    settlementAmount,
+    resolvedNetwork,
+  };
+}
+
+/** Queue platform-fee settlement for admin approval after offramp completion. */
+export async function queueOfframpPlatformFeeSettlement(
+  repo: SettleOfframpPlatformFeeRepo,
+  deps: SettleOfframpPlatformFeeDeps,
+  offrampId: string
+): Promise<SettleOfframpPlatformFeeResult> {
+  const row = await repo.findOfframpById(offrampId);
+  if (!row) {
+    return { outcome: 'not_ready' };
+  }
+  if (row.status !== 'COMPLETED') {
+    return { outcome: 'not_ready' };
+  }
+
+  const fees = parseFees(row.fees);
+  const existing = fees?.platformFee?.settlement;
+  if (existing?.status === 'pending') {
+    return { outcome: 'already_queued', settlement: existing };
+  }
+  if (terminalSettlementStatus(existing?.status)) {
+    return { outcome: 'already_settled', settlement: existing };
+  }
+
+  const validation = await validatePlatformFeeSettlement(row, deps);
   const attemptedAt = new Date().toISOString();
-  if (notes.length > 0) {
+  if (validation.notes.length > 0) {
     const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
       status: 'skipped',
-      notes,
+      notes: validation.notes,
       attemptedAt,
     });
-    logger.info({ offrampId, notes }, 'offramp platform fee settlement skipped');
+    logger.info({ offrampId, notes: validation.notes }, 'offramp platform fee settlement skipped');
     return { outcome: 'skipped', settlement };
   }
 
-  const clientReference = buildOfframpFeeClientReference(txnRef);
-  const idempotencyKey = `offramp-fee-settlement:${txnRef}`;
+  const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
+    status: 'pending',
+    attemptedAt,
+  });
+  logger.info({ offrampId, txnRef: validation.txnRef }, 'offramp platform fee settlement queued for approval');
+  return { outcome: 'pending', settlement };
+}
+
+/** Admin-approved execution of a pending platform-fee settlement. */
+export async function settleOfframpPlatformFee(
+  repo: SettleOfframpPlatformFeeRepo,
+  deps: SettleOfframpPlatformFeeDeps,
+  offrampId: string
+): Promise<SettleOfframpPlatformFeeResult> {
+  const row = await repo.findOfframpById(offrampId);
+  if (!row) {
+    return { outcome: 'not_ready' };
+  }
+  if (row.status !== 'COMPLETED') {
+    return { outcome: 'not_ready' };
+  }
+
+  const fees = parseFees(row.fees);
+  const existing = fees?.platformFee?.settlement;
+  if (existing?.status === 'processing' || existing?.status === 'completed') {
+    return { outcome: 'already_settled', settlement: existing };
+  }
+  if (existing?.status === 'skipped') {
+    return { outcome: 'already_settled', settlement: existing };
+  }
+  if (existing?.status !== 'pending' && existing?.status !== 'failed') {
+    return { outcome: 'not_ready' };
+  }
+
+  const validation = await validatePlatformFeeSettlement(row, deps);
+  const attemptedAt = new Date().toISOString();
+  if (validation.notes.length > 0) {
+    const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
+      status: 'skipped',
+      notes: validation.notes,
+      attemptedAt,
+    });
+    logger.info({ offrampId, notes: validation.notes }, 'offramp platform fee settlement skipped on approval');
+    return { outcome: 'skipped', settlement };
+  }
+
+  const clientReference = buildOfframpFeeClientReference(validation.txnRef);
+  const idempotencyKey = `offramp-fee-settlement:${validation.txnRef}`;
   const withdrawalBody: Record<string, unknown> = {
     client_reference: clientReference,
     asset: DEFAULT_SETTLEMENT_ASSET,
-    amount: settlementAmount,
+    amount: validation.settlementAmount,
     destination_type: 'crypto_address',
-    network: resolvedNetwork,
-    destination: { address: wallet },
+    network: validation.resolvedNetwork,
+    destination: { address: validation.wallet },
   };
 
   const created = await createPalremitWithdrawal(deps.liquidityRequest, withdrawalBody, idempotencyKey);
@@ -253,7 +352,12 @@ export async function settleOfframpPlatformFee(
     attemptedAt,
   });
   logger.info(
-    { offrampId, withdrawalId: created.id, clientReference, amount: settlementAmount },
+    {
+      offrampId,
+      withdrawalId: created.id,
+      clientReference,
+      amount: validation.settlementAmount,
+    },
     'offramp platform fee settlement initiated'
   );
   return { outcome: 'processing', settlement };

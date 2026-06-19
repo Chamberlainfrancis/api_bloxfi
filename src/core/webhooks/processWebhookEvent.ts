@@ -397,6 +397,11 @@ export async function processWebhookEvent(
           break;
         }
         const orch = getPalremitOrchestrator(offramp.providerRefs);
+        // Only recover terminal failure rows the operator marked manually while the
+        // LP withdrawal was still in flight — not genuine LP failures.
+        if (['FAILED', 'FIAT_FAILED'].includes(offramp.status) && orch?.markedManually !== true) {
+          break;
+        }
         const wid = typeof w.id === 'string' ? w.id.trim() : '';
         const expectedWid =
           typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';

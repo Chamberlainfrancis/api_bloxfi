@@ -89,3 +89,44 @@ export async function markTransaction(
     next(e);
   }
 }
+
+export async function listPendingFeeSettlements(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
+    const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
+    const result = await dashboard.listPendingFeeSettlements({ cursor, limit });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function approveFeeSettlement(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const body = (req.body ?? {}) as { actor?: unknown; secret?: unknown };
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    const actor = typeof body.actor === 'string' ? body.actor : undefined;
+    const result = await dashboard.approveFeeSettlement({
+      offrampId: req.params.offrampId,
+      actor,
+    });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}

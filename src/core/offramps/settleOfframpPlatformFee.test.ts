@@ -3,6 +3,7 @@ import * as palremitLiquidity from '@/core/integrations/palremitLiquidity';
 import * as palremitCoinNetworks from '@/core/integrations/palremitCoinNetworks';
 import {
   settleOfframpPlatformFee,
+  queueOfframpPlatformFeeSettlement,
   applyOfframpPlatformFeeWithdrawalWebhook,
 } from '@/core/offramps/settleOfframpPlatformFee';
 import { buildOfframpFeeClientReference } from '@/utils/txnRef';
@@ -29,7 +30,7 @@ function baseOfframp(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('settleOfframpPlatformFee', () => {
+describe('queueOfframpPlatformFeeSettlement', () => {
   const updateOfframpStatus = vi.fn(async () => ({}));
   const findOfframpById = vi.fn();
   const findOfframpByTxnRef = vi.fn();
@@ -43,19 +44,22 @@ describe('settleOfframpPlatformFee', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal');
     findOfframpById.mockImplementation(async (id: string) =>
       id === 'offramp-1' ? baseOfframp() : null
     );
-    findOfframpByTxnRef.mockImplementation(async (ref: string) =>
-      ref === TXN_REF ? baseOfframp() : null
-    );
   });
 
-  it('skips when offramp is not COMPLETED', async () => {
-    findOfframpById.mockResolvedValue(baseOfframp({ status: 'FIAT_PENDING' }));
-    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
-    expect(res.outcome).toBe('not_ready');
-    expect(updateOfframpStatus).not.toHaveBeenCalled();
+  it('queues pending settlement when config is valid', async () => {
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'MATIC', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('MATIC');
+
+    const res = await queueOfframpPlatformFeeSettlement(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('pending');
+    expect(res.settlement?.status).toBe('pending');
+    expect(palremitLiquidity.createPalremitWithdrawal).not.toHaveBeenCalled();
   });
 
   it('skips settlement and records notes when network is missing', async () => {
@@ -73,13 +77,66 @@ describe('settleOfframpPlatformFee', () => {
         },
       })
     );
-    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    const res = await queueOfframpPlatformFeeSettlement(repo, { liquidityRequest }, 'offramp-1');
     expect(res.outcome).toBe('skipped');
     expect(res.settlement?.status).toBe('skipped');
     expect(res.settlement?.notes?.some((n) => n.includes('network'))).toBe(true);
   });
+});
 
-  it('initiates Palremit withdrawal when config is valid', async () => {
+describe('settleOfframpPlatformFee', () => {
+  const updateOfframpStatus = vi.fn(async () => ({}));
+  const findOfframpById = vi.fn();
+  const findOfframpByTxnRef = vi.fn();
+  const liquidityRequest = vi.fn();
+
+  const repo = {
+    findOfframpById,
+    findOfframpByTxnRef,
+    updateOfframpStatus,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal');
+    findOfframpById.mockImplementation(async (id: string) =>
+      id === 'offramp-1'
+        ? baseOfframp({
+            fees: {
+              platformFee: {
+                type: 'PERCENTAGE',
+                value: '0.01',
+                amount: '0.500000',
+                currency: 'USDC',
+                walletAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+                settlementCurrency: 'USDC',
+                settlementNetwork: 'MATIC',
+                settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+              },
+            },
+          })
+        : null
+    );
+    findOfframpByTxnRef.mockImplementation(async (ref: string) =>
+      ref === TXN_REF ? baseOfframp() : null
+    );
+  });
+
+  it('skips when offramp is not COMPLETED', async () => {
+    findOfframpById.mockResolvedValue(baseOfframp({ status: 'FIAT_PENDING' }));
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('not_ready');
+    expect(updateOfframpStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not initiate withdrawal until settlement is pending', async () => {
+    findOfframpById.mockResolvedValue(baseOfframp());
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('not_ready');
+    expect(palremitLiquidity.createPalremitWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it('initiates Palremit withdrawal when settlement is pending and config is valid', async () => {
     vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
       { code: 'MATIC', withdrawEnabled: true },
     ]);
@@ -95,6 +152,47 @@ describe('settleOfframpPlatformFee', () => {
     expect(res.outcome).toBe('processing');
     expect(res.settlement?.withdrawalId).toBe('wd-fee-1');
     expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalled();
+  });
+
+  it('retries Palremit withdrawal when settlement previously failed', async () => {
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '0.500000',
+            currency: 'USDC',
+            walletAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+            settlementCurrency: 'USDC',
+            settlementNetwork: 'MATIC',
+            settlement: {
+              status: 'failed',
+              attemptedAt: '2026-06-01T10:00:00.000Z',
+              notes: ['Palremit withdrawal request failed'],
+            },
+          },
+        },
+      })
+    );
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'MATIC', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('MATIC');
+    vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal').mockResolvedValue({
+      id: 'wd-fee-retry',
+      client_reference: buildOfframpFeeClientReference(TXN_REF),
+      state: 'processing',
+      raw: {},
+    });
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    const feesArg = updateOfframpStatus.mock.calls.at(-1)?.[2]?.fees as {
+      platformFee?: { settlement?: { status?: string; notes?: string[] } };
+    };
+    expect(feesArg?.platformFee?.settlement?.status).toBe('processing');
+    expect(feesArg?.platformFee?.settlement?.notes ?? []).toEqual([]);
   });
 });
 

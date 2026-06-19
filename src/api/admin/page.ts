@@ -75,6 +75,16 @@ export function renderDashboardHtml(nonce: string): string {
   .doc .dname { font-size:11px; color:var(--mut); word-break:break-all; max-height:30px; overflow:hidden; margin:2px 0 6px; }
   .actions { display:flex; gap:10px; margin-top:6px; }
   .notice { background:#f59e0b14; border:1px solid #f59e0b55; color:var(--warn); border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
+  .notice.bad { background:#ef444414; border-color:#ef444455; color:var(--bad); }
+  .audit { display:flex; flex-direction:column; gap:10px; }
+  .audit-item { border-left:3px solid var(--line); padding:8px 0 8px 12px; }
+  .audit-item.ok { border-left-color:var(--ok); }
+  .audit-item.warn { border-left-color:var(--warn); }
+  .audit-item.bad { border-left-color:var(--bad); }
+  .audit-item.admin { border-left-color:var(--accent); }
+  .audit-time { font-size:12px; color:var(--mut); margin-bottom:2px; }
+  .audit-label { font-weight:600; }
+  .audit-detail { font-size:13px; color:var(--mut); margin-top:3px; word-break:break-word; }
   .hist { font-size:13px; margin:0; padding-left:18px; }
   .hist li { margin-bottom:6px; }
   details.raw { margin-top:6px; }
@@ -88,17 +98,18 @@ export function renderDashboardHtml(nonce: string): string {
   <span class="warn">⚠ Internal dashboard — do not share the link publicly</span>
 </header>
 <div class="tabs">
-  <div class="tab active" data-type="onramp">Onramps</div>
-  <div class="tab" data-type="offramp">Offramps</div>
+  <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
+  <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
+  <div class="tab" data-view="settlements">Fee settlements</div>
 </div>
-<div class="toolbar">
-  <label class="muted">Status</label>
+<div class="toolbar" id="txnToolbar">
+  <label class="muted" id="statusLabel">Status</label>
   <select id="statusFilter"><option value="">All</option></select>
   <button class="ghost" id="reload">Reload</button>
 </div>
 <div id="err" class="err" style="display:none"></div>
 <table>
-  <thead><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
+  <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
 <div style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
@@ -131,8 +142,16 @@ const LABELS = {
 };
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
-let state = { type: "onramp", status: "", cursor: null };
+let state = { view: "transactions", type: "onramp", status: "", cursor: null };
 const $ = (id) => document.getElementById(id);
+
+function setTableHead(view) {
+  if (view === "settlements") {
+    $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Fee</th><th>Platform wallet</th><th>Network</th><th>Offramp</th><th>Queued</th><th></th></tr>";
+  } else {
+    $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr>";
+  }
+}
 
 function showErr(msg) { const e = $("err"); e.style.display = msg ? "block" : "none"; e.textContent = msg || ""; }
 function badgeClass(s) { return OK.has(s) ? "badge ok" : FAIL.has(s) ? "badge fail" : "badge pend"; }
@@ -177,7 +196,53 @@ function rowHtml(t) {
     "</tr>";
 }
 
+function settlementStatusBadge(status) {
+  const s = String(status || "unknown").toLowerCase();
+  const cls = s === "failed" ? "badge fail" : s === "pending" ? "badge pend" : s === "processing" ? "badge pend" : "badge";
+  return '<span class="' + cls + '">' + esc(String(status || "unknown").toUpperCase()) + "</span>";
+}
+
+function auditTrailHtml(events) {
+  if (!events || !events.length) {
+    return '<p class="muted">No audit events recorded yet.</p>';
+  }
+  return '<div class="audit">' + events.map(function (e) {
+    const cls = e.severity === "success" ? "ok" : e.severity === "error" ? "bad" : e.severity === "warning" ? "warn" : e.severity === "admin" ? "admin" : "";
+    return '<div class="audit-item ' + cls + '">' +
+      '<div class="audit-time">' + esc(new Date(e.at).toLocaleString()) + "</div>" +
+      '<div class="audit-label">' + esc(e.label) + "</div>" +
+      (e.detail ? '<div class="audit-detail">' + esc(e.detail) + "</div>" : "") +
+      "</div>";
+  }).join("") + "</div>";
+}
+
+function settlementRowHtml(s) {
+  const canApprove = s.settlementStatus === "pending";
+  const canRetry = s.settlementStatus === "failed";
+  const actionBtn = canApprove
+    ? '<button class="ok approve-btn">Approve</button>'
+    : canRetry
+      ? '<button class="ok approve-btn">Retry</button>'
+      : '<span class="muted">—</span>';
+  return '<tr class="row settlement-row" data-id="' + esc(s.offrampId) + '"' +
+    ' data-fee-amount="' + esc(s.feeAmount || "") + '"' +
+    ' data-fee-currency="' + esc(s.feeCurrency || "") + '"' +
+    ' data-wallet="' + esc(s.walletAddress || "") + '"' +
+    ' data-network="' + esc(s.settlementNetwork || "") + '"' +
+    ' data-settlement-status="' + esc(s.settlementStatus || "") + '">' +
+    "<td>" + (s.txnRef ? esc(s.txnRef) : '<span class="muted">' + esc(s.offrampId.slice(0, 8)) + "</span>") + "</td>" +
+    "<td>" + settlementStatusBadge(s.settlementStatus) + "</td>" +
+    '<td class="amt">' + fmtMoney(s.feeAmount, s.feeCurrency) + "</td>" +
+    '<td class="mono">' + (s.walletAddress ? esc(s.walletAddress) : "—") + "</td>" +
+    "<td>" + (s.settlementNetwork ? esc(s.settlementNetwork) : "—") + "</td>" +
+    '<td class="amt">' + fmtMoney(s.sendAmount, s.sendCurrency) + '<span class="arrow">→</span>' + fmtMoney(s.receiveAmount, s.receiveCurrency) + "</td>" +
+    '<td class="muted">' + (s.queuedAt ? esc(new Date(s.queuedAt).toLocaleString()) : "—") + "</td>" +
+    "<td>" + actionBtn + "</td>" +
+    "</tr>";
+}
+
 async function load(reset) {
+  if (state.view === "settlements") return loadSettlements(reset);
   showErr("");
   if (reset) { state.cursor = null; $("rows").innerHTML = ""; }
   try {
@@ -189,6 +254,23 @@ async function load(reset) {
       $("rows").innerHTML = '<tr><td colspan="5" class="muted" style="padding:24px">No ' + state.type + ' transactions' + (state.status ? ' with status ' + esc(state.status) : '') + '.</td></tr>';
     } else {
       $("rows").insertAdjacentHTML("beforeend", data.items.map(rowHtml).join(""));
+    }
+    state.cursor = data.nextCursor;
+    $("more").style.display = data.nextCursor ? "inline-block" : "none";
+  } catch (e) { showErr(e.message); }
+}
+
+async function loadSettlements(reset) {
+  showErr("");
+  if (reset) { state.cursor = null; $("rows").innerHTML = ""; }
+  try {
+    const q = new URLSearchParams();
+    if (state.cursor) q.set("cursor", state.cursor);
+    const data = await api("/fee-settlements/pending?" + q.toString());
+    if (!data.items.length && !$("rows").children.length) {
+      $("rows").innerHTML = '<tr><td colspan="8" class="muted" style="padding:24px">No fee settlements awaiting review.</td></tr>';
+    } else {
+      $("rows").insertAdjacentHTML("beforeend", data.items.map(settlementRowHtml).join(""));
     }
     state.cursor = data.nextCursor;
     $("more").style.display = data.nextCursor ? "inline-block" : "none";
@@ -263,10 +345,11 @@ function payoutInfo(t) {
   return { po: po, sent: sent };
 }
 
-async function openDetail(id) {
+async function openDetail(id, forceType) {
   showErr("");
+  const detailType = forceType || state.type;
   try {
-    const t = await api("/transactions/" + state.type + "/" + id);
+    const t = await api("/transactions/" + detailType + "/" + id);
     const dest = t.destination || {};
     const src = t.source || {};
     const docs = gatherDocs(t);
@@ -329,6 +412,43 @@ async function openDetail(id) {
     if (hasContent(src)) body += section("Paid from (sender)", kvBlock(src));
     if (hasContent(t.fees)) body += section("Fees", kvBlock(t.fees));
 
+    if (t.type === "offramp" && t.fees && t.fees.platformFee && t.fees.platformFee.settlement) {
+      const pf = t.fees.platformFee;
+      const st = pf.settlement.status;
+      let notice = "";
+      let actions = "";
+      if (st === "pending") {
+        notice = '<div class="notice">This offramp has a platform fee waiting for admin approval before USDC is sent.</div>';
+        actions = '<div class="actions"><button class="ok" id="approveFee">Approve fee settlement</button></div>';
+      } else if (st === "failed") {
+        const failNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : (t.failedReason || "Settlement failed");
+        notice = '<div class="notice bad">Platform fee settlement failed. See audit trail below.</div><div class="audit-detail" style="margin-bottom:8px">' + esc(failNotes) + "</div>";
+        actions = '<div class="actions"><button class="ok" id="approveFee">Retry fee settlement</button></div>';
+      } else if (st === "skipped") {
+        const skipNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : "Settlement skipped";
+        notice = '<div class="notice">Platform fee settlement was skipped.</div><div class="audit-detail" style="margin-bottom:8px">' + esc(skipNotes) + "</div>";
+      } else if (st === "processing") {
+        notice = '<div class="notice">Platform fee settlement is processing at Palremit.</div>';
+      }
+      if (notice || st) {
+        body += '<div class="section"><h3>Platform fee settlement</h3><div class="card">' +
+          notice +
+          kvPairs([
+            ["Status", st],
+            ["Fee amount", pf.amount ? pf.amount + " " + String(pf.currency || "").toUpperCase() : null],
+            ["Settlement asset", pf.settlementCurrency || "USDC"],
+            ["Network", pf.settlementNetwork],
+            ["Platform wallet", pf.walletAddress, "mono"],
+            ["Withdrawal ID", pf.settlement.withdrawalId, "mono"],
+            ["Transaction hash", pf.settlement.transactionHash || pf.transactionHash, "mono"]
+          ]) +
+          actions +
+          "</div></div>";
+      }
+    }
+
+    body += section("Audit trail", auditTrailHtml(t.auditTrail));
+
     body += section("Reference & timeline", kvPairs([
       ["Reference", t.txnRef, "mono"],
       ["Status", t.status],
@@ -339,25 +459,21 @@ async function openDetail(id) {
       ["Internal ID", t.id, "mono"]
     ]));
 
-    const hist = (t.adminActions || []).map(function (a) {
-      return "<li>" + esc(new Date(a.createdAt).toLocaleString()) + " — <b>" + esc(a.fromStatus) + " → " + esc(a.toStatus) + "</b>" +
-        (a.actor ? " by " + esc(a.actor) : "") + (a.note ? ': "' + esc(a.note) + '"' : "") + "</li>";
-    }).join("") || '<li class="muted">No manual changes yet.</li>';
-
     const processingWarn = t.withdrawalProcessing
       ? '<div class="notice">⚠ Palremit withdrawal is still processing. Wait for the LP webhook if you can — marking now may conflict with an in-flight payout.</div>'
       : "";
 
     body += '<div class="section"><h3>Mark this transaction</h3><div class="card">' +
       processingWarn +
-      '<div class="actions"><button class="ok" id="markOk">Mark Successful</button><button class="danger" id="markFail">Mark Failed</button></div>' +
-      '<ul class="hist" style="margin-top:12px">' + hist + "</ul></div></div>";
+      '<div class="actions"><button class="ok" id="markOk">Mark Successful</button><button class="danger" id="markFail">Mark Failed</button></div></div></div>';
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
 
     $("dBody").innerHTML = body;
     $("markOk").onclick = function () { mark(id, "success", t.withdrawalProcessing); };
     $("markFail").onclick = function () { mark(id, "failed", t.withdrawalProcessing); };
+    const approveBtn = $("approveFee");
+    if (approveBtn) approveBtn.onclick = function () { approveSettlement(id, t.fees && t.fees.platformFee); };
     $("detail").showModal();
     $("dBody").scrollTop = 0;
   } catch (e) { showErr(e.message); }
@@ -405,14 +521,51 @@ async function mark(id, outcome, withdrawalProcessing) {
   }
 }
 
+async function approveSettlement(offrampId, platformFee) {
+  const pf = platformFee || {};
+  const isRetry = pf.settlement && pf.settlement.status === "failed";
+  const verb = isRetry ? "Retry sending" : "Approve sending";
+  const msg = verb + " " +
+    (pf.amount ? pf.amount + " " + String(pf.currency || pf.settlementCurrency || "USDC").toUpperCase() : "platform fee") +
+    " to\\n" + (pf.walletAddress || "(no wallet)") +
+    "\\non network " + (pf.settlementNetwork || "(unknown)") + "?";
+  if (!confirm(msg)) return;
+  const actor = prompt("Your name (optional):", "") || undefined;
+  let secret = getSecret(false);
+  if (!secret) return;
+  try {
+    await api("/fee-settlements/" + offrampId + "/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ actor: actor })
+    });
+    $("detail").close();
+    await load(true);
+  } catch (e) {
+    if (e.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      showErr("Incorrect passcode — please try approval again.");
+    } else {
+      showErr(e.message);
+    }
+  }
+}
+
 // --- wiring -----------------------------------------------------------------
 
 document.querySelectorAll(".tab").forEach(function (el) {
   el.addEventListener("click", function () {
     document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
     el.classList.add("active");
-    state.type = el.dataset.type; state.status = "";
+    state.view = el.dataset.view || "transactions";
+    if (state.view === "transactions") state.type = el.dataset.type || "onramp";
+    state.status = "";
+    state.cursor = null;
     $("statusFilter").value = "";
+    $("txnToolbar").style.display = "flex";
+    $("statusLabel").style.display = state.view === "settlements" ? "none" : "";
+    $("statusFilter").style.display = state.view === "settlements" ? "none" : "";
+    setTableHead(state.view);
     fillStatusFilter();
     load(true);
   });
@@ -422,7 +575,26 @@ $("reload").addEventListener("click", function () { load(true); });
 $("more").addEventListener("click", function () { load(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
 $("rows").addEventListener("click", function (e) {
+  const approve = e.target.closest(".approve-btn");
+  if (approve) {
+    e.stopPropagation();
+    const tr = approve.closest("tr.settlement-row");
+    if (tr) {
+      approveSettlement(tr.dataset.id, {
+        amount: tr.dataset.feeAmount || "",
+        currency: tr.dataset.feeCurrency || "",
+        walletAddress: tr.dataset.wallet || "",
+        settlementNetwork: tr.dataset.network || "",
+        settlement: { status: tr.dataset.settlementStatus || "" }
+      });
+    }
+    return;
+  }
   const tr = e.target.closest("tr.row");
+  if (tr && tr.classList.contains("settlement-row")) {
+    openDetail(tr.dataset.id, "offramp");
+    return;
+  }
   if (tr) openDetail(tr.dataset.id);
 });
 
