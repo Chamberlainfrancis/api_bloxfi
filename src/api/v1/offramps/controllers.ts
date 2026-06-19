@@ -33,10 +33,18 @@ import type {
 import {
   cancelOfframpBodySchema,
   createOfframpBodySchema,
+  createOfframpQuoteBodySchema,
   getOfframpRatesQuerySchema,
   listOfframpsQuerySchema,
   retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
+import { createOfframpQuote } from '@/core/quotes';
+import {
+  hydrateOfframpCreateFromQuote,
+  validateUsdOfframpMetadata,
+} from '@/core/quotes/hydrateCreateFromQuote';
+import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import type { OfframpQuoteSnapshot } from '@/types/quote';
 
 const REQUEST_ID_HEADER = 'requestid';
 
@@ -140,6 +148,58 @@ export async function getOfframpRates(
   }
 }
 
+export async function createOfframpQuoteHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = createOfframpQuoteBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors
+        .map((e) => `${e.path.join('.')}: ${e.message}`)
+        .join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const result = await createOfframpQuote(parsed.data, {
+      getRateFromPalremit,
+      resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
+        resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
+      getProviderWithdrawalFeeQuote: (input) =>
+        fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+    });
+    sendSuccess(res, result, 201);
+  } catch (e) {
+    if (e instanceof UnsupportedPalremitNetworkError) {
+      next(
+        new AppError(e.message, 'INVALID_REQUEST', 400, {
+          field: e.field,
+          coinCode: e.coinCode,
+          requestedChain: e.requestedChain,
+          validNetworkCodes: e.validNetworkCodes,
+        })
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
+      next(
+        new AppError(
+          'Amount too low: the Palremit payout fee meets or exceeds the send amount',
+          'UNPROCESSABLE_ENTITY',
+          422
+        )
+      );
+      return;
+    }
+    next(e);
+  }
+}
+
 export async function createOfframp(
   req: Request,
   res: Response,
@@ -171,17 +231,51 @@ export async function createOfframp(
       next(new AppError('Duplicate requestId', 'CONFLICT', 409));
       return;
     }
-    const body: {
+
+    let lockedQuote: OfframpQuoteSnapshot | undefined;
+    let body: {
       source: CreateOfframpSourceInput;
       destination: CreateOfframpDestinationInput;
       platformFee: PlatformFee;
       metadata?: Record<string, unknown>;
-    } = {
-      source: parsed.data.source as CreateOfframpSourceInput,
-      destination: parsed.data.destination as CreateOfframpDestinationInput,
-      platformFee: parsed.data.platformFee,
-      metadata: parsed.data.metadata,
     };
+
+    if (parsed.data.quoteId) {
+      const snapshot = await rampQuoteRepo.consumeRampQuote<OfframpQuoteSnapshot>(
+        parsed.data.quoteId,
+        'offramp'
+      );
+      if (!snapshot) {
+        next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
+        return;
+      }
+      const usdErr = validateUsdOfframpMetadata(
+        snapshot.toCurrency,
+        parsed.data.destination.purposeOfPayment,
+        parsed.data.metadata
+      );
+      if (usdErr) {
+        next(validationError(usdErr, { metadata: usdErr }));
+        return;
+      }
+      lockedQuote = snapshot;
+      body = hydrateOfframpCreateFromQuote(snapshot, {
+        source: {
+          userId: parsed.data.source.userId!,
+          externalWalletId: parsed.data.source.externalWalletId!,
+        },
+        destination: parsed.data.destination,
+        metadata: parsed.data.metadata,
+      });
+    } else {
+      body = {
+        source: parsed.data.source as CreateOfframpSourceInput,
+        destination: parsed.data.destination as CreateOfframpDestinationInput,
+        platformFee: parsed.data.platformFee!,
+        metadata: parsed.data.metadata,
+      };
+    }
+
     const result = await offrampCore.createOfframp(
       repos.offramp,
       repos.user,
@@ -198,6 +292,7 @@ export async function createOfframp(
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
         getProviderWithdrawalFeeQuote: (input) =>
           fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+        ...(lockedQuote ? { lockedQuote } : {}),
       }
     );
     sendSuccess(res, result, 201);
@@ -275,6 +370,20 @@ export async function createOfframp(
           400
         )
       );
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_CORRIDOR_MISMATCH') {
+      next(
+        new AppError(
+          'Offramp account corridor does not match the quoted corridor',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_CURRENCY_MISMATCH') {
+      next(new AppError('Quote currencies do not match the create request', 'INVALID_REQUEST', 400));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {

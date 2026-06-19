@@ -10,6 +10,7 @@ import * as controllers from '@/api/v1/offramps/controllers';
 const router = Router();
 
 router.get('/rates', controllers.getOfframpRates);
+router.post('/quotes', controllers.createOfframpQuoteHandler);
 router.post('/', idempotencyMiddleware, controllers.createOfframp);
 router.get('/', controllers.listOfframps);
 router.post(

@@ -14,9 +14,9 @@ const platformFeeSchema = z.object({
 });
 
 const createOfframpSourceSchema = z.object({
-  amount: z.number().positive(),
-  currency: z.string().min(1),
-  chain: z.string().min(1),
+  amount: z.number().positive().optional(),
+  currency: z.string().min(1).optional(),
+  chain: z.string().min(1).optional(),
   userId: z.string().uuid().optional(),
   userld: z.string().uuid().optional(),
   externalWalletId: z.string().uuid().optional(),
@@ -24,7 +24,7 @@ const createOfframpSourceSchema = z.object({
 });
 
 const createOfframpDestinationSchema = z.object({
-  currency: z.string().min(1),
+  currency: z.string().min(1).optional(),
   amount: z.number().positive().optional(),
   userId: z.string().uuid().optional(),
   userld: z.string().uuid().optional(),
@@ -45,13 +45,15 @@ export const createOfframpBodySchema = z
   .object({
     requestId: z.string().uuid().optional(),
     requestld: z.string().uuid().optional(),
+    quoteId: z.string().uuid().optional(),
     source: createOfframpSourceSchema,
     destination: createOfframpDestinationSchema,
-    platformFee: platformFeeSchema,
+    platformFee: platformFeeSchema.optional(),
     metadata: z.record(z.unknown()).optional(),
   })
   .transform((val) => ({
     requestId: val.requestId ?? val.requestld,
+    quoteId: val.quoteId,
     source: {
       ...val.source,
       userId: val.source.userId ?? val.source.userld,
@@ -94,7 +96,61 @@ export const createOfframpBodySchema = z
       });
     }
 
-    const destCcy = val.destination.currency.trim().toUpperCase();
+    if (val.quoteId) {
+      if (val.platformFee) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['platformFee'],
+          message: 'platformFee must be omitted when quoteId is provided',
+        });
+      }
+      for (const [section, field] of [
+        ['source', 'amount'],
+        ['source', 'currency'],
+        ['source', 'chain'],
+        ['destination', 'currency'],
+        ['destination', 'amount'],
+      ] as const) {
+        const v = val[section][field];
+        if (v != null && v !== '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [section, field],
+            message: `${section}.${field} must be omitted when quoteId is provided`,
+          });
+        }
+      }
+    } else {
+      if (!val.source.amount) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'amount'], message: 'source.amount is required' });
+      }
+      if (!val.source.currency?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['source', 'currency'],
+          message: 'source.currency is required',
+        });
+      }
+      if (!val.source.chain?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'chain'], message: 'source.chain is required' });
+      }
+      if (!val.destination.currency?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['destination', 'currency'],
+          message: 'destination.currency is required',
+        });
+      }
+      if (!val.platformFee) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['platformFee'],
+          message: 'platformFee is required',
+        });
+      }
+    }
+
+    const destCcy = (val.destination.currency ?? '').trim().toUpperCase();
     if (destCcy === 'USD') {
       const pp = usdPalremitTransferPurposeSchema.safeParse(val.destination.purposeOfPayment.trim());
       if (!pp.success) {
@@ -128,6 +184,37 @@ export const createOfframpBodySchema = z
       }
     }
   });
+
+export const createOfframpQuoteBodySchema = z
+  .object({
+    fromCurrency: z.string().min(1),
+    toCurrency: z.string().min(1),
+    fromChain: z.string().min(1),
+    amount: z.number().positive(),
+    country: z.string().length(2),
+    destinationType: z.string().min(1),
+    beneficiaryType: z.enum(['individual', 'business']).optional(),
+    platformFee: platformFeeSchema.superRefine((pf, ctx) => {
+      if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'platformFee.value for PERCENTAGE is a decimal fraction (0.01 = 1%)',
+        });
+      }
+    }),
+  })
+  .transform((val) => ({
+    fromCurrency: val.fromCurrency.trim().toLowerCase(),
+    toCurrency: val.toCurrency.trim().toLowerCase(),
+    fromChain: val.fromChain.trim(),
+    amount: val.amount,
+    corridor: {
+      country: val.country.trim().toUpperCase(),
+      destinationType: val.destinationType.trim(),
+      ...(val.beneficiaryType ? { beneficiaryType: val.beneficiaryType } : {}),
+    },
+    platformFee: val.platformFee,
+  }));
 
 export const getOfframpRatesQuerySchema = z.object({
   fromCurrency: z.string().min(1),
@@ -176,6 +263,7 @@ export const listOfframpsQuerySchema = z.object({
 });
 
 export type CreateOfframpBody = z.infer<typeof createOfframpBodySchema>;
+export type CreateOfframpQuoteBody = z.infer<typeof createOfframpQuoteBodySchema>;
 export type GetOfframpRatesQuery = z.infer<typeof getOfframpRatesQuerySchema>;
 export type ListOfframpsQuery = z.infer<typeof listOfframpsQuerySchema>;
 

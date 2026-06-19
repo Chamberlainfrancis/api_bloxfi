@@ -10,6 +10,7 @@ import * as controllers from '@/api/v1/onramps/controllers';
 const router = Router();
 
 router.get('/rates', controllers.getOnrampRates);
+router.post('/quotes', controllers.createOnrampQuoteHandler);
 router.post('/', idempotencyMiddleware, controllers.createOnramp);
 router.get('/', controllers.listOnramps);
 router.get('/:onrampId', controllers.getOnramp);

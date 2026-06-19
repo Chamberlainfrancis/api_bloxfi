@@ -302,6 +302,26 @@ model Offramp {
   @@index([userId, createdAt])
 }
 
+// --- Ramp quotes (POST /offramps/quotes, POST /onramps/quotes) ---
+
+enum RampQuoteTypeEnum {
+  offramp
+  onramp
+}
+
+model RampQuote {
+  id          String           @id @default(uuid())
+  rampType    RampQuoteTypeEnum
+  /** Frozen quote snapshot consumed by POST /offramps or POST /onramps. */
+  payload     Json
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@index([expiresAt])
+  @@index([rampType, consumedAt])
+}
+
 // --- Feature 7: Transaction Limits & High-Value Requests (spec §6) ---
 
 enum HighValueRequestStatusEnum {

@@ -199,6 +199,16 @@ export interface OfframpRateLimits {
  * `netReceive` is `grossReceive` minus Palremit's payout fee (deduct-from-receive).
  * `transferFee.unavailable` means no fee could be previewed (no deduction applied).
  */
+export interface RampFeePreviewPlatformFee {
+  type: 'PERCENTAGE' | 'FLAT';
+  /** PERCENTAGE: decimal fraction (0.01 = 1%). */
+  value: number;
+  walletAddress: string;
+  currency?: string;
+  network?: string;
+  amount: string;
+}
+
 export interface RampFeePreview {
   // Money fields mirror the existing onramp QuoteInformation shape:
   // `{ amount, currency }` objects named sendGross / receiveGross / receiveNet.
@@ -211,6 +221,10 @@ export interface RampFeePreview {
   sendNet?: { amount: string; currency: string };
   receiveGross: { amount: string; currency: string };
   receiveNet: { amount: string; currency: string };
+  /** Fiat receive after transfer fee, before platform markup (offramp quotes). */
+  baseReceiveNet?: { amount: string; currency: string };
+  /** BloxFi platform fee preview (ramp quotes). */
+  platformFee?: RampFeePreviewPlatformFee;
   transferFee: {
     // Surfaced verbatim in the fee's own currency (for an offramp this is the
     // provider's funding-asset fee, e.g. USDC — NOT converted to the payout
@@ -245,9 +259,9 @@ export interface GetOfframpRatesResponse {
 // --- POST /offramps (create) ---
 
 export interface CreateOfframpSourceInput {
-  amount: number;
-  currency: string;
-  chain: string;
+  amount?: number;
+  currency?: string;
+  chain?: string;
   userId: string;
   externalWalletId: string;
 }
@@ -265,9 +279,10 @@ export interface CreateOfframpDestinationInput {
 
 export interface CreateOfframpRequest {
   requestId: string;
+  quoteId?: string;
   source: CreateOfframpSourceInput;
   destination: CreateOfframpDestinationInput;
-  platformFee: PlatformFee;
+  platformFee?: PlatformFee;
   metadata?: Record<string, unknown>;
 }
 

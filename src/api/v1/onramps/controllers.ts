@@ -27,8 +27,13 @@ import {
 } from '@/core/integrations/palremitCoinNetworks';
 import type { PlatformFee } from '@/types/offramp';
 import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
+import { createOnrampQuote } from '@/core/quotes';
+import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
+import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import type { OnrampQuoteSnapshot } from '@/types/quote';
 import {
   createOnrampBodySchema,
+  createOnrampQuoteBodySchema,
   getOnrampRatesQuerySchema,
   listOnrampsQuerySchema,
 } from '@/api/v1/onramps/schemas';
@@ -122,6 +127,56 @@ export async function getOnrampRates(
   }
 }
 
+export async function createOnrampQuoteHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = createOnrampQuoteBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ');
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const result = await createOnrampQuote(parsed.data, {
+      getQuoteFromPalremit,
+      resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
+        resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
+      getProviderWithdrawalFeeQuote: (input) =>
+        fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+    });
+    sendSuccess(res, result, 201);
+  } catch (e) {
+    if (e instanceof UnsupportedPalremitNetworkError) {
+      next(
+        new AppError(e.message, 'INVALID_REQUEST', 400, {
+          field: e.field,
+          coinCode: e.coinCode,
+          requestedChain: e.requestedChain,
+          validNetworkCodes: e.validNetworkCodes,
+        })
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
+      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
+      next(
+        new AppError(
+          'Amount too low: the Palremit payout fee meets or exceeds the receive amount',
+          'UNPROCESSABLE_ENTITY',
+          422
+        )
+      );
+      return;
+    }
+    next(e);
+  }
+}
+
 export async function createOnramp(
   req: Request,
   res: Response,
@@ -149,17 +204,39 @@ export async function createOnramp(
       next(new AppError('Duplicate requestId', 'CONFLICT', 409));
       return;
     }
-    const body: {
+
+    let lockedQuote: OnrampQuoteSnapshot | undefined;
+    let body: {
       source: CreateOnrampSourceInput;
       destination: CreateOnrampDestinationInput;
       purposeOfPayment?: string;
       platformFee: PlatformFee;
-    } = {
-      source: parsed.data.source as CreateOnrampSourceInput,
-      destination: parsed.data.destination as CreateOnrampDestinationInput,
-      purposeOfPayment: parsed.data.purposeOfPayment,
-      platformFee: parsed.data.platformFee,
     };
+
+    if (parsed.data.quoteId) {
+      const snapshot = await rampQuoteRepo.consumeRampQuote<OnrampQuoteSnapshot>(
+        parsed.data.quoteId,
+        'onramp'
+      );
+      if (!snapshot) {
+        next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
+        return;
+      }
+      lockedQuote = snapshot;
+      body = hydrateOnrampCreateFromQuote(snapshot, {
+        source: parsed.data.source,
+        destination: parsed.data.destination,
+        purposeOfPayment: parsed.data.purposeOfPayment,
+      });
+    } else {
+      body = {
+        source: parsed.data.source as CreateOnrampSourceInput,
+        destination: parsed.data.destination as CreateOnrampDestinationInput,
+        purposeOfPayment: parsed.data.purposeOfPayment,
+        platformFee: parsed.data.platformFee!,
+      };
+    }
+
     const result = await onrampCore.createOnramp(
       repos.onramp,
       repos.user,
@@ -174,6 +251,7 @@ export async function createOnramp(
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
         getProviderWithdrawalFeeQuote: (input) =>
           fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+        ...(lockedQuote ? { lockedQuote } : {}),
       }
     );
     sendSuccess(res, result, 201);
@@ -239,6 +317,10 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {
       next(new AppError('Palremit coin metadata unavailable', 'BAD_GATEWAY', 502));
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_CURRENCY_MISMATCH') {
+      next(new AppError('Quote currencies do not match the create request', 'INVALID_REQUEST', 400));
       return;
     }
     next(e);

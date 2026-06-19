@@ -9,7 +9,6 @@ import { generateOnrampTxnRef } from '@/utils/txnRef';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
-  GetOnrampRatesResponse,
   OnrampStatus,
   OnrampSource,
   OnrampDestination,
@@ -19,6 +18,7 @@ import type {
   OnrampTransferDetails,
   Receipt,
 } from '@/types/onramp';
+import type { OnrampQuoteSnapshot } from '@/types/quote';
 
 const QUOTE_EXPIRY_MINUTES = 30;
 
@@ -59,6 +59,8 @@ export interface CreateOnrampOptions {
     destinationType: string;
     network?: string | null;
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
+  /** When set, pricing is taken from the locked quote (POST /onramps/quotes). */
+  lockedQuote?: OnrampQuoteSnapshot;
 }
 
 export interface OnrampRepoCreate {
@@ -211,7 +213,7 @@ export async function createOnramp(
   body: Omit<CreateOnrampRequest, 'requestId'>,
   options: CreateOnrampOptions
 ): Promise<CreateOnrampResponse> {
-  const { source: src, destination: dest, platformFee } = body;
+  const { source: src, destination: dest } = body;
   const userId = src.userId;
   if (dest.userId !== userId) {
     throw new Error('SOURCE_DESTINATION_USER_MISMATCH');
@@ -220,7 +222,10 @@ export async function createOnramp(
   const user = await userRepo.findUserById(userId);
   if (!user) throw new Error('USER_NOT_FOUND');
 
-  const railCurrency = (src.currency ?? 'USD').toUpperCase();
+  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency)!.trim().toLowerCase();
+  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency)!.trim().toLowerCase();
+
+  const railCurrency = fromCurrency.toUpperCase();
   const railStatuses = await kybRepo.getKybRailStatuses(userId, [railCurrency]);
   const approved = railStatuses.some((r) => r.status === 'approved');
   if (!approved) throw new Error('USER_NOT_KYB_VERIFIED');
@@ -228,93 +233,114 @@ export async function createOnramp(
   const wallet = await walletRepo.findExternalWalletByIdAndUser(dest.externalWalletId, userId);
   if (!wallet) throw new Error('WALLET_NOT_FOUND');
 
-  const destinationNetwork = await options.resolvePalremitNetwork(
-    dest.currency.trim().toUpperCase(),
-    dest.chain,
-    'destination.chain'
-  );
+  const destinationNetwork = options.lockedQuote
+    ? options.lockedQuote.destinationChain
+    : await options.resolvePalremitNetwork(
+        dest.currency!.trim().toUpperCase(),
+        dest.chain!,
+        'destination.chain'
+      );
 
-  const fromCurrency = src.currency.trim().toLowerCase();
-  const toCurrency = dest.currency.trim().toLowerCase();
-
-  if (!options.getQuoteFromPalremit) {
-    throw new Error('PALREMIT_RATES_UNAVAILABLE');
-  }
-  const quote = await options.getQuoteFromPalremit(fromCurrency, toCurrency, src.amount);
-  if (!quote?.conversionRate || typeof quote.conversion !== 'number') {
-    throw new Error('PALREMIT_RATES_UNAVAILABLE');
-  }
-  const conversionRate = quote.conversionRate;
-
-  const grossFiat = src.amount;
-  const receiveGross = quote.conversion;
-  const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } = applyOfframpPlatformFee(
-    receiveGross,
-    platformFee
-  );
-
-  // Deduct Palremit's crypto payout fee from the receive amount (fee transparency).
-  // The fiat the user sends is unchanged.
-  let transferFeeCrypto = 0;
-  let transferFeeBreakdown: QuoteInformation['transferFee'];
-  if (options.getProviderWithdrawalFeeQuote) {
-    const feeQuote = await options.getProviderWithdrawalFeeQuote({
-      asset: toCurrency,
-      amount: receiveAfterPlatformFee,
-      destinationType: 'crypto_address',
-      network: destinationNetwork,
-    });
-    const usable =
-      feeQuote != null &&
-      !feeQuote.feeUnavailable &&
-      feeQuote.totalFee != null &&
-      feeQuote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
-    if (usable && feeQuote) {
-      const parsedFee = Number(feeQuote.totalFee!.amount);
-      if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeCrypto = parsedFee;
-      transferFeeBreakdown = { fees: feeQuote.fees, total: feeQuote.totalFee, unavailable: false };
-    } else {
-      transferFeeBreakdown = {
-        fees: feeQuote?.fees ?? [],
-        total: feeQuote?.totalFee ?? null,
-        unavailable: true,
-      };
+  if (options.lockedQuote) {
+    if (options.lockedQuote.fromCurrency !== fromCurrency) {
+      throw new Error('QUOTE_CURRENCY_MISMATCH');
+    }
+    if (options.lockedQuote.toCurrency !== toCurrency) {
+      throw new Error('QUOTE_CURRENCY_MISMATCH');
     }
   }
 
-  if (transferFeeCrypto >= receiveAfterPlatformFee) {
-    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  let grossFiat: number;
+  let receiveNet: number;
+  let quoteInformation: QuoteInformation;
+  let fees: OnrampFees;
+  let expiresAt: Date;
+  let platformFee = body.platformFee!;
+
+  if (options.lockedQuote) {
+    const snap = options.lockedQuote;
+    platformFee = snap.platformFee;
+    grossFiat = snap.sendAmount;
+    receiveNet = snap.receiveNet;
+    quoteInformation = snap.quoteInformation;
+    fees = snap.fees;
+    expiresAt = new Date(snap.rateValidUntil);
+  } else {
+    if (!options.getQuoteFromPalremit) {
+      throw new Error('PALREMIT_RATES_UNAVAILABLE');
+    }
+    const quote = await options.getQuoteFromPalremit(fromCurrency, toCurrency, src.amount!);
+    if (!quote?.conversionRate || typeof quote.conversion !== 'number') {
+      throw new Error('PALREMIT_RATES_UNAVAILABLE');
+    }
+    const conversionRate = quote.conversionRate;
+
+    grossFiat = src.amount!;
+    const receiveGross = quote.conversion;
+    const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
+      applyOfframpPlatformFee(receiveGross, platformFee);
+
+    let transferFeeCrypto = 0;
+    let transferFeeBreakdown: QuoteInformation['transferFee'];
+    if (options.getProviderWithdrawalFeeQuote) {
+      const feeQuote = await options.getProviderWithdrawalFeeQuote({
+        asset: toCurrency,
+        amount: receiveAfterPlatformFee,
+        destinationType: 'crypto_address',
+        network: destinationNetwork,
+      });
+      const usable =
+        feeQuote != null &&
+        !feeQuote.feeUnavailable &&
+        feeQuote.totalFee != null &&
+        feeQuote.totalFee.currency.toUpperCase() === toCurrency.toUpperCase();
+      if (usable && feeQuote) {
+        const parsedFee = Number(feeQuote.totalFee!.amount);
+        if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeCrypto = parsedFee;
+        transferFeeBreakdown = { fees: feeQuote.fees, total: feeQuote.totalFee, unavailable: false };
+      } else {
+        transferFeeBreakdown = {
+          fees: feeQuote?.fees ?? [],
+          total: feeQuote?.totalFee ?? null,
+          unavailable: true,
+        };
+      }
+    }
+
+    if (transferFeeCrypto >= receiveAfterPlatformFee) {
+      throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+    }
+    receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
+
+    expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
+    const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
+    const sendNet = sendGross;
+    const railFee = { amount: '0.00', currency: fromCurrency };
+    const receiveGrossStr = { amount: receiveGross.toFixed(8), currency: toCurrency };
+    const receiveNetStr = { amount: receiveNet.toFixed(8), currency: toCurrency };
+    quoteInformation = {
+      sendGross,
+      sendNet,
+      railFee,
+      receiveGross: receiveGrossStr,
+      receiveNet: receiveNetStr,
+      rate: conversionRate,
+      expiresAt: expiresAt.toISOString(),
+      ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
+    };
+
+    fees = {
+      platformFee: {
+        type: platformFee.type,
+        value: String(platformFee.value),
+        amount: platformFeeAmount.toFixed(8),
+        currency: toCurrency,
+        walletAddress: platformFee.walletAddress,
+        settlementCurrency: platformFee.currency?.trim().toUpperCase() || 'USDC',
+        ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
+      },
+    };
   }
-  const receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
-
-  const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
-  const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
-  const sendNet = sendGross;
-  const railFee = { amount: '0.00', currency: fromCurrency };
-  const receiveGrossStr = { amount: receiveGross.toFixed(8), currency: toCurrency };
-  const receiveNetStr = { amount: receiveNet.toFixed(8), currency: toCurrency };
-  const quoteInformation: QuoteInformation = {
-    sendGross,
-    sendNet,
-    railFee,
-    receiveGross: receiveGrossStr,
-    receiveNet: receiveNetStr,
-    rate: conversionRate,
-    expiresAt: expiresAt.toISOString(),
-    ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
-  };
-
-  const fees: OnrampFees = {
-    platformFee: {
-      type: platformFee.type,
-      value: String(platformFee.value),
-      amount: platformFeeAmount.toFixed(8),
-      currency: toCurrency,
-      walletAddress: platformFee.walletAddress,
-      settlementCurrency: platformFee.currency?.trim().toUpperCase() || 'USDC',
-      ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
-    },
-  };
 
   const userDisplayInfo = userDisplay(user);
   const sourcePayload: OnrampSource = {
