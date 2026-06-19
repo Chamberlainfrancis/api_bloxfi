@@ -172,15 +172,15 @@ export interface GetOnrampRatesResponse {
 // --- POST /onramps (create) ---
 
 export interface CreateOnrampSourceInput {
-  amount?: number;
-  currency?: string;
+  amount: number;
+  currency: string;
   userId: string;
   transferType?: string;
 }
 
 export interface CreateOnrampDestinationInput {
-  currency?: string;
-  chain?: string;
+  currency: string;
+  chain: string;
   userId: string;
   externalWalletId: string;
 }

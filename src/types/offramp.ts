@@ -259,9 +259,9 @@ export interface GetOfframpRatesResponse {
 // --- POST /offramps (create) ---
 
 export interface CreateOfframpSourceInput {
-  amount?: number;
-  currency?: string;
-  chain?: string;
+  amount: number;
+  currency: string;
+  chain: string;
   userId: string;
   externalWalletId: string;
 }

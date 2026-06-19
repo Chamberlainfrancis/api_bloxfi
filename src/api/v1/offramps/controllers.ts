@@ -26,6 +26,7 @@ import {
 } from '@/core/integrations/palremitCoinNetworks';
 import type {
   CreateOfframpDestinationInput,
+  CreateOfframpRequest,
   CreateOfframpSourceInput,
   GetOfframpRatesResponse,
   PlatformFee,
@@ -233,12 +234,7 @@ export async function createOfframp(
     }
 
     let lockedQuote: OfframpQuoteSnapshot | undefined;
-    let body: {
-      source: CreateOfframpSourceInput;
-      destination: CreateOfframpDestinationInput;
-      platformFee: PlatformFee;
-      metadata?: Record<string, unknown>;
-    };
+    let body: Omit<CreateOfframpRequest, 'requestId'>;
 
     if (parsed.data.quoteId) {
       const snapshot = await rampQuoteRepo.consumeRampQuote<OfframpQuoteSnapshot>(
@@ -264,7 +260,14 @@ export async function createOfframp(
           userId: parsed.data.source.userId!,
           externalWalletId: parsed.data.source.externalWalletId!,
         },
-        destination: parsed.data.destination,
+        destination: {
+          userId: parsed.data.destination.userId!,
+          accountId: parsed.data.destination.accountId!,
+          purposeOfPayment: parsed.data.destination.purposeOfPayment,
+          transferType: parsed.data.destination.transferType,
+          bankTransferMethod: parsed.data.destination.bankTransferMethod,
+          reference: parsed.data.destination.reference,
+        },
         metadata: parsed.data.metadata,
       });
     } else {

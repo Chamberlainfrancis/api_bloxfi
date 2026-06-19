@@ -84,18 +84,23 @@ export const createOnrampBodySchema = z
           message: 'platformFee must be omitted when quoteId is provided',
         });
       }
-      for (const [section, field] of [
-        ['source', 'amount'],
-        ['source', 'currency'],
-        ['destination', 'currency'],
-        ['destination', 'chain'],
-      ] as const) {
-        const v = val[section][field];
+      for (const field of ['amount', 'currency'] as const) {
+        const v = val.source[field];
         if (v != null && v !== '') {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            path: [section, field],
-            message: `${section}.${field} must be omitted when quoteId is provided`,
+            path: ['source', field],
+            message: `source.${field} must be omitted when quoteId is provided`,
+          });
+        }
+      }
+      for (const field of ['currency', 'chain'] as const) {
+        const v = val.destination[field];
+        if (v != null && v !== '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['destination', field],
+            message: `destination.${field} must be omitted when quoteId is provided`,
           });
         }
       }

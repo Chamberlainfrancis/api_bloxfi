@@ -25,8 +25,7 @@ import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
 } from '@/core/integrations/palremitCoinNetworks';
-import type { PlatformFee } from '@/types/offramp';
-import type { CreateOnrampDestinationInput, CreateOnrampSourceInput } from '@/types/onramp';
+import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSourceInput } from '@/types/onramp';
 import { createOnrampQuote } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
@@ -206,12 +205,7 @@ export async function createOnramp(
     }
 
     let lockedQuote: OnrampQuoteSnapshot | undefined;
-    let body: {
-      source: CreateOnrampSourceInput;
-      destination: CreateOnrampDestinationInput;
-      purposeOfPayment?: string;
-      platformFee: PlatformFee;
-    };
+    let body: Omit<CreateOnrampRequest, 'requestId'>;
 
     if (parsed.data.quoteId) {
       const snapshot = await rampQuoteRepo.consumeRampQuote<OnrampQuoteSnapshot>(
@@ -224,8 +218,14 @@ export async function createOnramp(
       }
       lockedQuote = snapshot;
       body = hydrateOnrampCreateFromQuote(snapshot, {
-        source: parsed.data.source,
-        destination: parsed.data.destination,
+        source: {
+          userId: parsed.data.source.userId!,
+          transferType: parsed.data.source.transferType,
+        },
+        destination: {
+          userId: parsed.data.destination.userId!,
+          externalWalletId: parsed.data.destination.externalWalletId!,
+        },
         purposeOfPayment: parsed.data.purposeOfPayment,
       });
     } else {

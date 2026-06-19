@@ -222,8 +222,8 @@ export async function createOnramp(
   const user = await userRepo.findUserById(userId);
   if (!user) throw new Error('USER_NOT_FOUND');
 
-  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency)!.trim().toLowerCase();
-  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency)!.trim().toLowerCase();
+  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency).trim().toLowerCase();
+  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency).trim().toLowerCase();
 
   const railCurrency = fromCurrency.toUpperCase();
   const railStatuses = await kybRepo.getKybRailStatuses(userId, [railCurrency]);
@@ -236,8 +236,8 @@ export async function createOnramp(
   const destinationNetwork = options.lockedQuote
     ? options.lockedQuote.destinationChain
     : await options.resolvePalremitNetwork(
-        dest.currency!.trim().toUpperCase(),
-        dest.chain!,
+        dest.currency.trim().toUpperCase(),
+        dest.chain,
         'destination.chain'
       );
 
@@ -269,13 +269,13 @@ export async function createOnramp(
     if (!options.getQuoteFromPalremit) {
       throw new Error('PALREMIT_RATES_UNAVAILABLE');
     }
-    const quote = await options.getQuoteFromPalremit(fromCurrency, toCurrency, src.amount!);
+    const quote = await options.getQuoteFromPalremit(fromCurrency, toCurrency, src.amount);
     if (!quote?.conversionRate || typeof quote.conversion !== 'number') {
       throw new Error('PALREMIT_RATES_UNAVAILABLE');
     }
     const conversionRate = quote.conversionRate;
 
-    grossFiat = src.amount!;
+    grossFiat = src.amount;
     const receiveGross = quote.conversion;
     const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
       applyOfframpPlatformFee(receiveGross, platformFee);

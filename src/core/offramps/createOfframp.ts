@@ -194,13 +194,13 @@ export async function createOfframp(
   const chain = options.lockedQuote
     ? options.lockedQuote.fromChain
     : await options.resolvePalremitNetwork(
-        src.currency!.trim().toUpperCase(),
-        src.chain!,
+        src.currency.trim().toUpperCase(),
+        src.chain,
         'source.chain'
       );
 
-  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency)!.trim().toLowerCase();
-  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency)!.trim().toLowerCase();
+  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency).trim().toLowerCase();
+  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency).trim().toLowerCase();
 
   const accountCurrency = account.currency.trim().toLowerCase();
   if (accountCurrency !== toCurrency) {
@@ -255,7 +255,7 @@ export async function createOfframp(
     rate = rateResponse.conversionRate;
     inverseRate = rateResponse.inverseRate;
 
-    cryptoAmount = src.amount!;
+    cryptoAmount = src.amount;
     const { feeAmount: platformFeeAmount, netAmount: netCryptoAfterPlatform } = applyOfframpPlatformFee(
       cryptoAmount,
       platformFee

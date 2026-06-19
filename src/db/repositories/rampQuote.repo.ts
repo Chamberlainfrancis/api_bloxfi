@@ -38,7 +38,7 @@ export async function consumeRampQuote<T extends OfframpQuoteSnapshot | OnrampQu
     data: { consumedAt: now },
   });
   if (updated.count !== 1) return null;
-  return row.payload as T;
+  return row.payload as unknown as T;
 }
 
 export async function findRampQuoteById(quoteId: string): Promise<{
