@@ -32,6 +32,7 @@ export interface CreateOnrampData {
   depositInfo?: object | null;
   receipt?: object | null;
   fees?: object | null;
+  profit?: object | null;
   failedReason?: string | null;
 }
 
@@ -68,6 +69,7 @@ export async function createOnramp(data: CreateOnrampData): Promise<OnrampRow> {
       depositInfo: data.depositInfo as object | undefined,
       receipt: data.receipt as object | undefined,
       fees: data.fees as object | undefined,
+      profit: data.profit as object | undefined,
       failedReason: data.failedReason ?? null,
     },
   });

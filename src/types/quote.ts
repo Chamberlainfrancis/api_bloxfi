@@ -10,6 +10,7 @@ import type {
   RateInformation,
 } from '@/types/offramp';
 import type { OnrampFees, QuoteInformation } from '@/types/onramp';
+import type { PalremitProfit } from '@/core/quotes/rateSpread';
 
 export type { RampFeePreviewPlatformFee };
 
@@ -37,6 +38,7 @@ export interface OfframpQuoteSnapshot {
   destinationAmount: number;
   quote: RampFeePreview;
   fees: OfframpFees;
+  profit?: PalremitProfit | null;
   rateInformation: RateInformation;
 }
 
@@ -71,6 +73,7 @@ export interface OnrampQuoteSnapshot {
   quote: RampFeePreview;
   quoteInformation: QuoteInformation;
   fees: OnrampFees;
+  profit?: PalremitProfit | null;
 }
 
 export interface OnrampQuoteResponse {
