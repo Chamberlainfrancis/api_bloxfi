@@ -61,6 +61,7 @@ export interface OfframpRepoCreate {
     depositInstructions?: object | null;
     timeline?: object | null;
     fees?: object | null;
+    profit?: object | null;
     receipt?: object | null;
     refundDetails?: object | null;
     failedReason?: string | null;
@@ -197,6 +198,7 @@ export async function createOfframp(
     expiresAt: snap.rateValidUntil,
   };
   const fees: OfframpFees = snap.fees;
+  const profit = snap.profit ?? null;
   const depositBy = snap.rateValidUntil;
 
   const userDisplayInfo = userDisplay(user);
@@ -284,6 +286,7 @@ export async function createOfframp(
     depositInstructions: palremitDeposit.depositInstructions,
     timeline,
     fees,
+    profit,
     receipt: null,
     refundDetails: null,
     failedReason: null,
