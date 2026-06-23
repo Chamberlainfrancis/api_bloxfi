@@ -1,5 +1,6 @@
 /**
- * Offramp quote math: transfer fee on send, LP conversion, platform fee on fiat receive.
+ * Offramp quote math: platform fee on the SOURCE crypto (gross), then the
+ * provider transfer fee on the send side, then LP conversion to fiat.
  */
 
 import type { PlatformFee } from '@/types/offramp';
@@ -26,24 +27,31 @@ export function computeOfframpQuoteAmounts(params: {
   const { sendAmount, baseConversionRate, platformFee } = params;
   const receiveGross = sendAmount * baseConversionRate;
 
+  // Platform fee is retained from the source crypto (the only asset we custody
+  // on an offramp), taken from the gross send before the transfer fee.
+  const applied = applyOfframpPlatformFee(sendAmount, platformFee);
+  const platformFeeAmount = applied.feeAmount;
+
   const usable =
     params.feeInSendCurrency != null && Number.isFinite(params.feeInSendCurrency);
   const transferFeeInSend =
     usable && params.feeInSendCurrency! > 0 ? params.feeInSendCurrency! : 0;
 
-  const sendNet = Math.max(0, sendAmount - transferFeeInSend);
-  const baseReceiveNet = sendNet * baseConversionRate;
-  const applied = applyOfframpPlatformFee(baseReceiveNet, platformFee);
-  const allInConversionRate = sendAmount > 0 ? applied.netAmount / sendAmount : 0;
+  const sendNet = Math.max(0, sendAmount - platformFeeAmount - transferFeeInSend);
+  // Fiat the recipient would get with the transfer fee but WITHOUT the platform
+  // markup — surfaced for transparency (see types/offramp.ts baseReceiveNet).
+  const baseReceiveNet = Math.max(0, sendAmount - transferFeeInSend) * baseConversionRate;
+  const receiveNet = sendNet * baseConversionRate;
+  const allInConversionRate = sendAmount > 0 ? receiveNet / sendAmount : 0;
 
   return {
     sendGross: sendAmount,
     sendNet,
     receiveGross,
     baseReceiveNet,
-    receiveNet: applied.netAmount,
+    receiveNet,
     transferFeeInSend,
-    platformFeeAmount: applied.feeAmount,
+    platformFeeAmount,
     baseConversionRate,
     allInConversionRate,
   };
