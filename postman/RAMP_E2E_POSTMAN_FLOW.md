@@ -119,7 +119,7 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 | 1–3 | Same user + KYB as on-ramp |
 | 4a | **USD / international:** **Payout corridors** → **List** → **Get corridor requirements** → **Create Account (offramp)** → **`accountId`** |
 | 4b | **NGN:** **Get corridor requirements (NGN local_bank)** → **Create Account (offramp, NGN)** → **`accountId`** |
-| 4c | **`POST /api/v1/offramps`** with `destination.accountId` = **`{{accountId}}`** — **Create Offramp (USD)** or **Create Offramp (NGN)** |
+| 4c | **`POST /api/v1/offramps/quotes`** → save `quoteId` → **`POST /api/v1/offramps`** with `quoteId` + `destination.accountId` = **`{{accountId}}`** — see **Create Offramp** / **Create Offramp (USD)** below |
 | 5 | **`POST .../wallets/external`** — **`walletId`** on the **source crypto network** |
 
 ### B. Network validation (off-ramp source)
@@ -130,10 +130,13 @@ Same user must be **KYB-approved** for **destination fiat currency** (`getKybRai
 
 ### C. Create off-ramp
 
+> **Breaking change — quote-first only.** `POST /offramps` now requires a `quoteId`. Direct creation (passing `source.amount`, `source.currency`, `source.chain`, `destination.currency`, or `platformFee`) is rejected with **400**. Call `POST /offramps/quotes` first; the quote fixes all amounts and fees. The offramp platform fee is now denominated in the **source crypto** (`fees.platformFee.currency = fromCurrency`); settlement remains USDC.
+
 | Step | Request | Notes |
 |------|---------|--------|
-| 6 | `GET /api/v1/offramps/rates` | Optional fee preview: `amount` + `country` + `destinationType` (+ `beneficiaryType`) → **`quote`** with **`sendNet`**, **`receiveNet`**, **`transferFee`** (provider fee in its own currency, deducted from send) |
-| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`platformFee.walletAddress`** + **`destination.purposeOfPayment`** required. Omit **`destination.amount`** — server computes net fiat. Optional **`platformFee.currency`** / **`network`** for automatic USDC fee settlement after completion. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. Response includes **`fees.transferFee`**. |
+| 6 | `GET /api/v1/offramps/rates` | Optional rate/fee preview: `amount` + `country` + `destinationType` (+ `beneficiaryType`) → **`quote`** with **`sendNet`**, **`receiveNet`**, **`transferFee`** (provider fee in its own currency, deducted from send). Display only; not binding. |
+| 6a | **`POST /api/v1/offramps/quotes`** | **Required before create.** Body: `fromCurrency`, `toCurrency`, `fromChain`, `amount`, `country`, `destinationType` (+ optional `beneficiaryType`), `platformFee` (with `walletAddress`). Returns `quoteId` (`data.id`). Save as **`offrampQuoteId`**. Quote includes `fees.platformFee.currency = fromCurrency` (source crypto). |
+| 7 | **`POST /api/v1/offramps`** | **`requestId`** header = body; **`quoteId`** = saved `offrampQuoteId` required. Required: `source.userId`, `source.externalWalletId`, `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`. **Omit** `source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, and `platformFee` — all are fixed by the quote. Expect **`AWAITING_CRYPTO`**, **`offrampTxnRef`**. Response includes **`fees.transferFee`** and **`fees.platformFee`** (amount in source crypto). |
 
 ### D. Deposit confirmation (crypto)
 
@@ -188,7 +191,7 @@ Exact enums are defined in application types (`OnrampStatus`, `OfframpStatus`).
 [ ] User → KYB chain → Wallet (on-ramp) → [optional Account (offramp) before off-ramp]
 [ ] Onramps: Rates → [Rates with fee preview] → Create → (DB: provisioned account id) → Webhook deposit.credited fiat → Get Onramp → (optional withdrawal.successful crypto)
 [ ] Payout corridors (note payoutRailLabel) → Account (offramp) if needed → Wallet aligned to crypto network
-[ ] Offramps: Rates → [Rates with fee preview] → Create → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat) → (withdrawal successful platform fee)
+[ ] Offramps: Rates → [Rates with fee preview] → **Quotes (POST /offramps/quotes)** → Create (with quoteId) → Webhook deposit.credited crypto → Get Offramp (read) → Retry Fiat Payout if needed → (withdrawal successful fiat) → (withdrawal successful platform fee)
 ```
 
 This document is the single reference for **Postman-only** ramp QA; pair it with `postman/README.md` for variable names and request naming.

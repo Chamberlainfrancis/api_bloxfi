@@ -110,7 +110,7 @@ The API key is a shared secret configured in `API_KEY`.
 | **Coins** | `GET /api/v1/coins` — Palremit-supported assets (`get_all_coins`) |
 | **Networks** | `GET /api/v1/networks?coin=…` — chains per asset (`get_coin_network_list`, fallback `get_coin`) |
 | **Onramps** | `GET /api/v1/onramps/rates`, `POST/GET /api/v1/onramps` |
-| **Offramps** | `GET /api/v1/offramps/rates`, `POST/GET /api/v1/offramps`, `POST .../cancel` |
+| **Offramps** | `GET /api/v1/offramps/rates`, `POST /api/v1/offramps/quotes`, `POST/GET /api/v1/offramps`, `POST .../cancel` |
 | **Limits** | `GET /api/v1/limits`, `POST/GET /api/v1/high-value-requests` |
 | **Webhooks** | `POST /api/v1/webhooks` — LP webhooks (raw body, HMAC; no API key) |
 
@@ -162,6 +162,26 @@ See **`postman/README.md`** and **`postman/TEST_SCRIPTS_REFERENCE.md`** for the 
 - **Platform:** Handles user requests, validation, order state, fees, limits, and settlement; calls the LP only when moving money.
 
 For details see **`docs/RAMP_ARCHITECTURE.md`** (if present in your tree).
+
+## Offramp create contract (quote-first)
+
+**`POST /api/v1/offramps` requires a `quoteId` (breaking change).**
+
+Call `POST /api/v1/offramps/quotes` first with `fromCurrency`, `toCurrency`, `fromChain`, `amount`, `country`, `destinationType`, and `platformFee`. The response includes a `quoteId` that is valid for a short window.
+
+When calling `POST /api/v1/offramps`, pass only:
+- `requestId` (header + body, UUID v4)
+- `quoteId` — the id returned by `/offramps/quotes`
+- `source.userId`, `source.externalWalletId`
+- `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`
+- `metadata` (required for USD; must include `isSelfTransfer`)
+
+The following fields must be **omitted** — they are fixed by the quote and will cause a **400** if present:
+`source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, `platformFee`
+
+**Platform fee currency:** The offramp platform fee is denominated in the **source crypto** (`fees.platformFee.currency = fromCurrency`, e.g. `usdt`). Settlement of the platform fee remains USDC and runs automatically after the offramp reaches `COMPLETED`.
+
+**Migration:** Any client that called `POST /offramps` with direct amounts or `platformFee` must be updated to call `POST /offramps/quotes` first and pass the returned `quoteId`. See `postman/RAMP_E2E_POSTMAN_FLOW.md` for the updated flow.
 
 ## License
 

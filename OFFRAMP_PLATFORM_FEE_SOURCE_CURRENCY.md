@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Repo:** `api_bloxfi`
-**Status:** design (pre-implementation)
+**Status:** implemented (branch offramp-quote-first-source-fee)
 **Related:** `OFFRAMP_FEE_CURRENCY_FIX.md` (that fix was for the *provider transfer
 fee*; this one is for the *platform fee* + the create flow).
 
