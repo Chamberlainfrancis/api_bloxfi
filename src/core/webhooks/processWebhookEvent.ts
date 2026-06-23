@@ -23,6 +23,10 @@ import {
   parseDepositWebhookAmount,
   priorCryptoReceivedAmount,
 } from '@/core/offramps/offrampDepositAmount';
+import {
+  expireOnrampIfDepositPastDue,
+  expireOfframpIfDepositPastDue,
+} from '@/core/ramps/depositExpiry';
 
 export interface WebhookRepos {
   user: {
@@ -195,6 +199,8 @@ export async function processWebhookEvent(
       if (isOnrampTxnRef(clientRef)) {
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
+        const expired = await expireOnrampIfDepositPastDue(onramp, repos.onramp);
+        if (expired === 'EXPIRED') break;
         if (!['AWAITING_FUNDS', 'FIAT_PENDING'].includes(onramp.status)) break;
         const orch = getPalremitOrchestrator(onramp.providerRefs);
         const expectedProv =
@@ -230,6 +236,8 @@ export async function processWebhookEvent(
       if (isOfframpTxnRef(clientRef)) {
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
+        const expired = await expireOfframpIfDepositPastDue(offramp, repos.offramp);
+        if (expired === 'EXPIRED') break;
         if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED'].includes(offramp.status)) break;
         if (depMode !== 'CRYPTO_DEPOSIT') break;
         const orch = getPalremitOrchestrator(offramp.providerRefs);

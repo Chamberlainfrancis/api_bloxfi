@@ -29,7 +29,8 @@ export async function listTransactions(
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
     const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
-    const result = await dashboard.listTransactions({ type, status, cursor, limit });
+    const includeExpired = req.query.includeExpired === 'true';
+    const result = await dashboard.listTransactions({ type, status, includeExpired, cursor, limit });
     sendSuccess(res, result);
   } catch (e) {
     next(e);

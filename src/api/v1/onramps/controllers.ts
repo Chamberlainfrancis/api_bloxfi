@@ -48,6 +48,8 @@ const repos = {
     findOnrampById: onrampRepo.findOnrampById,
     findOnrampByRequestId: onrampRepo.findOnrampByRequestId,
     listOnramps: onrampRepo.listOnramps,
+    listOnrampsAwaitingDeposit: onrampRepo.listOnrampsAwaitingDeposit,
+    updateOnrampStatus: onrampRepo.updateOnrampStatus,
   },
   user: {
     findUserById: userRepo.findUserById,

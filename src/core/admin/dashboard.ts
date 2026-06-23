@@ -11,6 +11,12 @@
 import { AppError } from '@/types';
 import { logger } from '@/lib/logger';
 import { buildAuditTrail } from '@/core/admin/auditTrail';
+import {
+  expireOnrampIfDepositPastDue,
+  expireOfframpIfDepositPastDue,
+  expireStaleOnramps,
+  expireStaleOfframps,
+} from '@/core/ramps/depositExpiry';
 
 export type TxnType = 'onramp' | 'offramp';
 export type MarkOutcome = 'success' | 'failed';
@@ -160,8 +166,31 @@ export function toListRow(
 export interface ListParams {
   type: TxnType;
   status?: string;
+  includeExpired?: boolean;
   cursor?: string;
   limit?: number;
+}
+
+async function expireStaleRampsForType(type: TxnType): Promise<void> {
+  if (type === 'onramp') {
+    const onrampRepo = await import('@/db/repositories/onramp.repo');
+    const expired = await expireStaleOnramps(
+      onrampRepo.listOnrampsAwaitingDeposit,
+      onrampRepo
+    );
+    if (expired > 0) {
+      logger.info({ type, expired }, 'expired stale onramps past deposit window');
+    }
+    return;
+  }
+  const offrampRepo = await import('@/db/repositories/offramp.repo');
+  const expired = await expireStaleOfframps(
+    offrampRepo.listOfframpsAwaitingDeposit,
+    offrampRepo
+  );
+  if (expired > 0) {
+    logger.info({ type, expired }, 'expired stale offramps past deposit window');
+  }
 }
 
 export async function listTransactions(
@@ -176,10 +205,15 @@ export async function listTransactions(
     }
   }
 
+  await expireStaleRampsForType(params.type);
+
+  const excludeExpired = !params.includeExpired && !params.status;
+
   if (params.type === 'onramp') {
     const onrampRepo = await import('@/db/repositories/onramp.repo');
     const { onramps, nextCursor } = await onrampRepo.listOnramps({
       status: params.status as never,
+      excludeStatuses: excludeExpired ? (['EXPIRED'] as const) : undefined,
       limit,
       createdBefore,
     });
@@ -192,6 +226,7 @@ export async function listTransactions(
   const offrampRepo = await import('@/db/repositories/offramp.repo');
   const { offramps, nextCursor } = await offrampRepo.listOfframps({
     status: params.status as never,
+    excludeStatuses: excludeExpired ? (['EXPIRED'] as const) : undefined,
     limit,
     createdBefore,
   });
@@ -229,6 +264,19 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     import('@/db/repositories/offramp.repo'),
     import('@/db/repositories/adminAction.repo'),
   ]);
+
+  if (type === 'onramp') {
+    const existing = await onrampRepo.findOnrampById(id);
+    if (existing) {
+      await expireOnrampIfDepositPastDue(existing, onrampRepo);
+    }
+  } else {
+    const existing = await offrampRepo.findOfframpById(id);
+    if (existing) {
+      await expireOfframpIfDepositPastDue(existing, offrampRepo);
+    }
+  }
+
   const row =
     type === 'onramp'
       ? await onrampRepo.findOnrampById(id)

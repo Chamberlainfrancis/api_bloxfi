@@ -3,6 +3,7 @@
  */
 
 import { resolveOnrampFees } from '@/core/onramps/resolveOnrampFees';
+import { expireOnrampIfDepositPastDue } from '@/core/ramps/depositExpiry';
 import type {
   GetOnrampResponse,
   OnrampTransferDetails,
@@ -32,6 +33,11 @@ export interface OnrampRepoGet {
     createdAt: Date;
     updatedAt: Date;
   } | null>;
+  updateOnrampStatus(
+    id: string,
+    status: OnrampStatus,
+    updates?: { failedReason?: string | null }
+  ): Promise<unknown>;
 }
 
 function rowToTransferDetails(row: {
@@ -75,8 +81,10 @@ export async function getOnramp(
 ): Promise<GetOnrampResponse | null> {
   const row = await repo.findOnrampById(onrampId);
   if (!row) return null;
+  await expireOnrampIfDepositPastDue(row, repo);
+  const current = (await repo.findOnrampById(onrampId)) ?? row;
   return {
     transferType: 'ONRAMP',
-    transferDetails: rowToTransferDetails(row),
+    transferDetails: rowToTransferDetails(current),
   };
 }

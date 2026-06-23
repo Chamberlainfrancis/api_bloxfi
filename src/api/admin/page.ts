@@ -105,6 +105,7 @@ export function renderDashboardHtml(nonce: string): string {
 <div class="toolbar" id="txnToolbar">
   <label class="muted" id="statusLabel">Status</label>
   <select id="statusFilter"><option value="">All</option></select>
+  <label class="muted" id="includeExpiredLabel"><input type="checkbox" id="includeExpired" /> Include expired</label>
   <button class="ghost" id="reload">Reload</button>
 </div>
 <div id="err" class="err" style="display:none"></div>
@@ -142,7 +143,7 @@ const LABELS = {
 };
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
-let state = { view: "transactions", type: "onramp", status: "", cursor: null };
+let state = { view: "transactions", type: "onramp", status: "", includeExpired: false, cursor: null };
 const $ = (id) => document.getElementById(id);
 
 function setTableHead(view) {
@@ -248,6 +249,7 @@ async function load(reset) {
   try {
     const q = new URLSearchParams({ type: state.type });
     if (state.status) q.set("status", state.status);
+    if (state.includeExpired) q.set("includeExpired", "true");
     if (state.cursor) q.set("cursor", state.cursor);
     const data = await api("/transactions?" + q.toString());
     if (!data.items.length && !$("rows").children.length) {
@@ -560,17 +562,21 @@ document.querySelectorAll(".tab").forEach(function (el) {
     state.view = el.dataset.view || "transactions";
     if (state.view === "transactions") state.type = el.dataset.type || "onramp";
     state.status = "";
+    state.includeExpired = false;
     state.cursor = null;
     $("statusFilter").value = "";
+    $("includeExpired").checked = false;
     $("txnToolbar").style.display = "flex";
     $("statusLabel").style.display = state.view === "settlements" ? "none" : "";
     $("statusFilter").style.display = state.view === "settlements" ? "none" : "";
+    $("includeExpiredLabel").style.display = state.view === "settlements" ? "none" : "";
     setTableHead(state.view);
     fillStatusFilter();
     load(true);
   });
 });
 $("statusFilter").addEventListener("change", function (e) { state.status = e.target.value; load(true); });
+$("includeExpired").addEventListener("change", function (e) { state.includeExpired = e.target.checked; load(true); });
 $("reload").addEventListener("click", function () { load(true); });
 $("more").addEventListener("click", function () { load(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });

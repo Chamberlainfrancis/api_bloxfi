@@ -8,6 +8,7 @@ import type {
   ListOfframpItem,
   OfframpStatus,
 } from '@/types/offramp';
+import { expireStaleOfframps } from '@/core/ramps/depositExpiry';
 
 export interface OfframpRepoList {
   listOfframps(params: {
@@ -27,6 +28,19 @@ export interface OfframpRepoList {
     }>;
     nextCursor: Date | null;
   }>;
+  listOfframpsAwaitingDeposit(): Promise<
+    Array<{
+      id: string;
+      status: string;
+      rateInformation?: unknown;
+      depositInstructions?: unknown;
+    }>
+  >;
+  updateOfframpStatus(
+    id: string,
+    status: OfframpStatus,
+    updates?: { failedReason?: string | null }
+  ): Promise<unknown>;
 }
 
 function toListItem(row: {
@@ -67,6 +81,8 @@ export async function listOfframps(
   if (createdAfter && isNaN(createdAfter.getTime())) {
     throw new Error('INVALID_CURSOR: createdAfter must be valid ISO 8601');
   }
+
+  await expireStaleOfframps(repo.listOfframpsAwaitingDeposit.bind(repo), repo);
 
   const { offramps, nextCursor } = await repo.listOfframps({
     userId: query.userId,

@@ -52,6 +52,7 @@ const repos = {
     findOfframpById: offrampRepo.findOfframpById,
     findOfframpByRequestId: offrampRepo.findOfframpByRequestId,
     listOfframps: offrampRepo.listOfframps,
+    listOfframpsAwaitingDeposit: offrampRepo.listOfframpsAwaitingDeposit,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
   },
   user: {

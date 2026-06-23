@@ -15,6 +15,7 @@ import type {
   RefundDetails,
 } from '@/types/offramp';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
+import { expireOfframpIfDepositPastDue } from '@/core/ramps/depositExpiry';
 
 export interface OfframpRepoGet {
   findOfframpById(id: string): Promise<{
@@ -35,6 +36,11 @@ export interface OfframpRepoGet {
     createdAt: Date;
     updatedAt: Date;
   } | null>;
+  updateOfframpStatus(
+    id: string,
+    status: OfframpStatus,
+    updates?: { failedReason?: string | null }
+  ): Promise<unknown>;
 }
 
 function rowToTransferDetails(row: {
@@ -81,8 +87,10 @@ export async function getOfframp(
 ): Promise<GetOfframpResponse | null> {
   const row = await repo.findOfframpById(offrampId);
   if (!row) return null;
+  await expireOfframpIfDepositPastDue(row, repo);
+  const current = (await repo.findOfframpById(offrampId)) ?? row;
   return {
     transferType: 'OFFRAMP',
-    transferDetails: rowToTransferDetails(row),
+    transferDetails: rowToTransferDetails(current),
   };
 }

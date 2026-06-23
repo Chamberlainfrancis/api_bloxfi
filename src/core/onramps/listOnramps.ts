@@ -3,6 +3,7 @@
  */
 
 import type { ListOnrampsQuery, ListOnrampsResponse, ListOnrampItem, OnrampStatus } from '@/types/onramp';
+import { expireStaleOnramps } from '@/core/ramps/depositExpiry';
 
 export interface OnrampRepoList {
   listOnramps(params: {
@@ -22,6 +23,14 @@ export interface OnrampRepoList {
     }>;
     nextCursor: Date | null;
   }>;
+  listOnrampsAwaitingDeposit(): Promise<
+    Array<{ id: string; status: string; quoteInformation?: unknown; depositInfo?: unknown }>
+  >;
+  updateOnrampStatus(
+    id: string,
+    status: OnrampStatus,
+    updates?: { failedReason?: string | null }
+  ): Promise<unknown>;
 }
 
 function toListItem(row: {
@@ -62,6 +71,8 @@ export async function listOnramps(
   if (createdAfter && isNaN(createdAfter.getTime())) {
     throw new Error('INVALID_CURSOR: createdAfter must be valid ISO 8601');
   }
+
+  await expireStaleOnramps(repo.listOnrampsAwaitingDeposit.bind(repo), repo);
 
   const { onramps, nextCursor } = await repo.listOnramps({
     userId: query.userId,

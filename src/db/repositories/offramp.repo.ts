@@ -164,26 +164,40 @@ export async function updateOfframpStatus(
 export interface ListOfframpsParams {
   userId?: string;
   status?: OfframpStatus;
+  excludeStatuses?: OfframpStatus[];
   currency?: string;
   limit: number;
   createdBefore?: Date;
   createdAfter?: Date;
 }
 
+export async function listOfframpsAwaitingDeposit(): Promise<OfframpRow[]> {
+  const rows = await prisma.offramp.findMany({
+    where: { status: { in: ['AWAITING_CRYPTO', 'CRYPTO_PENDING'] } },
+  });
+  return rows as OfframpRow[];
+}
+
 export async function listOfframps(params: ListOfframpsParams): Promise<{
   offramps: OfframpRow[];
   nextCursor: Date | null;
 }> {
-  const { userId, status, currency, limit, createdBefore, createdAfter } = params;
+  const { userId, status, excludeStatuses, currency, limit, createdBefore, createdAfter } = params;
   const take = Math.min(Math.max(1, limit), 100);
   const where: {
     userId?: string;
-    status?: (typeof STATUS_VALUES)[number];
+    status?: (typeof STATUS_VALUES)[number] | { notIn: (typeof STATUS_VALUES)[number][] };
     createdAt?: { lt?: Date; gt?: Date };
   } = {};
 
   if (userId) where.userId = userId;
-  if (status) where.status = toPrismaStatus(status);
+  if (status) {
+    where.status = toPrismaStatus(status);
+  } else if (excludeStatuses?.length) {
+    where.status = {
+      notIn: excludeStatuses.map((s) => toPrismaStatus(s)),
+    };
+  }
   if (createdBefore || createdAfter) {
     where.createdAt = {};
     if (createdBefore) where.createdAt.lt = createdBefore;
