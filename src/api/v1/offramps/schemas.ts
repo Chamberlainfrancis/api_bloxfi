@@ -71,6 +71,9 @@ export const createOfframpBodySchema = z
     if (!val.requestId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['requestId'], message: 'requestId is required' });
     }
+    if (!val.quoteId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['quoteId'], message: 'quoteId is required (quote-first offramp)' });
+    }
     if (!val.source.userId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'userId'], message: 'source.userId is required' });
     }
@@ -96,60 +99,30 @@ export const createOfframpBodySchema = z
       });
     }
 
-    if (val.quoteId) {
-      if (val.platformFee) {
+    if (val.platformFee) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['platformFee'],
+        message: 'platformFee must be omitted; it is fixed by the quote',
+      });
+    }
+    for (const field of ['amount', 'currency', 'chain'] as const) {
+      const v = val.source[field];
+      if (v != null && v !== '') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['platformFee'],
-          message: 'platformFee must be omitted when quoteId is provided',
+          path: ['source', field],
+          message: `source.${field} must be omitted; it is fixed by the quote`,
         });
       }
-      for (const field of ['amount', 'currency', 'chain'] as const) {
-        const v = val.source[field];
-        if (v != null && v !== '') {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['source', field],
-            message: `source.${field} must be omitted when quoteId is provided`,
-          });
-        }
-      }
-      for (const field of ['currency', 'amount'] as const) {
-        const v = val.destination[field];
-        if (v != null && v !== '') {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ['destination', field],
-            message: `destination.${field} must be omitted when quoteId is provided`,
-          });
-        }
-      }
-    } else {
-      if (!val.source.amount) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'amount'], message: 'source.amount is required' });
-      }
-      if (!val.source.currency?.trim()) {
+    }
+    for (const field of ['currency', 'amount'] as const) {
+      const v = val.destination[field];
+      if (v != null && v !== '') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['source', 'currency'],
-          message: 'source.currency is required',
-        });
-      }
-      if (!val.source.chain?.trim()) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'chain'], message: 'source.chain is required' });
-      }
-      if (!val.destination.currency?.trim()) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['destination', 'currency'],
-          message: 'destination.currency is required',
-        });
-      }
-      if (!val.platformFee) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['platformFee'],
-          message: 'platformFee is required',
+          path: ['destination', field],
+          message: `destination.${field} must be omitted; it is fixed by the quote`,
         });
       }
     }
