@@ -13,6 +13,7 @@ import { sendSuccess } from '@/utils';
 import { getRedis } from '@/services/redis';
 import { adminRouter } from '@/api/admin/routes';
 import { renderDashboardHtml } from '@/api/admin/page';
+import { getTotalRealizedProfitUsdc } from '@/core/admin/dashboard';
 
 const app = express();
 
@@ -61,7 +62,7 @@ app.get('/api/v1/health', (_req, res) => {
 // See docs/superpowers/specs/2026-06-15-bloxfi-admin-dashboard-design.md
 // The page's inline <script> is blocked by helmet's default CSP (script-src
 // 'self'); serve it with a per-request nonce so the script runs.
-app.get('/dashboard', (_req, res) => {
+app.get('/dashboard', async (_req, res) => {
   const nonce = randomBytes(16).toString('base64');
   res.setHeader(
     'Content-Security-Policy',
@@ -77,7 +78,9 @@ app.get('/dashboard', (_req, res) => {
       "object-src 'none'",
     ].join('; ')
   );
-  res.type('html').send(renderDashboardHtml(nonce));
+  // Best-effort: show 0 if DB is unavailable rather than failing the page load.
+  const totalProfitUsdc = await getTotalRealizedProfitUsdc().catch(() => '0.00000000');
+  res.type('html').send(renderDashboardHtml(nonce, totalProfitUsdc));
 });
 app.use('/dashboard/api', adminRouter);
 

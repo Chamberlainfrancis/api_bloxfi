@@ -9,7 +9,7 @@
  * only interpolation in this template literal is the nonce.
  */
 
-export function renderDashboardHtml(nonce: string): string {
+export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.00000000'): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -96,6 +96,7 @@ export function renderDashboardHtml(nonce: string): string {
 <header>
   <h1>BloxFi Transactions</h1>
   <span class="warn">⚠ Internal dashboard — do not share the link publicly</span>
+  <span class="kv"><span class="k" style="color:var(--mut);font-size:12px">Total profit (COMPLETED)</span> <span class="v" style="font-variant-numeric:tabular-nums;font-weight:600">${totalProfitUsdc} USDC</span></span>
 </header>
 <div class="tabs">
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
@@ -413,6 +414,17 @@ async function openDetail(id, forceType) {
     if (hasContent(rate)) body += section("Exchange & quote", kvBlock(rate));
     if (hasContent(src)) body += section("Paid from (sender)", kvBlock(src));
     if (hasContent(t.fees)) body += section("Fees", kvBlock(t.fees));
+
+    if (t.profit && t.profit.amountInCurrency) {
+      var profitData = t.profit;
+      var profitRows = {
+        "USDC": profitData.amountUsdc == null ? "—" : profitData.amountUsdc,
+        "Native": profitData.amountInCurrency + " " + (profitData.currency || "").toUpperCase(),
+        "Market rate": profitData.marketRate,
+        "Our rate": profitData.customerRate,
+      };
+      body += section("Palremit profit", kvBlock(profitRows));
+    }
 
     if (t.type === "offramp" && t.fees && t.fees.platformFee && t.fees.platformFee.settlement) {
       const pf = t.fees.platformFee;

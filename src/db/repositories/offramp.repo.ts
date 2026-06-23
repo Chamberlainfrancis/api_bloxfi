@@ -230,6 +230,10 @@ export async function listOfframps(params: ListOfframpsParams): Promise<{
   };
 }
 
+export async function findCompletedProfits(): Promise<Array<{ profit: unknown }>> {
+  return prisma.offramp.findMany({ where: { status: 'COMPLETED' }, select: { profit: true } });
+}
+
 export async function listOfframpsFeeSettlementsForAdmin(params: {
   limit: number;
   createdBefore?: Date;

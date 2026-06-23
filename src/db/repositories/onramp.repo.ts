@@ -141,6 +141,10 @@ export interface ListOnrampsParams {
   createdAfter?: Date;
 }
 
+export async function findCompletedProfits(): Promise<Array<{ profit: unknown }>> {
+  return prisma.onramp.findMany({ where: { status: 'COMPLETED' }, select: { profit: true } });
+}
+
 export async function listOnrampsAwaitingDeposit(): Promise<OnrampRow[]> {
   const rows = await prisma.onramp.findMany({
     where: { status: { in: ['AWAITING_FUNDS', 'FIAT_PENDING'] } },
