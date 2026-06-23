@@ -206,6 +206,36 @@ export interface PalremitWithdrawalCreateResult {
   raw: unknown;
 }
 
+function parsePalremitWithdrawalBody(raw: unknown): PalremitWithdrawalCreateResult | null {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const wrap = raw as { data?: unknown };
+  const candidate =
+    wrap.data != null && typeof wrap.data === 'object' && !Array.isArray(wrap.data)
+      ? (wrap.data as Record<string, unknown>)
+      : (raw as Record<string, unknown>);
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  const clientRef =
+    typeof candidate.client_reference === 'string' ? candidate.client_reference.trim() : '';
+  const state = typeof candidate.state === 'string' ? candidate.state.trim() : '';
+  if (!id || !clientRef) return null;
+  return { id, client_reference: clientRef, state, raw };
+}
+
+/** GET /v1/withdrawals/by-client-ref/:client_reference */
+export async function getPalremitWithdrawalByClientReference(
+  request: PalremitLiquidityRequestFn,
+  clientReference: string
+): Promise<PalremitWithdrawalCreateResult | null> {
+  const ref = clientReference?.trim();
+  if (!ref) return null;
+  const res = await request<Record<string, unknown>>(
+    `/v1/withdrawals/by-client-ref/${encodeURIComponent(ref)}`,
+    { method: 'GET' }
+  );
+  if (res.status !== 200) return null;
+  return parsePalremitWithdrawalBody(res.data);
+}
+
 export async function createPalremitWithdrawal(
   request: PalremitLiquidityRequestFn,
   body: Record<string, unknown>,
@@ -217,7 +247,7 @@ export async function createPalremitWithdrawal(
     path: '/v1/withdrawals',
     idempotencyKey,
   });
-  const res = await request<{ data?: Record<string, unknown>; outcome?: string }>('/v1/withdrawals', {
+  const res = await request<Record<string, unknown>>('/v1/withdrawals', {
     method: 'POST',
     body,
     headers: { 'Idempotency-Key': idempotencyKey },
@@ -243,12 +273,5 @@ export async function createPalremitWithdrawal(
     );
     return null;
   }
-  const wrap = res.data as { data?: Record<string, unknown> };
-  const d = wrap?.data;
-  if (!d || typeof d !== 'object') return null;
-  const id = typeof d.id === 'string' ? d.id : '';
-  const clientRef = typeof d.client_reference === 'string' ? d.client_reference : '';
-  const state = typeof d.state === 'string' ? d.state : '';
-  if (!id || !clientRef) return null;
-  return { id, client_reference: clientRef, state, raw: wrap };
+  return parsePalremitWithdrawalBody(res.data);
 }

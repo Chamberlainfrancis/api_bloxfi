@@ -99,6 +99,7 @@ describe('settleOfframpPlatformFee', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal');
+    vi.spyOn(palremitLiquidity, 'getPalremitWithdrawalByClientReference').mockResolvedValue(null);
     findOfframpById.mockImplementation(async (id: string) =>
       id === 'offramp-1'
         ? baseOfframp({
@@ -145,13 +146,50 @@ describe('settleOfframpPlatformFee', () => {
       id: 'wd-fee-1',
       client_reference: buildOfframpFeeClientReference(TXN_REF),
       state: 'processing',
-      raw: {},
+      raw: {
+        id: 'wd-fee-1',
+        client_reference: buildOfframpFeeClientReference(TXN_REF),
+        state: 'processing',
+      },
     });
 
     const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
     expect(res.outcome).toBe('processing');
     expect(res.settlement?.withdrawalId).toBe('wd-fee-1');
     expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalled();
+  });
+
+  it('marks settlement completed when Palremit withdrawal already succeeded', async () => {
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'MATIC', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('MATIC');
+    vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal').mockResolvedValue({
+      id: 'wd-fee-1',
+      client_reference: buildOfframpFeeClientReference(TXN_REF),
+      state: 'pending',
+      raw: {
+        id: 'wd-fee-1',
+        client_reference: buildOfframpFeeClientReference(TXN_REF),
+        state: 'pending',
+      },
+    });
+    vi.spyOn(palremitLiquidity, 'getPalremitWithdrawalByClientReference').mockResolvedValue({
+      id: 'wd-fee-1',
+      client_reference: buildOfframpFeeClientReference(TXN_REF),
+      state: 'successful',
+      raw: {
+        id: 'wd-fee-1',
+        client_reference: buildOfframpFeeClientReference(TXN_REF),
+        state: 'successful',
+        settlement_reference: '0xhash',
+      },
+    });
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('already_settled');
+    expect(res.settlement?.status).toBe('completed');
+    expect(res.settlement?.transactionHash).toBe('0xhash');
   });
 
   it('retries Palremit withdrawal when settlement previously failed', async () => {
@@ -183,7 +221,11 @@ describe('settleOfframpPlatformFee', () => {
       id: 'wd-fee-retry',
       client_reference: buildOfframpFeeClientReference(TXN_REF),
       state: 'processing',
-      raw: {},
+      raw: {
+        id: 'wd-fee-retry',
+        client_reference: buildOfframpFeeClientReference(TXN_REF),
+        state: 'processing',
+      },
     });
 
     const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
@@ -238,5 +280,36 @@ describe('applyOfframpPlatformFeeWithdrawalWebhook', () => {
     };
     expect(feesArg?.platformFee?.settlement?.status).toBe('completed');
     expect(feesArg?.platformFee?.settlement?.transactionHash).toBe('0xhash');
+  });
+
+  it('reconciles a failed settlement row when Palremit later confirms success', async () => {
+    findOfframpByTxnRef.mockResolvedValue({
+      id: 'offramp-1',
+      status: 'COMPLETED',
+      txnRef: TXN_REF,
+      fees: {
+        platformFee: {
+          amount: '0.5',
+          currency: 'USDC',
+          walletAddress: '0xabc',
+          settlement: {
+            status: 'failed',
+            withdrawalId: 'wd-fee-1',
+            notes: ['Palremit withdrawal request failed'],
+          },
+        },
+      },
+    });
+    const ok = await applyOfframpPlatformFeeWithdrawalWebhook(
+      repo,
+      TXN_REF,
+      { id: 'wd-fee-1', settlement_reference: '0xhash' },
+      'completed'
+    );
+    expect(ok).toBe(true);
+    const feesArg = updateOfframpStatus.mock.calls[0]?.[2]?.fees as {
+      platformFee?: { settlement?: { status?: string } };
+    };
+    expect(feesArg?.platformFee?.settlement?.status).toBe('completed');
   });
 });

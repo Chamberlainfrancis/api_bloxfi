@@ -530,7 +530,7 @@ export async function approveFeeSettlement(
     '@/core/offramps/triggerOfframpPlatformFeeSettlement'
   );
   const result = await triggerOfframpPlatformFeeSettlement(params.offrampId);
-  if (result.outcome !== 'processing') {
+  if (result.outcome !== 'processing' && result.outcome !== 'already_settled') {
     throw new AppError(
       `Fee settlement could not be started (${result.outcome})`,
       'INVALID_REQUEST',
@@ -545,7 +545,8 @@ export async function approveFeeSettlement(
     txnType: 'offramp',
     txnId: params.offrampId,
     fromStatus: settlementStatus === 'failed' ? 'fee:failed' : 'fee:pending',
-    toStatus: 'fee:processing',
+    toStatus:
+      result.outcome === 'already_settled' ? 'fee:completed' : 'fee:processing',
     note:
       settlementStatus === 'failed'
         ? 'Retried platform fee settlement'

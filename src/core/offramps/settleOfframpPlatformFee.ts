@@ -5,7 +5,7 @@
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
-import { createPalremitWithdrawal } from '@/core/integrations/palremitLiquidity';
+import { createPalremitWithdrawal, getPalremitWithdrawalByClientReference } from '@/core/integrations/palremitLiquidity';
 import {
   fetchPalremitNetworksForCoin,
   resolvePalremitNetworkFromOptions,
@@ -243,6 +243,33 @@ async function validatePlatformFeeSettlement(
   };
 }
 
+function withdrawalTerminalState(state: string): 'completed' | 'failed' | null {
+  const normalized = state.trim().toLowerCase();
+  if (normalized === 'successful') return 'completed';
+  if (normalized === 'failed') return 'failed';
+  return null;
+}
+
+async function resolvePalremitFeeWithdrawal(
+  deps: SettleOfframpPlatformFeeDeps,
+  withdrawalBody: Record<string, unknown>,
+  idempotencyKey: string,
+  clientReference: string
+): Promise<Record<string, unknown> | null> {
+  const created = await createPalremitWithdrawal(deps.liquidityRequest, withdrawalBody, idempotencyKey);
+  const live =
+    (await getPalremitWithdrawalByClientReference(deps.liquidityRequest, clientReference)) ??
+    created;
+  if (!live?.id) return null;
+  return live.raw != null && typeof live.raw === 'object' && !Array.isArray(live.raw)
+    ? (live.raw as Record<string, unknown>)
+    : {
+        id: live.id,
+        client_reference: live.client_reference,
+        state: live.state,
+      };
+}
+
 /** Queue platform-fee settlement for admin approval after offramp completion. */
 export async function queueOfframpPlatformFeeSettlement(
   repo: SettleOfframpPlatformFeeRepo,
@@ -335,8 +362,13 @@ export async function settleOfframpPlatformFee(
     destination: { address: validation.wallet },
   };
 
-  const created = await createPalremitWithdrawal(deps.liquidityRequest, withdrawalBody, idempotencyKey);
-  if (!created?.id) {
+  const created = await resolvePalremitFeeWithdrawal(
+    deps,
+    withdrawalBody,
+    idempotencyKey,
+    clientReference
+  );
+  if (!created) {
     const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
       status: 'failed',
       notes: ['Palremit withdrawal request failed'],
@@ -346,15 +378,53 @@ export async function settleOfframpPlatformFee(
     return { outcome: 'skipped', settlement };
   }
 
+  const wid = typeof created.id === 'string' ? created.id.trim() : '';
+  const wstate = typeof created.state === 'string' ? created.state : '';
+  const terminal = withdrawalTerminalState(wstate);
+  if (terminal === 'completed') {
+    const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
+      status: 'completed',
+      withdrawalId: wid,
+      transactionHash: withdrawalSettlementHash(created),
+      attemptedAt,
+      completedAt: new Date().toISOString(),
+    });
+    logger.info(
+      { offrampId, withdrawalId: wid, clientReference },
+      'offramp platform fee settlement already completed at Palremit'
+    );
+    return { outcome: 'already_settled', settlement };
+  }
+  if (terminal === 'failed') {
+    const fail = created.failure_reason;
+    const reason =
+      fail != null &&
+      typeof fail === 'object' &&
+      !Array.isArray(fail) &&
+      typeof (fail as { message?: unknown }).message === 'string' &&
+      (fail as { message: string }).message.trim() !== ''
+        ? (fail as { message: string }).message.trim()
+        : 'fee settlement withdrawal failed';
+    const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
+      status: 'failed',
+      withdrawalId: wid || undefined,
+      notes: [reason],
+      attemptedAt,
+      completedAt: new Date().toISOString(),
+    });
+    logger.error({ offrampId, withdrawalId: wid, clientReference }, 'offramp platform fee settlement failed at Palremit');
+    return { outcome: 'skipped', settlement };
+  }
+
   const settlement = await persistPlatformFeeSettlement(repo, offrampId, 'COMPLETED', fees, {
     status: 'processing',
-    withdrawalId: created.id,
+    withdrawalId: wid,
     attemptedAt,
   });
   logger.info(
     {
       offrampId,
-      withdrawalId: created.id,
+      withdrawalId: wid,
       clientReference,
       amount: validation.settlementAmount,
     },
@@ -385,7 +455,7 @@ export async function applyOfframpPlatformFeeWithdrawalWebhook(
 
   const fees = parseFees(offramp.fees);
   const settlement = fees?.platformFee?.settlement;
-  if (!settlement || settlement.status !== 'processing') return false;
+  if (!settlement || !['processing', 'failed'].includes(settlement.status)) return false;
 
   const wid = typeof withdrawal.id === 'string' ? withdrawal.id.trim() : '';
   if (settlement.withdrawalId && wid && settlement.withdrawalId !== wid) {
