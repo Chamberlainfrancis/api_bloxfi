@@ -75,4 +75,32 @@ describe('buildPalremitProfit', () => {
     const p = await buildPalremitProfit({ ...base, marketRate: undefined, convertToUsdc: async () => 1 });
     expect(p).toBeNull();
   });
+
+  it('returns null when rate is unparseable (NaN guard)', async () => {
+    const p = await buildPalremitProfit({ ...base, rate: 'garbage', convertToUsdc: async () => 1 });
+    expect(p).toBeNull();
+  });
+
+  it('returns null when rateCurrency is undefined', async () => {
+    const p = await buildPalremitProfit({ ...base, rateCurrency: undefined, convertToUsdc: async () => 1 });
+    expect(p).toBeNull();
+  });
+
+  it('returns null when perCurrency is undefined', async () => {
+    const p = await buildPalremitProfit({ ...base, perCurrency: undefined, convertToUsdc: async () => 1 });
+    expect(p).toBeNull();
+  });
+
+  it('zero/negative spread returns non-null with zero amounts', async () => {
+    // rate > marketRate in offramp orientation → spread is negative, clamped to 0
+    const p = await buildPalremitProfit({
+      ...base,
+      rate: '0.90',
+      marketRate: '0.86904',
+      convertToUsdc: async () => 1,
+    });
+    expect(p).not.toBeNull();
+    expect(p?.amountUsdc).toBe('0.00000000');
+    expect(p?.amountInCurrency).toBe('0.00000000');
+  });
 });

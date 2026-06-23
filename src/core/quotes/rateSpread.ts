@@ -67,7 +67,7 @@ export async function buildPalremitProfit(p: {
 }): Promise<PalremitProfit | null> {
   const rate = typeof p.rate === 'string' ? parseFloat(p.rate) : p.rate;
   const marketRate = typeof p.marketRate === 'string' ? parseFloat(p.marketRate) : p.marketRate;
-  if (rate == null || marketRate == null || !p.rateCurrency || !p.perCurrency) return null;
+  if (rate == null || marketRate == null || Number.isNaN(rate) || Number.isNaN(marketRate) || !p.rateCurrency || !p.perCurrency) return null;
 
   const spread = computeRateSpreadProfit({
     sourceAmount: p.sourceAmount,
@@ -96,8 +96,8 @@ export async function buildPalremitProfit(p: {
     amountUsdc,
     currency: p.toCurrency,
     amountInCurrency: spread.amount.toFixed(8),
-    customerRate: String(rate),
-    marketRate: String(marketRate),
+    customerRate: typeof p.rate === 'string' ? p.rate : String(p.rate),
+    marketRate: typeof p.marketRate === 'string' ? p.marketRate : String(p.marketRate),
     computedAt: p.nowIso,
   };
 }
