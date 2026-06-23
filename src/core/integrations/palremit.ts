@@ -12,6 +12,7 @@ import type { GetOfframpRatesResponse } from '@/types/offramp';
 interface PalremitConversionData {
   rate?: string | number;
   conversion?: number;
+  marketRate?: string | number;
   rateCurrency?: string;
   perCurrency?: string;
   symbol?: string;
@@ -57,10 +58,16 @@ export async function getPalremitOnrampRates(
     typeof d.rate === 'string' ? d.rate : d.rate != null ? String(d.rate) : null;
   if (rate == null || rate === '') return null;
 
+  const marketRate =
+    typeof d.marketRate === 'string' ? d.marketRate : d.marketRate != null ? String(d.marketRate) : undefined;
+
   return {
     fromCurrency: from.toLowerCase(),
     toCurrency: to.toLowerCase(),
     conversionRate: rate,
+    ...(marketRate ? { marketRate } : {}),
+    ...(d.rateCurrency ? { rateCurrency: d.rateCurrency } : {}),
+    ...(d.perCurrency ? { perCurrency: d.perCurrency } : {}),
   };
 }
 
@@ -97,11 +104,17 @@ export async function getPalremitOnrampQuote(
   if (rate == null || rate === '') return null;
   if (typeof d.conversion !== 'number' || !Number.isFinite(d.conversion)) return null;
 
+  const marketRate =
+    typeof d.marketRate === 'string' ? d.marketRate : d.marketRate != null ? String(d.marketRate) : undefined;
+
   return {
     fromCurrency: from.toLowerCase(),
     toCurrency: to.toLowerCase(),
     conversionRate: rate,
     conversion: d.conversion,
+    ...(marketRate ? { marketRate } : {}),
+    ...(d.rateCurrency ? { rateCurrency: d.rateCurrency } : {}),
+    ...(d.perCurrency ? { perCurrency: d.perCurrency } : {}),
   };
 }
 
@@ -133,6 +146,9 @@ export async function getPalremitOfframpRates(
   const rateNum = parseFloat(rateStr);
   const inverseRate = rateNum > 0 ? String(1 / rateNum) : '0';
 
+  const marketRate =
+    typeof d.marketRate === 'string' ? d.marketRate : d.marketRate != null ? String(d.marketRate) : undefined;
+
   return {
     fromCurrency: from.toLowerCase(),
     toCurrency: to.toLowerCase(),
@@ -144,5 +160,30 @@ export async function getPalremitOfframpRates(
     maximumAmount: '50000.00',
     estimatedProcessingTime: '1-3 business days',
     availableRails: [],
+    ...(marketRate ? { marketRate } : {}),
+    ...(d.rateCurrency ? { rateCurrency: d.rateCurrency } : {}),
+    ...(d.perCurrency ? { perCurrency: d.perCurrency } : {}),
   };
+}
+
+/**
+ * Generic Currency API conversion: returns the orientation-safe output amount
+ * (`conversion`) for `amount` units of `from` → `to`. Null on any failure.
+ */
+export async function getPalremitConversionAmount(
+  currencyRequest: PalremitCurrencyRequestFn,
+  fromCurrency: string,
+  toCurrency: string,
+  amount: number
+): Promise<number | null> {
+  const from = (fromCurrency ?? '').trim().toUpperCase();
+  const to = (toCurrency ?? '').trim().toUpperCase();
+  if (!from || !to || !Number.isFinite(amount) || amount <= 0) return null;
+  const res = await currencyRequest<PalremitConversionData>('/pairs/conversion', {
+    method: 'POST',
+    body: palremitConversionBody(from, to, amount),
+  });
+  if (res.status !== 200 || res.data?.status !== 'success' || !res.data?.data) return null;
+  const c = res.data.data.conversion;
+  return typeof c === 'number' && Number.isFinite(c) ? c : null;
 }
