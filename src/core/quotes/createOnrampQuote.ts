@@ -3,6 +3,7 @@
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
+import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import type { PlatformFee, RampFeePreview } from '@/types/offramp';
 import type { OnrampFees, QuoteInformation } from '@/types/onramp';
@@ -22,7 +23,13 @@ export interface CreateOnrampQuoteOptions {
     from: string,
     to: string,
     amount: number
-  ) => Promise<{ conversionRate: string; conversion: number } | null>;
+  ) => Promise<{
+    conversionRate: string;
+    conversion: number;
+    marketRate?: string | null;
+    rateCurrency?: string | null;
+    perCurrency?: string | null;
+  } | null>;
   resolvePalremitNetwork: (
     coinCode: string,
     chainFromClient: string,
@@ -34,6 +41,7 @@ export interface CreateOnrampQuoteOptions {
     destinationType: string;
     network?: string | null;
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
+  convertToUsdc: (from: string, amount: number) => Promise<number | null>;
 }
 
 function parseQuoteExpiry(minutes = 30): Date {
@@ -140,6 +148,17 @@ export async function createOnrampQuote(
     },
   };
 
+  const profit = await buildPalremitProfit({
+    sourceAmount: input.amount,
+    toCurrency,
+    rate: palremitQuote.conversionRate,
+    marketRate: palremitQuote.marketRate ?? undefined,
+    rateCurrency: palremitQuote.rateCurrency ?? undefined,
+    perCurrency: palremitQuote.perCurrency ?? undefined,
+    nowIso: new Date().toISOString(),
+    convertToUsdc: options.convertToUsdc,
+  }).catch(() => null);
+
   const snapshot: OnrampQuoteSnapshot = {
     version: 1,
     fromCurrency,
@@ -154,6 +173,7 @@ export async function createOnrampQuote(
     quote,
     quoteInformation,
     fees,
+    profit,
   };
 
   const row = await rampQuoteRepo.createRampQuote({

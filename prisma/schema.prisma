@@ -243,6 +243,7 @@ model Onramp {
   depositInfo      Json? // DepositInfo shape (when CREATED)
   receipt          Json? // Receipt shape (when COMPLETED)
   fees             Json? // OnrampFees shape
+  profit           Json? // PalremitProfit shape — rate-spread profit (separate from fees)
   developerFee     Json? // legacy { amount, currency } — prefer fees.platformFee
   failedReason     String?
   createdAt        DateTime         @default(now())
@@ -290,6 +291,7 @@ model Offramp {
   depositInstructions Json? // DepositInstructions (where to send crypto)
   timeline            Json? // Timeline shape
   fees                Json? // OfframpFees shape
+  profit              Json? // PalremitProfit shape — rate-spread profit (separate from fees)
   receipt             Json? // { transactionHash? }
   refundDetails       Json? // RefundDetails when cancelled
   failedReason        String?

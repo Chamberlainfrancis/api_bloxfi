@@ -21,6 +21,30 @@ import {
 export type TxnType = 'onramp' | 'offramp';
 export type MarkOutcome = 'success' | 'failed';
 
+export function sumProfitUsdc(rows: Array<{ profit?: unknown }>): string {
+  let total = 0;
+  for (const r of rows) {
+    const p = r.profit;
+    if (p == null || typeof p !== 'object') continue;
+    const v = (p as { amountUsdc?: unknown }).amountUsdc;
+    const n = typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+    if (Number.isFinite(n)) total += n;
+  }
+  return total.toFixed(8);
+}
+
+export async function getTotalRealizedProfitUsdc(): Promise<string> {
+  const [onrampRepo, offrampRepo] = await Promise.all([
+    import('@/db/repositories/onramp.repo'),
+    import('@/db/repositories/offramp.repo'),
+  ]);
+  const [on, off] = await Promise.all([
+    onrampRepo.findCompletedProfits(),
+    offrampRepo.findCompletedProfits(),
+  ]);
+  return sumProfitUsdc([...on, ...off]);
+}
+
 const ONRAMP_STATUSES = [
   'CREATED',
   'AWAITING_FUNDS',

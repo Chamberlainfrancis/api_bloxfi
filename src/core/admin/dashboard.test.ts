@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing } from '@/core/admin/dashboard';
+import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing, sumProfitUsdc } from '@/core/admin/dashboard';
 
 describe('resolveMarkStatus', () => {
   it('maps success to COMPLETED for both types', () => {
@@ -113,6 +113,23 @@ describe('isValidStatus', () => {
     expect(isValidStatus('onramp', 'REFUNDED')).toBe(false);
     expect(isValidStatus('offramp', 'AWAITING_FUNDS')).toBe(false);
     expect(isValidStatus('onramp', 'NONSENSE')).toBe(false);
+  });
+});
+
+describe('sumProfitUsdc', () => {
+  it('sums amountUsdc and skips nulls / missing', () => {
+    const rows = [
+      { profit: { amountUsdc: '1.50000000' } },
+      { profit: { amountUsdc: null } },
+      { profit: null },
+      {},
+      { profit: { amountUsdc: '2.25000000' } },
+    ];
+    expect(sumProfitUsdc(rows)).toBe('3.75000000');
+  });
+
+  it('returns 0.00000000 for an empty set', () => {
+    expect(sumProfitUsdc([])).toBe('0.00000000');
   });
 });
 

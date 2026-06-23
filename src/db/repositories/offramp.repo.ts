@@ -44,6 +44,7 @@ export interface CreateOfframpData {
   depositInstructions?: object | null;
   timeline?: object | null;
   fees?: object | null;
+  profit?: object | null;
   receipt?: object | null;
   refundDetails?: object | null;
   failedReason?: string | null;
@@ -85,6 +86,7 @@ export async function createOfframp(data: CreateOfframpData): Promise<OfframpRow
       depositInstructions: data.depositInstructions as object | undefined,
       timeline: data.timeline as object | undefined,
       fees: data.fees as object | undefined,
+      profit: data.profit === undefined || data.profit === null ? undefined : (data.profit as object),
       receipt: data.receipt as object | undefined,
       refundDetails: data.refundDetails as object | undefined,
       failedReason: data.failedReason ?? null,
@@ -226,6 +228,10 @@ export async function listOfframps(params: ListOfframpsParams): Promise<{
     offramps: page as OfframpRow[],
     nextCursor,
   };
+}
+
+export async function findCompletedProfits(): Promise<Array<{ profit: unknown }>> {
+  return prisma.offramp.findMany({ where: { status: 'COMPLETED' }, select: { profit: true } });
 }
 
 export async function listOfframpsFeeSettlementsForAdmin(params: {

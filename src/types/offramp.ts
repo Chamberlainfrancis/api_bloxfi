@@ -254,6 +254,11 @@ export interface GetOfframpRatesResponse {
   }>;
   /** Fee preview, present only when amount + corridor inputs are supplied. */
   quote?: RampFeePreview;
+  /** Currency API mid/main rate (pre-markup). */
+  marketRate?: string;
+  /** Currency API orientation: rate is `rateCurrency per perCurrency`. */
+  rateCurrency?: string;
+  perCurrency?: string;
 }
 
 // --- POST /offramps (create) ---

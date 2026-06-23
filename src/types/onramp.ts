@@ -167,6 +167,11 @@ export interface GetOnrampRatesResponse {
   conversionRates?: ConversionRateByTransfer[];
   /** Fee preview, present only when amount + chain inputs are supplied. */
   quote?: RampFeePreview;
+  /** Currency API mid/main rate (pre-markup). */
+  marketRate?: string;
+  /** Currency API orientation: rate is `rateCurrency per perCurrency`. */
+  rateCurrency?: string;
+  perCurrency?: string;
 }
 
 // --- POST /onramps (create) ---

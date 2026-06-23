@@ -4,6 +4,7 @@
 
 import { resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
+import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
@@ -47,6 +48,7 @@ export interface CreateOfframpQuoteOptions {
     country?: string | null;
     beneficiaryType?: 'individual' | 'business' | null;
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
+  convertToUsdc: (from: string, amount: number) => Promise<number | null>;
 }
 
 function parseQuoteExpiry(rateValidUntil: string): Date {
@@ -104,6 +106,17 @@ export async function createOfframpQuote(
   if (amounts.sendNet <= 0) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
+
+  const profit = await buildPalremitProfit({
+    sourceAmount: input.amount,
+    toCurrency,
+    rate: rateResponse.conversionRate,
+    marketRate: rateResponse.marketRate,
+    rateCurrency: rateResponse.rateCurrency,
+    perCurrency: rateResponse.perCurrency,
+    nowIso: new Date().toISOString(),
+    convertToUsdc: options.convertToUsdc,
+  }).catch(() => null);
 
   const usable =
     feeInSendCurrency != null && Number.isFinite(feeInSendCurrency);
@@ -173,6 +186,7 @@ export async function createOfframpQuote(
     destinationAmount: amounts.receiveNet,
     quote,
     fees,
+    profit,
     rateInformation,
   };
 

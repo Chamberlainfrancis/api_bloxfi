@@ -18,6 +18,7 @@ import {
   createOfframpPalremitCryptoDeposit,
   getPalremitOfframpRates,
   fetchPalremitWithdrawalFeeQuote,
+  getPalremitConversionAmount,
 } from '@/core/integrations';
 import { buildOfframpFeePreview, resolveTransferFeeInSendCurrency } from '@/core/payments';
 import {
@@ -164,6 +165,8 @@ export async function createOfframpQuoteHandler(
         resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
       getProviderWithdrawalFeeQuote: (input) =>
         fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+      convertToUsdc: (from, amount) =>
+        getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
     });
     sendSuccess(res, result, 201);
   } catch (e) {

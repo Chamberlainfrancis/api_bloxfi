@@ -20,6 +20,7 @@ export {
   getPalremitOnrampRates,
   getPalremitOnrampQuote,
   getPalremitOfframpRates,
+  getPalremitConversionAmount,
 } from '@/core/integrations/palremit';
 export type { PalremitCurrencyRequestFn } from '@/core/integrations/palremit';
 export {
