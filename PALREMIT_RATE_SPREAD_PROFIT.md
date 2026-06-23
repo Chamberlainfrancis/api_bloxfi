@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Repo:** `api_bloxfi`
-**Status:** design (pre-implementation)
+**Status:** implemented (branch palremit-rate-spread-profit)
 
 ## Goal
 

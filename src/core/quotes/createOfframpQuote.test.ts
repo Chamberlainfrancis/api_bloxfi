@@ -30,6 +30,7 @@ function makeOptions() {
     getRateFromPalremit: vi.fn(async () => rateResponse('0.85')),
     resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
     getProviderWithdrawalFeeQuote: vi.fn(async () => null),
+    convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
   };
 }
 
