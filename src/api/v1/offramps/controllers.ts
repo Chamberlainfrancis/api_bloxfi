@@ -227,8 +227,6 @@ export async function createOfframp(
       return;
     }
 
-    let lockedQuote: OfframpQuoteSnapshot | undefined;
-
     const snapshot = await rampQuoteRepo.consumeRampQuote<OfframpQuoteSnapshot>(
       parsed.data.quoteId!,
       'offramp'
@@ -246,7 +244,6 @@ export async function createOfframp(
       next(validationError(usdErr, { metadata: usdErr }));
       return;
     }
-    lockedQuote = snapshot;
     const body = hydrateOfframpCreateFromQuote(snapshot, {
       source: {
         userId: parsed.data.source.userId!,
@@ -276,7 +273,7 @@ export async function createOfframp(
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
-        ...(lockedQuote ? { lockedQuote } : {}),
+        lockedQuote: snapshot,
       }
     );
     sendSuccess(res, result, 201);
