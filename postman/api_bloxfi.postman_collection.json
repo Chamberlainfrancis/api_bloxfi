@@ -1451,7 +1451,7 @@
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps need **`metadata.isSelfTransfer`** (and **`destination.purposeOfPayment`**). **`destination.amount`** is computed server-side (send crypto minus Palremit **`transferFee`** × rate). Response **`fees.transferFee`** itemizes the provider fee in its own currency (e.g. USDC). Platform fee settles in USDC after **COMPLETED**.",
+      "description": "Crypto → fiat (Palremit). **Breaking change (quote-first only):** `POST /offramps` now requires a `quoteId`; call `POST /offramps/quotes` first. `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` must be omitted on create (they are fixed by the quote). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps need **`metadata.isSelfTransfer`** (and **`destination.purposeOfPayment`**). Response **`fees.transferFee`** itemizes the provider fee in its own currency. **`fees.platformFee.currency`** is the **source crypto** (e.g. `usdt`); settlement remains USDC after **COMPLETED**.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -1695,7 +1695,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"NGN\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"transferType\": \"bank_transfer\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {}\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"quoteId\": \"{{offrampQuoteId}}\",\n  \"source\": {\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"Cross-border settlement\"\n  },\n  \"metadata\": {}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1708,7 +1708,7 @@
                 "offramps"
               ]
             },
-            "description": "Body.requestId must match requestId header. **`source.amount`** is crypto sent; **`destination.amount`** is omitted — server computes net fiat after Palremit **`transferFee`** (deducted from send). **`destination.purposeOfPayment`** and **`platformFee.walletAddress`** required. Optional **`platformFee.currency`** (USDC) / **`platformFee.network`** (e.g. MATIC) for post-completion fee settlement. **201:** `transferDetails` + **`fees.transferFee`** itemization. After **COMPLETED**, check **`fees.platformFee.settlement`** on GET. Fresh **`requestId`** per create."
+            "description": "**Quote-first only (breaking change).** Call **`POST /api/v1/offramps/quotes`** first; pass the returned `id` as **`quoteId`**. Amount, currency, chain, and fee are fixed by the quote — omit `source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, and `platformFee` (server rejects them with 400). Required: `requestId` header + body, `quoteId`, `source.userId`, `source.externalWalletId`, `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`. **201:** `transferDetails` + **`fees.transferFee`** itemization. `fees.platformFee.currency` is the **source crypto** (e.g. `usdt`). After **COMPLETED**, check **`fees.platformFee.settlement`** on GET. Fresh **`requestId`** per create."
           }
         },
         {
@@ -1761,7 +1761,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"source\": {\n    \"amount\": 50,\n    \"currency\": \"USDT\",\n    \"chain\": \"POLYGON\",\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"currency\": \"USD\",\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"platformFee\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 0.005,\n    \"walletAddress\": \"0x742d35Cc6634C0532925a3b844Bc454e4438f44e\",\n    \"currency\": \"USDC\",\n    \"network\": \"MATIC\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"quoteId\": \"{{offrampQuoteId}}\",\n  \"source\": {\n    \"userId\": \"{{userId}}\",\n    \"externalWalletId\": \"{{walletId}}\"\n  },\n  \"destination\": {\n    \"userId\": \"{{userId}}\",\n    \"accountId\": \"{{accountId}}\",\n    \"purposeOfPayment\": \"FAMILY_MAINTENANCE\"\n  },\n  \"metadata\": {\n    \"isSelfTransfer\": false\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/offramps",
@@ -1774,7 +1774,7 @@
                 "offramps"
               ]
             },
-            "description": "**USD** offramp using **`{{accountId}}`**. **`purposeOfPayment`:** UPPER_SNAKE (e.g. `FAMILY_MAINTENANCE`). **`metadata.isSelfTransfer`:** required boolean. Net fiat **`destination.amount`** is server-computed; see **`fees.transferFee`** on response."
+            "description": "**USD offramp — quote-first only.** Call **`POST /api/v1/offramps/quotes`** first (USD corridor); pass returned `id` as **`quoteId`**. Omit `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` — all are fixed by the quote. **`purposeOfPayment`:** UPPER_SNAKE (e.g. `FAMILY_MAINTENANCE`). **`metadata.isSelfTransfer`:** required boolean for USD. `fees.platformFee.currency` is the source crypto (e.g. `usdt`); settlement remains USDC after **COMPLETED**."
           }
         },
         {

@@ -24,13 +24,7 @@ import {
   resolvePalremitNetworkOrThrow,
   UnsupportedPalremitNetworkError,
 } from '@/core/integrations/palremitCoinNetworks';
-import type {
-  CreateOfframpDestinationInput,
-  CreateOfframpRequest,
-  CreateOfframpSourceInput,
-  GetOfframpRatesResponse,
-  PlatformFee,
-} from '@/types/offramp';
+import type { GetOfframpRatesResponse } from '@/types/offramp';
 import {
   cancelOfframpBodySchema,
   createOfframpBodySchema,
@@ -233,51 +227,38 @@ export async function createOfframp(
       return;
     }
 
-    let lockedQuote: OfframpQuoteSnapshot | undefined;
-    let body: Omit<CreateOfframpRequest, 'requestId'>;
-
-    if (parsed.data.quoteId) {
-      const snapshot = await rampQuoteRepo.consumeRampQuote<OfframpQuoteSnapshot>(
-        parsed.data.quoteId,
-        'offramp'
-      );
-      if (!snapshot) {
-        next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
-        return;
-      }
-      const usdErr = validateUsdOfframpMetadata(
-        snapshot.toCurrency,
-        parsed.data.destination.purposeOfPayment,
-        parsed.data.metadata
-      );
-      if (usdErr) {
-        next(validationError(usdErr, { metadata: usdErr }));
-        return;
-      }
-      lockedQuote = snapshot;
-      body = hydrateOfframpCreateFromQuote(snapshot, {
-        source: {
-          userId: parsed.data.source.userId!,
-          externalWalletId: parsed.data.source.externalWalletId!,
-        },
-        destination: {
-          userId: parsed.data.destination.userId!,
-          accountId: parsed.data.destination.accountId!,
-          purposeOfPayment: parsed.data.destination.purposeOfPayment,
-          transferType: parsed.data.destination.transferType,
-          bankTransferMethod: parsed.data.destination.bankTransferMethod,
-          reference: parsed.data.destination.reference,
-        },
-        metadata: parsed.data.metadata,
-      });
-    } else {
-      body = {
-        source: parsed.data.source as CreateOfframpSourceInput,
-        destination: parsed.data.destination as CreateOfframpDestinationInput,
-        platformFee: parsed.data.platformFee!,
-        metadata: parsed.data.metadata,
-      };
+    const snapshot = await rampQuoteRepo.consumeRampQuote<OfframpQuoteSnapshot>(
+      parsed.data.quoteId!,
+      'offramp'
+    );
+    if (!snapshot) {
+      next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
+      return;
     }
+    const usdErr = validateUsdOfframpMetadata(
+      snapshot.toCurrency,
+      parsed.data.destination.purposeOfPayment,
+      parsed.data.metadata
+    );
+    if (usdErr) {
+      next(validationError(usdErr, { metadata: usdErr }));
+      return;
+    }
+    const body = hydrateOfframpCreateFromQuote(snapshot, {
+      source: {
+        userId: parsed.data.source.userId!,
+        externalWalletId: parsed.data.source.externalWalletId!,
+      },
+      destination: {
+        userId: parsed.data.destination.userId!,
+        accountId: parsed.data.destination.accountId!,
+        purposeOfPayment: parsed.data.destination.purposeOfPayment,
+        transferType: parsed.data.destination.transferType,
+        bankTransferMethod: parsed.data.destination.bankTransferMethod,
+        reference: parsed.data.destination.reference,
+      },
+      metadata: parsed.data.metadata,
+    });
 
     const result = await offrampCore.createOfframp(
       repos.offramp,
@@ -288,14 +269,11 @@ export async function createOfframp(
       raw,
       body,
       {
-        getRateFromPalremit,
         resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
-        getProviderWithdrawalFeeQuote: (input) =>
-          fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
-        ...(lockedQuote ? { lockedQuote } : {}),
+        lockedQuote: snapshot,
       }
     );
     sendSuccess(res, result, 201);

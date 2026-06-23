@@ -3,6 +3,7 @@
  */
 
 import { resolveTransferFeeInSendCurrency } from '@/core/payments';
+import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
 import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
@@ -74,10 +75,14 @@ export async function createOfframpQuote(
   const baseRateNum = parseFloat(rateResponse.conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
-  const grossReceive = input.amount * baseRateNum;
+  // Platform fee is taken from the source crypto (gross). The provider fee is
+  // quoted on the fiat that remains AFTER the platform fee, matching the math.
+  const platformApplied = applyOfframpPlatformFee(input.amount, input.platformFee);
+  const afterPlatformFiat = platformApplied.netAmount * baseRateNum;
+
   const feeQuote = await options.getProviderWithdrawalFeeQuote({
     asset: toCurrency,
-    amount: grossReceive,
+    amount: afterPlatformFiat,
     destinationType: input.corridor.destinationType,
     country: input.corridor.country,
     beneficiaryType: input.corridor.beneficiaryType ?? undefined,
@@ -89,20 +94,16 @@ export async function createOfframpQuote(
     getRate: (from, to, chain) => options.getRateFromPalremit(from, to, chain),
   });
 
-  if (
-    feeInSendCurrency != null &&
-    feeInSendCurrency > 0 &&
-    feeInSendCurrency >= input.amount
-  ) {
-    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
-  }
-
   const amounts = computeOfframpQuoteAmounts({
     sendAmount: input.amount,
     baseConversionRate: baseRateNum,
     feeInSendCurrency,
     platformFee: input.platformFee,
   });
+
+  if (amounts.sendNet <= 0) {
+    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
 
   const usable =
     feeInSendCurrency != null && Number.isFinite(feeInSendCurrency);
@@ -117,11 +118,9 @@ export async function createOfframpQuote(
       type: input.platformFee.type,
       value: input.platformFee.value,
       walletAddress: input.platformFee.walletAddress,
-      ...(input.platformFee.currency?.trim()
-        ? { currency: input.platformFee.currency.trim().toUpperCase() }
-        : {}),
+      currency: fromCurrency,
       ...(input.platformFee.network?.trim() ? { network: input.platformFee.network.trim() } : {}),
-      amount: amounts.platformFeeAmount.toFixed(2),
+      amount: amounts.platformFeeAmount.toFixed(8),
     },
     transferFee: {
       fees: feeQuote?.fees ?? [],
@@ -147,8 +146,8 @@ export async function createOfframpQuote(
     platformFee: {
       type: input.platformFee.type,
       value: String(input.platformFee.value),
-      amount: amounts.platformFeeAmount.toFixed(2),
-      currency: toCurrency,
+      amount: amounts.platformFeeAmount.toFixed(8),
+      currency: fromCurrency,
       walletAddress: input.platformFee.walletAddress,
       settlementCurrency: input.platformFee.currency?.trim().toUpperCase() || 'USDC',
       ...(input.platformFee.network?.trim()

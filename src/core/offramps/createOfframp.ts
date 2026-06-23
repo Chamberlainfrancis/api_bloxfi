@@ -2,16 +2,12 @@
  * Core: create offramp. Palremit crypto provision + fiat withdrawal after `deposit.credited` (see advanceOfframpPayout).
  */
 
-import { applyOfframpPlatformFee, resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 import { isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
-import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
-import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
   CreateOfframpResponse,
-  GetOfframpRatesResponse,
   OfframpStatus,
   OfframpSource,
   OfframpDestination,
@@ -23,14 +19,7 @@ import type {
 import type { OfframpQuoteSnapshot } from '@/types/quote';
 import { assertOfframpQuoteCorridorMatchesAccount } from '@/core/quotes/assertOfframpQuoteCorridor';
 
-const QUOTE_EXPIRY_MINUTES = 30;
-
 export interface CreateOfframpOptions {
-  getRateFromPalremit?: (
-    from: string,
-    to: string,
-    fromChain?: string
-  ) => Promise<GetOfframpRatesResponse | null>;
   /**
    * Resolve `source.chain` to a Palremit `network_code` from GET /v1/coins/get_coin_network_list (fallback get_coin).
    */
@@ -55,20 +44,8 @@ export interface CreateOfframpOptions {
     correlationId: string;
     providerRefs: Record<string, unknown>;
   } | null>;
-  /**
-   * Fetch Palremit's payout fee for this corridor (POST /v1/withdrawals/quote).
-   * Deducted from the receive amount. Returns null on failure → fee treated as
-   * unavailable (no deduction), so a quote outage never blocks offramp creation.
-   */
-  getProviderWithdrawalFeeQuote?: (input: {
-    asset: string;
-    amount: number;
-    destinationType: string;
-    country?: string | null;
-    beneficiaryType?: 'individual' | 'business' | null;
-  }) => Promise<PalremitWithdrawalFeeQuote | null>;
-  /** When set, pricing is taken from the locked quote (POST /offramps/quotes). */
-  lockedQuote?: OfframpQuoteSnapshot;
+  /** Pricing is always taken from the locked quote (POST /offramps/quotes). */
+  lockedQuote: OfframpQuoteSnapshot;
 }
 
 export interface OfframpRepoCreate {
@@ -172,6 +149,9 @@ export async function createOfframp(
   options: CreateOfframpOptions
 ): Promise<CreateOfframpResponse> {
   const { source: src, destination: dest } = body;
+  if (!options.lockedQuote) {
+    throw new Error('QUOTE_REQUIRED');
+  }
   const userId = src.userId;
   if (dest.userId !== userId) {
     throw new Error('SOURCE_DESTINATION_USER_MISMATCH');
@@ -191,16 +171,9 @@ export async function createOfframp(
   const wallet = await walletRepo.findExternalWalletByIdAndUser(src.externalWalletId, userId);
   if (!wallet) throw new Error('WALLET_NOT_FOUND');
 
-  const chain = options.lockedQuote
-    ? options.lockedQuote.fromChain
-    : await options.resolvePalremitNetwork(
-        src.currency.trim().toUpperCase(),
-        src.chain,
-        'source.chain'
-      );
-
-  const fromCurrency = (options.lockedQuote?.fromCurrency ?? src.currency).trim().toLowerCase();
-  const toCurrency = (options.lockedQuote?.toCurrency ?? dest.currency).trim().toLowerCase();
+  const chain = options.lockedQuote.fromChain;
+  const fromCurrency = options.lockedQuote.fromCurrency.trim().toLowerCase();
+  const toCurrency = options.lockedQuote.toCurrency.trim().toLowerCase();
 
   const accountCurrency = account.currency.trim().toLowerCase();
   if (accountCurrency !== toCurrency) {
@@ -211,121 +184,26 @@ export async function createOfframp(
     throw new Error('ACCOUNT_INCOMPLETE_FOR_OFFRAMP');
   }
 
-  if (options.lockedQuote) {
-    assertOfframpQuoteCorridorMatchesAccount(options.lockedQuote, account.providerPayout);
-    if (options.lockedQuote.fromCurrency !== fromCurrency) {
-      throw new Error('QUOTE_CURRENCY_MISMATCH');
-    }
-    if (options.lockedQuote.toCurrency !== toCurrency) {
-      throw new Error('QUOTE_CURRENCY_MISMATCH');
-    }
+  assertOfframpQuoteCorridorMatchesAccount(options.lockedQuote, account.providerPayout);
+  if (options.lockedQuote.fromCurrency !== fromCurrency) {
+    throw new Error('QUOTE_CURRENCY_MISMATCH');
+  }
+  if (options.lockedQuote.toCurrency !== toCurrency) {
+    throw new Error('QUOTE_CURRENCY_MISMATCH');
   }
 
-  let rate: string;
-  let inverseRate: string;
-  let cryptoAmount: number;
-  let fiatNet: number;
-  let rateInformation: RateInformation;
-  let fees: OfframpFees;
-  let depositBy: string;
-  let platformFee = body.platformFee!;
-
-  if (options.lockedQuote) {
-    const snap = options.lockedQuote;
-    platformFee = snap.platformFee;
-    cryptoAmount = snap.sendAmount;
-    fiatNet = snap.destinationAmount;
-    rate = snap.conversionRate;
-    inverseRate = snap.inverseRate;
-    rateInformation = {
-      ...snap.rateInformation,
-      expiresAt: snap.rateValidUntil,
-    };
-    fees = snap.fees;
-    depositBy = snap.rateValidUntil;
-  } else {
-    if (!options.getRateFromPalremit) {
-      throw new Error('PALREMIT_RATES_UNAVAILABLE');
-    }
-    const getRate = options.getRateFromPalremit;
-    const rateResponse = await getRate(fromCurrency, toCurrency, chain);
-    if (!rateResponse) {
-      throw new Error('PALREMIT_RATES_UNAVAILABLE');
-    }
-    rate = rateResponse.conversionRate;
-    inverseRate = rateResponse.inverseRate;
-
-    cryptoAmount = src.amount;
-    const { feeAmount: platformFeeAmount, netAmount: netCryptoAfterPlatform } = applyOfframpPlatformFee(
-      cryptoAmount,
-      platformFee
-    );
-    const rateNum = parseFloat(rate) || 1;
-    const fiatGross = netCryptoAfterPlatform * rateNum;
-
-    const pp = parseProviderPayout(account.providerPayout);
-    let transferFeeInSend = 0;
-    let transferFeeBreakdown: OfframpFees['transferFee'];
-    if (options.getProviderWithdrawalFeeQuote && pp) {
-      const quote = await options.getProviderWithdrawalFeeQuote({
-        asset: pp.corridor.asset,
-        amount: fiatGross,
-        destinationType: pp.corridor.destinationType,
-        country: pp.corridor.country,
-        beneficiaryType: pp.corridor.beneficiaryType,
-      });
-      const feeInSend = await resolveTransferFeeInSendCurrency({
-        feeQuote: quote,
-        sendCurrency: fromCurrency,
-        getRate,
-      });
-      if (feeInSend != null) {
-        transferFeeInSend = feeInSend > 0 ? feeInSend : 0;
-        transferFeeBreakdown = {
-          fees: quote?.fees ?? [],
-          total: quote?.totalFee ?? null,
-          unavailable: false,
-        };
-      } else {
-        transferFeeBreakdown = {
-          fees: quote?.fees ?? [],
-          total: quote?.totalFee ?? null,
-          unavailable: true,
-        };
-      }
-    }
-
-    if (transferFeeInSend >= netCryptoAfterPlatform) {
-      throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
-    }
-    const netCryptoAfterTransfer = Math.max(0, netCryptoAfterPlatform - transferFeeInSend);
-    fiatNet = netCryptoAfterTransfer * rateNum;
-
-    const expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
-    depositBy = expiresAt.toISOString();
-    rateInformation = {
-      rate,
-      conversionRate: rate,
-      inverseRate,
-      fromCurrency,
-      toCurrency,
-      fromChain: chain,
-      expiresAt: depositBy,
-    };
-
-    fees = {
-      platformFee: {
-        type: platformFee.type,
-        value: String(platformFee.value),
-        amount: platformFeeAmount.toFixed(6),
-        currency: fromCurrency,
-        walletAddress: platformFee.walletAddress,
-        settlementCurrency: platformFee.currency?.trim().toUpperCase() || 'USDC',
-        ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
-      },
-      ...(transferFeeBreakdown ? { transferFee: transferFeeBreakdown } : {}),
-    };
-  }
+  const snap = options.lockedQuote;
+  const platformFee = snap.platformFee;
+  const cryptoAmount = snap.sendAmount;
+  const fiatNet = snap.destinationAmount;
+  const rate = snap.conversionRate;
+  const inverseRate = snap.inverseRate;
+  const rateInformation: RateInformation = {
+    ...snap.rateInformation,
+    expiresAt: snap.rateValidUntil,
+  };
+  const fees: OfframpFees = snap.fees;
+  const depositBy = snap.rateValidUntil;
 
   const userDisplayInfo = userDisplay(user);
   const email = userDisplay(user).email.trim();
