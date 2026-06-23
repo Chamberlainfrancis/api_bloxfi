@@ -178,6 +178,13 @@ export const createOfframpQuoteBodySchema = z
           message: 'platformFee.value for PERCENTAGE is a decimal fraction (0.01 = 1%)',
         });
       }
+      if (!pf.network?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['network'],
+          message: 'platformFee.network is required (used for the USDC fee settlement payout)',
+        });
+      }
     }),
   })
   .transform((val) => ({

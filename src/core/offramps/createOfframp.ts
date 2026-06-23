@@ -185,12 +185,6 @@ export async function createOfframp(
   }
 
   assertOfframpQuoteCorridorMatchesAccount(options.lockedQuote, account.providerPayout);
-  if (options.lockedQuote.fromCurrency !== fromCurrency) {
-    throw new Error('QUOTE_CURRENCY_MISMATCH');
-  }
-  if (options.lockedQuote.toCurrency !== toCurrency) {
-    throw new Error('QUOTE_CURRENCY_MISMATCH');
-  }
 
   const snap = options.lockedQuote;
   const platformFee = snap.platformFee;

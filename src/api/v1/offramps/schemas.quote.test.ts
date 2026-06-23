@@ -1,5 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import { createOfframpBodySchema } from '@/api/v1/offramps/schemas';
+import { createOfframpBodySchema, createOfframpQuoteBodySchema } from '@/api/v1/offramps/schemas';
+
+describe('createOfframpQuoteBodySchema platformFee.network', () => {
+  const base = {
+    fromCurrency: 'usdt',
+    toCurrency: 'eur',
+    fromChain: 'TRC20',
+    amount: 1000,
+    country: 'DE',
+    destinationType: 'local_bank',
+    platformFee: {
+      type: 'PERCENTAGE' as const,
+      value: 0.01,
+      walletAddress: '0xFee',
+      currency: 'USDC',
+      network: 'MATIC',
+    },
+  };
+
+  it('accepts a quote when platformFee.network is provided', () => {
+    expect(createOfframpQuoteBodySchema.safeParse(base).success).toBe(true);
+  });
+
+  it('rejects a quote when platformFee.network is missing (required for USDC settlement)', () => {
+    const { network, ...feeWithoutNetwork } = base.platformFee;
+    const r = createOfframpQuoteBodySchema.safeParse({ ...base, platformFee: feeWithoutNetwork });
+    expect(r.success).toBe(false);
+  });
+});
 
 describe('createOfframpBodySchema quoteId', () => {
   it('accepts execution-only body when quoteId is provided', () => {

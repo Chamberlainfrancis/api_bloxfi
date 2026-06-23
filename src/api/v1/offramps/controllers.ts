@@ -300,22 +300,8 @@ export async function createOfframp(
       next(new AppError('Source and destination userId must match', 'INVALID_REQUEST', 400));
       return;
     }
-    if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
-      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
-      return;
-    }
     if (e instanceof Error && e.message === 'USER_EMAIL_REQUIRED_FOR_OFFRAMP') {
       next(new AppError('User business email is required for offramp', 'UNPROCESSABLE_ENTITY', 422));
-      return;
-    }
-    if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
-      next(
-        new AppError(
-          'Amount too low: the Palremit payout fee meets or exceeds the receive amount',
-          'UNPROCESSABLE_ENTITY',
-          422
-        )
-      );
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_DEPOSIT_ADDRESS_FAILED') {
@@ -361,10 +347,6 @@ export async function createOfframp(
           400
         )
       );
-      return;
-    }
-    if (e instanceof Error && e.message === 'QUOTE_CURRENCY_MISMATCH') {
-      next(new AppError('Quote currencies do not match the create request', 'INVALID_REQUEST', 400));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {
