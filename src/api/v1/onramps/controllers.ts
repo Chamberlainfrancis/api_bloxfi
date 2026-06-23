@@ -19,6 +19,7 @@ import {
   getPalremitOnrampRates,
   getPalremitOnrampQuote,
   fetchPalremitWithdrawalFeeQuote,
+  getPalremitConversionAmount,
 } from '@/core/integrations';
 import { buildRampFeePreview } from '@/core/payments';
 import {
@@ -65,8 +66,17 @@ const repos = {
 const getRateFromPalremit = (from: string, to: string) =>
   getPalremitOnrampRates(palremitCurrency, from, to);
 
-const getQuoteFromPalremit = (from: string, to: string, amount: number) =>
-  getPalremitOnrampQuote(palremitCurrency, from, to, amount);
+const getQuoteFromPalremit = async (from: string, to: string, amount: number) => {
+  const result = await getPalremitOnrampQuote(palremitCurrency, from, to, amount);
+  if (!result) return null;
+  return {
+    conversionRate: result.conversionRate,
+    conversion: result.conversion,
+    marketRate: result.marketRate ?? null,
+    rateCurrency: result.rateCurrency ?? null,
+    perCurrency: result.perCurrency ?? null,
+  };
+};
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
@@ -146,6 +156,8 @@ export async function createOnrampQuoteHandler(
         resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
       getProviderWithdrawalFeeQuote: (input) =>
         fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+      convertToUsdc: (from, amount) =>
+        getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
     });
     sendSuccess(res, result, 201);
   } catch (e) {
@@ -253,6 +265,8 @@ export async function createOnramp(
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
         getProviderWithdrawalFeeQuote: (input) =>
           fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
+        convertToUsdc: (from, amount) =>
+          getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
         ...(lockedQuote ? { lockedQuote } : {}),
       }
     );

@@ -4,6 +4,7 @@
  */
 
 import { applyOfframpPlatformFee } from '@/core/payments';
+import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import type {
@@ -27,7 +28,14 @@ export interface CreateOnrampOptions {
     from: string,
     to: string,
     amount: number
-  ) => Promise<{ conversionRate: string; conversion: number } | null>;
+  ) => Promise<{
+    conversionRate: string;
+    conversion: number;
+    marketRate?: string | null;
+    rateCurrency?: string | null;
+    perCurrency?: string | null;
+  } | null>;
+  convertToUsdc?: (from: string, amount: number) => Promise<number | null>;
   /**
    * Resolve `destination.chain` to a Palremit `network_code` from GET /v1/coins/get_coin_network_list (fallback get_coin).
    * Must throw or return canonical code; invalid chain should fail ramp creation.
@@ -76,6 +84,7 @@ export interface OnrampRepoCreate {
     depositInfo?: object | null;
     receipt?: object | null;
     fees?: object | null;
+    profit?: object | null;
     failedReason?: string | null;
   }): Promise<{
     id: string;
@@ -254,6 +263,7 @@ export async function createOnramp(
   let receiveNet: number;
   let quoteInformation: QuoteInformation;
   let fees: OnrampFees;
+  let profit: object | null = null;
   let expiresAt: Date;
   let platformFee = body.platformFee!;
 
@@ -264,6 +274,7 @@ export async function createOnramp(
     receiveNet = snap.receiveNet;
     quoteInformation = snap.quoteInformation;
     fees = snap.fees;
+    profit = snap.profit ?? null;
     expiresAt = new Date(snap.rateValidUntil);
   } else {
     if (!options.getQuoteFromPalremit) {
@@ -340,6 +351,19 @@ export async function createOnramp(
         ...(platformFee.network?.trim() ? { settlementNetwork: platformFee.network.trim() } : {}),
       },
     };
+
+    profit = options.convertToUsdc
+      ? await buildPalremitProfit({
+          sourceAmount: src.amount,
+          toCurrency,
+          rate: quote.conversionRate,
+          marketRate: quote.marketRate ?? undefined,
+          rateCurrency: quote.rateCurrency ?? undefined,
+          perCurrency: quote.perCurrency ?? undefined,
+          nowIso: new Date().toISOString(),
+          convertToUsdc: options.convertToUsdc,
+        }).catch(() => null)
+      : null;
   }
 
   const userDisplayInfo = userDisplay(user);
@@ -399,6 +423,7 @@ export async function createOnramp(
     depositInfo,
     receipt: null,
     fees,
+    profit,
     failedReason: null,
   });
 
