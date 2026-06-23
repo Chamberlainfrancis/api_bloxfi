@@ -49,6 +49,14 @@ describe('marketRate + orientation capture', () => {
     const fn = (async () => ({ status: 500, data: { status: 'error', data: null } })) as never;
     expect(await getPalremitConversionAmount(fn, 'eur', 'usdc', 1)).toBeNull();
   });
+
+  it('surfaces marketRate/rateCurrency/perCurrency on onramp rates', async () => {
+    const { fn } = mockCurrencyRequest({ rate: '1450', marketRate: '1460', rateCurrency: 'NGN', perCurrency: 'USDT' });
+    const r = await getPalremitOnrampRates(fn, 'ngn', 'usdt');
+    expect(r?.marketRate).toBe('1460');
+    expect(r?.rateCurrency).toBe('NGN');
+    expect(r?.perCurrency).toBe('USDT');
+  });
 });
 
 describe('Palremit /pairs/conversion', () => {
