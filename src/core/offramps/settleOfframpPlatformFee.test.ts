@@ -238,6 +238,96 @@ describe('settleOfframpPlatformFee', () => {
   });
 });
 
+describe('settleOfframpPlatformFee — source-currency fee', () => {
+  const updateOfframpStatus = vi.fn(async () => ({}));
+  const findOfframpById = vi.fn();
+  const findOfframpByTxnRef = vi.fn();
+  const liquidityRequest = vi.fn();
+
+  const repo = {
+    findOfframpById,
+    findOfframpByTxnRef,
+    updateOfframpStatus,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(palremitLiquidity, 'getPalremitWithdrawalByClientReference').mockResolvedValue(null);
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'MATIC', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('MATIC');
+    vi.spyOn(palremitLiquidity, 'createPalremitWithdrawal').mockResolvedValue({
+      id: 'wd-fee-src-1',
+      client_reference: buildOfframpFeeClientReference(TXN_REF),
+      state: 'processing',
+      raw: {
+        id: 'wd-fee-src-1',
+        client_reference: buildOfframpFeeClientReference(TXN_REF),
+        state: 'processing',
+      },
+    });
+  });
+
+  it('settles a USDC-source fee to USDC with no rate lookup', async () => {
+    const getRate = vi.fn(async () => ({ conversionRate: '1' }));
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '10.00000000',
+            currency: 'USDC',
+            walletAddress: '0xFee',
+            settlementCurrency: 'USDC',
+            settlementNetwork: 'MATIC',
+            settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+          },
+        },
+      })
+    );
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest, getRate }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    expect(getRate).not.toHaveBeenCalled();
+    expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({ amount: 10 }),
+      expect.any(String)
+    );
+  });
+
+  it('converts a USDT-source fee to USDC via the rate', async () => {
+    const getRate = vi.fn(async () => ({ conversionRate: '1' }));
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '10.00000000',
+            currency: 'USDT',
+            walletAddress: '0xFee',
+            settlementCurrency: 'USDC',
+            settlementNetwork: 'MATIC',
+            settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+          },
+        },
+      })
+    );
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest, getRate }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    expect(getRate).toHaveBeenCalledWith('USDT', 'USDC');
+    expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({ amount: 10 }),
+      expect.any(String)
+    );
+  });
+});
+
 describe('applyOfframpPlatformFeeWithdrawalWebhook', () => {
   const updateOfframpStatus = vi.fn(async () => ({}));
   const findOfframpByTxnRef = vi.fn();
