@@ -9,7 +9,15 @@
  * only interpolation in this template literal is the nonce.
  */
 
+/**
+ * Sanitize numeric string to only [0-9.] for safe HTML interpolation.
+ */
+function sanitizeNumeric(v: string): string {
+  return String(v).replace(/[^0-9.]/g, '') || '0.00000000';
+}
+
 export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.00000000'): string {
+  const safeTotalProfitUsdc = sanitizeNumeric(totalProfitUsdc);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -96,7 +104,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <header>
   <h1>BloxFi Transactions</h1>
   <span class="warn">⚠ Internal dashboard — do not share the link publicly</span>
-  <span class="kv"><span class="k" style="color:var(--mut);font-size:12px">Total profit (COMPLETED)</span> <span class="v" style="font-variant-numeric:tabular-nums;font-weight:600">${totalProfitUsdc} USDC</span></span>
+  <span class="kv"><span class="k" style="color:var(--mut);font-size:12px">Total profit (COMPLETED)</span> <span class="v" style="font-variant-numeric:tabular-nums;font-weight:600">${safeTotalProfitUsdc} USDC</span></span>
 </header>
 <div class="tabs">
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
