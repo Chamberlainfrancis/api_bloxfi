@@ -1,15 +1,11 @@
 /**
  * Admin dashboard: proxy to the Liquidity Orchestrator's Business Provider
- * Customer admin API (set/list/remove a business's provider-side customer
+ * Customer API (set/list/remove a business's provider-side customer
  * identity — the id used at OwlPay/Yativo payout time).
  *
- * Both this route and the orchestrator's business-provider-customer admin
- * routes are deliberately unauthenticated (explicit decision — see
- * liquidity-orchestrator specs/033-business-provider-customer-mapping).
- * The orchestrator has no service-credential mechanism separate from human
- * admin-session login, so this proxy sends `set_by` on every write instead,
- * letting the acting bloxfi ops user's identifier reach the orchestrator's
- * audit trail even though there's no authenticated session on either leg.
+ * Authenticated with the tenant Bearer token (PALREMIT_LIQUIDITY_SECRET).
+ * tenant_id is resolved from the token on the orchestrator side and stored
+ * on each mapping row.
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
@@ -20,6 +16,7 @@ export interface ProviderCustomerRecord {
   business_reference: string;
   provider_name: string;
   channel_customer_id: string;
+  business_email: string | null;
   set_by: string;
   created_at: string;
   updated_at: string;
@@ -27,15 +24,52 @@ export interface ProviderCustomerRecord {
 
 export interface ProviderCustomerListResult {
   business_reference: string;
-  providers: Array<{ provider_name: string; channel_customer_id: string; updated_at: string }>;
+  business_email?: string | null;
+  providers: Array<{
+    provider_name: string;
+    channel_customer_id: string;
+    business_email?: string | null;
+    updated_at: string;
+  }>;
 }
 
 export type ProviderCustomerResult<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; message: string };
 
-function adminPath(tenantId: string, businessReference: string, providerName?: string): string {
-  const base = `/v1/admin/tenants/${encodeURIComponent(tenantId)}/businesses/${encodeURIComponent(businessReference)}/providers`;
+export const DASHBOARD_PROVIDER_NAMES = ['owlpay', 'yativo'] as const;
+export type DashboardProviderName = (typeof DASHBOARD_PROVIDER_NAMES)[number];
+export type DashboardProviderStatus = 'active' | 'inactive';
+
+export type DashboardProviderStatusMap = Record<DashboardProviderName, DashboardProviderStatus>;
+
+export function emptyDashboardProviderStatus(): DashboardProviderStatusMap {
+  return { owlpay: 'inactive', yativo: 'inactive' };
+}
+
+export async function resolveDashboardProviderStatus(
+  request: PalremitLiquidityRequestFn,
+  params: { tenantId: string; businessReference: string }
+): Promise<DashboardProviderStatusMap> {
+  const status = emptyDashboardProviderStatus();
+  try {
+    const result = await listBusinessProviderCustomers(request, params);
+    if (!result.ok) return status;
+    for (const row of result.value.providers) {
+      if (row.provider_name === 'owlpay' || row.provider_name === 'yativo') {
+        if (row.channel_customer_id?.trim()) {
+          status[row.provider_name] = 'active';
+        }
+      }
+    }
+  } catch {
+    return status;
+  }
+  return status;
+}
+
+function businessProviderPath(businessReference: string, providerName?: string): string {
+  const base = `/v1/businesses/${encodeURIComponent(businessReference)}/providers`;
   return providerName ? `${base}/${encodeURIComponent(providerName)}/customer` : base;
 }
 
@@ -47,13 +81,21 @@ export async function putBusinessProviderCustomer(
     providerName: string;
     channelCustomerId: string;
     setBy: string;
+    businessEmail?: string | null;
   }
 ): Promise<ProviderCustomerResult<ProviderCustomerRecord>> {
+  const body: Record<string, unknown> = {
+    channel_customer_id: params.channelCustomerId,
+    set_by: params.setBy,
+  };
+  if (params.businessEmail !== undefined) {
+    body.business_email = params.businessEmail;
+  }
   const res = await request<ProviderCustomerRecord>(
-    adminPath(params.tenantId, params.businessReference, params.providerName),
+    businessProviderPath(params.businessReference, params.providerName),
     {
       method: 'PUT',
-      body: { channel_customer_id: params.channelCustomerId, set_by: params.setBy },
+      body,
     }
   );
   if (res.status !== 200) {
@@ -71,7 +113,7 @@ export async function listBusinessProviderCustomers(
   params: { tenantId: string; businessReference: string }
 ): Promise<ProviderCustomerResult<ProviderCustomerListResult>> {
   const res = await request<ProviderCustomerListResult>(
-    adminPath(params.tenantId, params.businessReference),
+    businessProviderPath(params.businessReference),
     { method: 'GET' }
   );
   if (res.status !== 200) {
@@ -90,7 +132,7 @@ export async function deleteBusinessProviderCustomer(
 ): Promise<ProviderCustomerResult<null>> {
   const query = `?set_by=${encodeURIComponent(params.setBy)}`;
   const res = await request<unknown>(
-    `${adminPath(params.tenantId, params.businessReference, params.providerName)}${query}`,
+    `${businessProviderPath(params.businessReference, params.providerName)}${query}`,
     { method: 'DELETE' }
   );
   if (res.status !== 204) {

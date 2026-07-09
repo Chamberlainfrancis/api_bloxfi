@@ -98,6 +98,25 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   details.raw { margin-top:6px; }
   details.raw summary { cursor:pointer; color:var(--mut); font-size:12px; }
   pre { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; font-size:12px; }
+  .biz-results { padding:0 24px 16px; display:none; }
+  .biz-results table { width:100%; border-collapse:collapse; background:var(--bg); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .biz-results th, .biz-results td { text-align:left; padding:11px 16px; border-bottom:1px solid var(--line); font-size:13px; }
+  .biz-results th { color:var(--mut); font-weight:600; background:var(--panel); }
+  .biz-results tr.biz-row { cursor:pointer; }
+  .biz-results tr.biz-row:hover { background:var(--panel); }
+  .biz-results tr.biz-row.active { background:#2563eb12; }
+  .biz-results tr.biz-row:last-child td { border-bottom:none; }
+  .biz-results-empty { padding:16px; color:var(--mut); font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:10px; }
+  .biz-id { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:var(--mut); word-break:break-all; }
+  .biz-more { padding:0 24px 16px; }
+  dialog.biz-dialog { max-width:960px; width:96%; }
+  .biz-mtabs { display:flex; gap:4px; padding:0 20px; border-bottom:1px solid var(--line); }
+  .biz-mtab { padding:10px 16px; cursor:pointer; border:none; border-bottom:2px solid transparent; background:transparent; color:var(--mut); font-weight:600; border-radius:0; }
+  .biz-mtab.active { color:var(--txt); border-bottom-color:var(--accent); }
+  .biz-txn-table { width:100%; border-collapse:collapse; margin-top:8px; }
+  .biz-txn-table th, .biz-txn-table td { padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; }
+  .biz-txn-table th { color:var(--mut); font-weight:600; }
+  .biz-txn-type.active { border-color:var(--accent); color:var(--accent); }
 </style>
 </head>
 <body>
@@ -119,21 +138,33 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <button class="ghost" id="reload">Reload</button>
 </div>
 <div class="toolbar" id="bizToolbar" style="display:none">
-  <label class="muted">Business ID</label>
-  <input id="bizIdInput" type="text" placeholder="Paste the Business ID from a transaction's Reference & timeline section" style="min-width:340px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)" />
-  <button id="bizLoad">Load</button>
+  <label class="muted">Business</label>
+  <input id="bizSearchInput" type="text" placeholder="Filter by business name or email" style="min-width:340px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)" />
+  <button id="bizSearch">Search</button>
+  <button class="ghost" id="bizReload">Reload</button>
 </div>
 <div id="err" class="err" style="display:none"></div>
 <table id="txnTable">
   <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
-<div style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
-<div id="bizPanel" style="display:none;padding:0 24px 24px"></div>
+<div id="txnMoreWrap" style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
+<div id="bizResults" class="biz-results"></div>
+<div id="bizMoreWrap" class="biz-more" style="display:none"><button class="ghost" id="bizMore" style="display:none">Load more</button></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button class="ghost" id="dClose">Close</button></div>
   <div class="dbody" id="dBody"></div>
+</dialog>
+
+<dialog id="bizDetail" class="biz-dialog">
+  <div class="dhead"><span class="t" id="bizDTitle">Business</span><button class="ghost" id="bizDClose">Close</button></div>
+  <div class="biz-mtabs" id="bizMTabs">
+    <button type="button" class="biz-mtab active" data-btab="details">Details</button>
+    <button type="button" class="biz-mtab" data-btab="transactions">Transactions</button>
+    <button type="button" class="biz-mtab" data-btab="providers">Provider config</button>
+  </div>
+  <div class="dbody" id="bizDBody"></div>
 </dialog>
 
 <script nonce="${nonce}">
@@ -584,7 +615,80 @@ async function approveSettlement(offrampId, platformFee) {
 // --- businesses: provider customer ID management ----------------------------
 
 var BIZ_PROVIDERS = ["owlpay", "yativo"];
-var bizState = { userId: null, providers: {} };
+var bizState = {
+  userId: null,
+  providers: {},
+  providersError: null,
+  providersLoading: false,
+  results: [],
+  selectedBusiness: null,
+  lastQuery: "",
+  cursor: null,
+  modalTab: "details",
+  txnType: "onramp",
+  txnCursors: { onramp: null, offramp: null },
+  txnItems: { onramp: [], offramp: [] },
+  txnLoaded: { onramp: false, offramp: false },
+  providersLoaded: false
+};
+
+function kybBadge(status) {
+  var s = String(status || "unknown").toLowerCase();
+  var cls = s === "approved" ? "badge ok" : s === "rejected" ? "badge fail" : "badge pend";
+  return '<span class="' + cls + '">' + esc(String(status || "unknown").toUpperCase()) + "</span>";
+}
+
+function providerStatusBadge(status) {
+  if (status === "active") return '<span class="badge ok">Active</span>';
+  return '<span class="badge">Inactive</span>';
+}
+
+function fmtBizDate(iso) {
+  if (!iso) return '<span class="muted">—</span>';
+  return '<span class="muted">' + esc(new Date(iso).toLocaleString()) + "</span>";
+}
+
+function updateBizMore() {
+  var onBusinesses = state.view === "businesses";
+  $("bizMoreWrap").style.display = onBusinesses ? "block" : "none";
+  $("bizMore").style.display = onBusinesses && bizState.cursor ? "inline-block" : "none";
+}
+
+function businessRowHtml(biz) {
+  var active = bizState.userId === biz.id ? " active" : "";
+  var providers = biz.providers || {};
+  return '<tr class="biz-row' + active + '" data-business-id="' + esc(biz.id) + '">' +
+    "<td><div>" + esc(biz.legalName) + '</div><div class="biz-id">' + esc(biz.id) + "</div></td>" +
+    "<td>" + (biz.email ? esc(biz.email) : '<span class="muted">—</span>') + "</td>" +
+    "<td>" + fmtBizDate(biz.createdAt) + "</td>" +
+    "<td>" + fmtBizDate(biz.lastTransactedAt) + "</td>" +
+    "<td>" + kybBadge(biz.kybStatus) + "</td>" +
+    "<td>" + providerStatusBadge(providers.owlpay) + "</td>" +
+    "<td>" + providerStatusBadge(providers.yativo) + "</td>" +
+    "</tr>";
+}
+
+function renderBusinessResults() {
+  var el = $("bizResults");
+  if (state.view !== "businesses") {
+    el.style.display = "none";
+    return;
+  }
+  if (!bizState.results.length) {
+    var emptyMsg = bizState.lastQuery
+      ? 'No businesses matched "' + esc(bizState.lastQuery) + '".'
+      : "No businesses found.";
+    el.innerHTML = '<div class="biz-results-empty">' + emptyMsg + "</div>";
+    el.style.display = "block";
+    updateBizMore();
+    return;
+  }
+  el.innerHTML = '<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Last txn</th><th>KYB</th><th>OwlPay</th><th>Yativo</th></tr></thead><tbody>' +
+    bizState.results.map(businessRowHtml).join("") +
+    "</tbody></table>";
+  el.style.display = "block";
+  updateBizMore();
+}
 
 function providerCardHtml(name, current) {
   var hasValue = !!(current && current.channel_customer_id);
@@ -602,33 +706,190 @@ function providerCardHtml(name, current) {
     "</div></div></div>";
 }
 
-function renderBusinessPanel() {
-  var panel = $("bizPanel");
-  if (!bizState.userId) {
-    panel.style.display = "none";
-    return;
-  }
-  var html = '<div class="summary"><span class="flow" style="font-size:14px">Business <span class="mono">' + esc(bizState.userId) + "</span></span></div>";
-  html += '<div class="notice">Same provider customer ID applies to both onramp and offramp — set it once per provider.</div>';
-  html += BIZ_PROVIDERS.map(function (p) { return providerCardHtml(p, bizState.providers[p]); }).join("");
-  panel.innerHTML = html;
-  panel.style.display = "block";
+function renderBizDetailsTab(biz) {
+  var providers = biz.providers || {};
+  return '<div class="notice">Business overview — use the Transactions and Provider config tabs for activity and payout routing.</div>' +
+    kvPairs([
+      ["Legal name", biz.legalName],
+      ["Business ID", biz.id, "mono"],
+      ["Email", biz.email],
+      ["KYB status", String(biz.kybStatus || "unknown").toUpperCase()],
+      ["Created", biz.createdAt ? new Date(biz.createdAt).toLocaleString() : null],
+      ["Last transaction", biz.lastTransactedAt ? new Date(biz.lastTransactedAt).toLocaleString() : null],
+      ["OwlPay", providers.owlpay === "active" ? "Active" : "Inactive"],
+      ["Yativo", providers.yativo === "active" ? "Active" : "Inactive"],
+    ]);
 }
 
-async function loadBusiness(userId) {
-  showErr("");
-  bizState.userId = userId;
-  bizState.providers = {};
-  try {
-    var data = await api("/businesses/" + encodeURIComponent(userId) + "/providers");
-    (data.providers || []).forEach(function (p) { bizState.providers[p.provider_name] = p; });
-    renderBusinessPanel();
-  } catch (e) {
-    showErr(e.message);
-    var panel = $("bizPanel");
-    panel.innerHTML = '<div class="err" style="padding:12px 0">Could not load business: ' + esc(e.message) + "</div>";
-    panel.style.display = "block";
+function bizTxnRowHtml(t) {
+  return '<tr class="row biz-txn-row" data-id="' + esc(t.id) + '" data-type="' + esc(t.type) + '">' +
+    "<td>" + esc(t.type) + "</td>" +
+    "<td>" + (t.txnRef ? esc(t.txnRef) : '<span class="muted">' + esc(t.id.slice(0, 8)) + "</span>") + "</td>" +
+    '<td><span class="' + badgeClass(t.status) + '">' + esc(t.status) + "</span></td>" +
+    '<td class="amt">' + (t.amount != null ? fmtMoney(t.amount, t.currency) : "—") + "</td>" +
+    '<td class="muted">' + esc(new Date(t.createdAt).toLocaleString()) + "</td>" +
+    "</tr>";
+}
+
+function renderBizTransactionsTab() {
+  var type = bizState.txnType;
+  var items = bizState.txnItems[type] || [];
+  var onActive = type === "onramp" ? " active" : "";
+  var offActive = type === "offramp" ? " active" : "";
+  var rows = items.length
+    ? items.map(bizTxnRowHtml).join("")
+    : '<tr><td colspan="5" class="muted" style="padding:16px">No ' + esc(type) + " transactions for this business.</td></tr>";
+  var moreBtn = bizState.txnCursors[type]
+    ? '<div style="padding:12px 0 4px"><button type="button" class="ghost" id="bizTxnMore">Load more</button></div>'
+    : "";
+  return '<div class="toolbar" style="padding:0 0 12px">' +
+    '<button type="button" class="ghost biz-txn-type' + onActive + '" data-type="onramp">Onramps</button>' +
+    '<button type="button" class="ghost biz-txn-type' + offActive + '" data-type="offramp">Offramps</button>' +
+    "</div>" +
+    '<table class="biz-txn-table"><thead><tr><th>Type</th><th>Reference</th><th>Status</th><th>Amount</th><th>Created</th></tr></thead><tbody>' +
+    rows +
+    "</tbody></table>" + moreBtn;
+}
+
+function renderBizProvidersTab() {
+  if (bizState.providersLoading) {
+    return '<p class="muted">Loading provider configuration…</p>';
   }
+  if (bizState.providersError) {
+    return '<div class="err" style="padding:12px 0">Could not load providers: ' + esc(bizState.providersError) + "</div>";
+  }
+  return '<div class="notice">Same provider customer ID applies to both onramp and offramp — set it once per provider.</div>' +
+    BIZ_PROVIDERS.map(function (p) { return providerCardHtml(p, bizState.providers[p]); }).join("");
+}
+
+function renderBusinessModal() {
+  var biz = bizState.selectedBusiness;
+  if (!biz) return;
+  var title = esc(biz.legalName);
+  if (biz.email) title += ' <span class="muted" style="font-weight:500;font-size:13px">' + esc(biz.email) + "</span>";
+  $("bizDTitle").innerHTML = title;
+  document.querySelectorAll(".biz-mtab").forEach(function (el) {
+    el.classList.toggle("active", el.dataset.btab === bizState.modalTab);
+  });
+  var body = "";
+  if (bizState.modalTab === "details") body = renderBizDetailsTab(biz);
+  else if (bizState.modalTab === "transactions") body = renderBizTransactionsTab();
+  else body = renderBizProvidersTab();
+  $("bizDBody").innerHTML = body;
+}
+
+function switchBizModalTab(tab) {
+  bizState.modalTab = tab;
+  if (tab === "transactions" && !bizState.txnLoaded[bizState.txnType]) {
+    loadBusinessTransactions(bizState.txnType, true);
+    return;
+  }
+  if (tab === "providers" && !bizState.providersLoaded && !bizState.providersLoading) {
+    loadBusinessProviders();
+    return;
+  }
+  renderBusinessModal();
+}
+
+async function loadBusinessList(reset) {
+  showErr("");
+  if (reset) {
+    bizState.cursor = null;
+    bizState.results = [];
+  }
+  try {
+    var q = new URLSearchParams();
+    var filter = $("bizSearchInput").value.trim();
+    bizState.lastQuery = filter;
+    if (filter) q.set("q", filter);
+    if (bizState.cursor) q.set("cursor", bizState.cursor);
+    var data = await api("/businesses?" + q.toString());
+    var items = data.items || [];
+    if (!items.length && !bizState.results.length) {
+      bizState.results = [];
+    } else if (reset) {
+      bizState.results = items;
+    } else {
+      bizState.results = bizState.results.concat(items);
+    }
+    bizState.cursor = data.nextCursor;
+    updateBizMore();
+    renderBusinessResults();
+  } catch (e) { showErr(e.message); }
+}
+
+function syncBusinessRowProviders(userId) {
+  var row = bizState.results.find(function (item) { return item.id === userId; });
+  if (!row) return;
+  var providers = { owlpay: "inactive", yativo: "inactive" };
+  BIZ_PROVIDERS.forEach(function (name) {
+    if (bizState.providers[name] && bizState.providers[name].channel_customer_id) {
+      providers[name] = "active";
+    }
+  });
+  row.providers = providers;
+  if (bizState.selectedBusiness && bizState.selectedBusiness.id === userId) {
+    bizState.selectedBusiness.providers = providers;
+  }
+  renderBusinessResults();
+}
+
+async function searchBusinesses() {
+  await loadBusinessList(true);
+}
+
+async function loadBusinessProviders() {
+  if (!bizState.userId) return;
+  bizState.providersLoading = true;
+  bizState.providersError = null;
+  if (bizState.modalTab === "providers") renderBusinessModal();
+  try {
+    var data = await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers");
+    bizState.providers = {};
+    (data.providers || []).forEach(function (p) { bizState.providers[p.provider_name] = p; });
+    bizState.providersLoaded = true;
+    syncBusinessRowProviders(bizState.userId);
+  } catch (e) {
+    bizState.providersError = e.message;
+  } finally {
+    bizState.providersLoading = false;
+    if ($("bizDetail").open) renderBusinessModal();
+  }
+}
+
+async function loadBusinessTransactions(type, reset) {
+  if (!bizState.userId) return;
+  if (reset) bizState.txnCursors[type] = null;
+  try {
+    var q = new URLSearchParams({ type: type, userId: bizState.userId, includeExpired: "true" });
+    if (bizState.txnCursors[type]) q.set("cursor", bizState.txnCursors[type]);
+    var data = await api("/transactions?" + q.toString());
+    var items = data.items || [];
+    if (reset) bizState.txnItems[type] = items;
+    else bizState.txnItems[type] = (bizState.txnItems[type] || []).concat(items);
+    bizState.txnCursors[type] = data.nextCursor;
+    bizState.txnLoaded[type] = true;
+    if ($("bizDetail").open && bizState.modalTab === "transactions") renderBusinessModal();
+  } catch (e) { showErr(e.message); }
+}
+
+async function openBusinessModal(biz) {
+  showErr("");
+  bizState.userId = biz.id;
+  bizState.selectedBusiness = biz;
+  bizState.providers = {};
+  bizState.providersError = null;
+  bizState.providersLoading = false;
+  bizState.modalTab = "details";
+  bizState.txnType = "onramp";
+  bizState.txnCursors = { onramp: null, offramp: null };
+  bizState.txnItems = { onramp: [], offramp: [] };
+  bizState.txnLoaded = { onramp: false, offramp: false };
+  bizState.providersLoaded = false;
+  renderBusinessResults();
+  renderBusinessModal();
+  $("bizDetail").showModal();
+  loadBusinessProviders();
 }
 
 async function saveBusinessProvider(provider, customerId) {
@@ -639,9 +900,13 @@ async function saveBusinessProvider(provider, customerId) {
     await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers/" + encodeURIComponent(provider) + "/customer", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ channel_customer_id: customerId.trim(), actor: actor })
+      body: JSON.stringify({
+        channel_customer_id: customerId.trim(),
+        business_email: bizState.selectedBusiness && bizState.selectedBusiness.email ? bizState.selectedBusiness.email : null,
+        actor: actor
+      })
     });
-    await loadBusiness(bizState.userId);
+    await loadBusinessProviders();
   } catch (e) { showErr(e.message); }
 }
 
@@ -654,22 +919,50 @@ async function removeBusinessProvider(provider) {
     await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers/" + encodeURIComponent(provider) + "/customer" + q, {
       method: "DELETE"
     });
-    await loadBusiness(bizState.userId);
+    await loadBusinessProviders();
   } catch (e) { showErr(e.message); }
 }
 
-$("bizLoad").addEventListener("click", function () {
-  var v = $("bizIdInput").value.trim();
-  if (!v) { showErr("Paste a Business ID first."); return; }
-  loadBusiness(v);
+$("bizSearch").addEventListener("click", function () {
+  searchBusinesses();
 });
-$("bizIdInput").addEventListener("keydown", function (e) {
-  if (e.key === "Enter") $("bizLoad").click();
+$("bizReload").addEventListener("click", function () {
+  loadBusinessList(true);
 });
-$("bizPanel").addEventListener("click", function (e) {
+$("bizSearchInput").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") $("bizSearch").click();
+});
+$("bizResults").addEventListener("click", function (e) {
+  var row = e.target.closest(".biz-row");
+  if (!row) return;
+  var biz = bizState.results.find(function (item) { return item.id === row.dataset.businessId; });
+  if (biz) openBusinessModal(biz);
+});
+$("bizDClose").addEventListener("click", function () { $("bizDetail").close(); });
+$("bizDetail").addEventListener("close", function () {
+  bizState.userId = null;
+  bizState.selectedBusiness = null;
+  renderBusinessResults();
+});
+$("bizDetail").addEventListener("click", function (e) {
+  var mtab = e.target.closest(".biz-mtab");
+  if (mtab) { switchBizModalTab(mtab.dataset.btab); return; }
+  var txnTypeBtn = e.target.closest(".biz-txn-type");
+  if (txnTypeBtn) {
+    bizState.txnType = txnTypeBtn.dataset.type;
+    if (!bizState.txnLoaded[bizState.txnType]) {
+      loadBusinessTransactions(bizState.txnType, true);
+    } else {
+      renderBusinessModal();
+    }
+    return;
+  }
+  if (e.target.id === "bizTxnMore") { loadBusinessTransactions(bizState.txnType, false); return; }
+  var txnRow = e.target.closest(".biz-txn-row");
+  if (txnRow) { openDetail(txnRow.dataset.id, txnRow.dataset.type); return; }
   var saveBtn = e.target.closest(".biz-save-btn");
   if (saveBtn) {
-    var input = $("bizPanel").querySelector('.biz-cust-input[data-provider="' + saveBtn.dataset.provider + '"]');
+    var input = $("bizDBody").querySelector('.biz-cust-input[data-provider="' + saveBtn.dataset.provider + '"]');
     saveBusinessProvider(saveBtn.dataset.provider, input ? input.value : "");
     return;
   }
@@ -696,10 +989,15 @@ document.querySelectorAll(".tab").forEach(function (el) {
     $("txnToolbar").style.display = isBusinesses ? "none" : "flex";
     $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
     $("txnTable").style.display = isBusinesses ? "none" : "table";
+    $("txnMoreWrap").style.display = isBusinesses ? "none" : "block";
     $("more").style.display = "none";
-    $("bizPanel").style.display = isBusinesses && bizState.userId ? "block" : "none";
+    $("bizResults").style.display = isBusinesses ? "block" : "none";
     if (isBusinesses) {
-      if (bizState.userId) renderBusinessPanel();
+      if (!bizState.results.length) loadBusinessList(true);
+      else {
+        renderBusinessResults();
+        updateBizMore();
+      }
       return;
     }
 
@@ -715,6 +1013,7 @@ $("statusFilter").addEventListener("change", function (e) { state.status = e.tar
 $("includeExpired").addEventListener("change", function (e) { state.includeExpired = e.target.checked; load(true); });
 $("reload").addEventListener("click", function () { load(true); });
 $("more").addEventListener("click", function () { load(false); });
+$("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
 $("rows").addEventListener("click", function (e) {
   const approve = e.target.closest(".approve-btn");

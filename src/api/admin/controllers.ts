@@ -9,6 +9,7 @@ import { AppError } from '@/types';
 import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
 import * as providerCustomer from '@/core/admin/providerCustomer';
+import { listUsers, searchUsers } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
@@ -46,7 +47,18 @@ export async function listTransactions(
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : NaN;
     const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
     const includeExpired = req.query.includeExpired === 'true';
-    const result = await dashboard.listTransactions({ type, status, includeExpired, cursor, limit });
+    const userId =
+      typeof req.query.userId === 'string' && req.query.userId.trim()
+        ? req.query.userId.trim()
+        : undefined;
+    const result = await dashboard.listTransactions({
+      type,
+      status,
+      includeExpired,
+      cursor,
+      limit,
+      userId,
+    });
     sendSuccess(res, result);
   } catch (e) {
     next(e);
@@ -153,6 +165,66 @@ export async function approveFeeSettlement(
 // Deliberately no passcode gate here (unlike markTransaction/approveFeeSettlement
 // above) — see core/admin/providerCustomer.ts header comment.
 
+export async function searchBusinesses(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const limitRaw = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : NaN;
+    const limit = Number.isNaN(limitRaw) ? 10 : Math.min(Math.max(limitRaw, 1), 20);
+    const items = await searchUsers(q, limit);
+    sendSuccess(res, { items });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listBusinesses(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : undefined;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const limitRaw = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : NaN;
+    const limit = Number.isNaN(limitRaw) ? undefined : limitRaw;
+    let createdBefore: Date | undefined;
+    if (cursor) {
+      createdBefore = new Date(cursor);
+      if (Number.isNaN(createdBefore.getTime())) {
+        throw new AppError('Invalid cursor', 'INVALID_REQUEST', 400);
+      }
+    }
+
+    const { users, nextCursor } = await listUsers({ q, limit, createdBefore });
+    const tenantId = env.PALREMIT_LIQUIDITY_TENANT_ID;
+    const items = tenantId
+      ? await Promise.all(
+          users.map(async (biz) => ({
+            ...biz,
+            providers: await providerCustomer.resolveDashboardProviderStatus(palremitLiquidity, {
+              tenantId,
+              businessReference: biz.id,
+            }),
+          }))
+        )
+      : users.map((biz) => ({
+          ...biz,
+          providers: providerCustomer.emptyDashboardProviderStatus(),
+        }));
+
+    sendSuccess(res, {
+      items,
+      nextCursor: nextCursor ? nextCursor.toISOString() : null,
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function putBusinessProviderCustomer(
   req: Request,
   res: Response,
@@ -161,12 +233,20 @@ export async function putBusinessProviderCustomer(
   try {
     const businessReference = req.params.businessReference;
     const providerName = req.params.providerName;
-    const body = (req.body ?? {}) as { channel_customer_id?: unknown; actor?: unknown };
+    const body = (req.body ?? {}) as {
+      channel_customer_id?: unknown;
+      business_email?: unknown;
+      actor?: unknown;
+    };
     const channelCustomerId =
       typeof body.channel_customer_id === 'string' ? body.channel_customer_id.trim() : '';
     if (!channelCustomerId) {
       throw new AppError('channel_customer_id is required', 'INVALID_REQUEST', 400);
     }
+    const businessEmail =
+      typeof body.business_email === 'string' && body.business_email.trim()
+        ? body.business_email.trim().toLowerCase()
+        : null;
     const setBy = typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'bloxfi-admin-dashboard';
     const result = await providerCustomer.putBusinessProviderCustomer(palremitLiquidity, {
       tenantId: requirePalremitTenantId(),
@@ -174,6 +254,7 @@ export async function putBusinessProviderCustomer(
       providerName,
       channelCustomerId,
       setBy,
+      businessEmail,
     });
     if (!result.ok) {
       throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);

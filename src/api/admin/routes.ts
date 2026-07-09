@@ -13,6 +13,8 @@ router.get('/transactions/:type/:id', controllers.getTransaction);
 router.post('/transactions/:type/:id/mark', controllers.markTransaction);
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:offrampId/approve', controllers.approveFeeSettlement);
+router.get('/businesses', controllers.listBusinesses);
+router.get('/businesses/search', controllers.searchBusinesses);
 
 // 033: business provider customer identity (proxies to the orchestrator's
 // admin API — see core/admin/providerCustomer.ts).

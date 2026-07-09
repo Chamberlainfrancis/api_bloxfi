@@ -224,6 +224,124 @@ export async function getPalremitChannelUserId(userId: string): Promise<string |
   return v && v.length > 0 ? v : null;
 }
 
+export interface BusinessSearchRow {
+  id: string;
+  legalName: string;
+  email: string | null;
+  kybStatus: KYBStatus;
+  createdAt: string;
+  lastTransactedAt: string | null;
+}
+
+export interface ListBusinessesParams {
+  q?: string;
+  limit?: number;
+  createdBefore?: Date;
+}
+
+function mapUserToBusinessRow(
+  u: {
+    id: string;
+    businessInfo: unknown;
+    businessEmailNorm: string | null;
+    kybStatus: KYBStatus;
+    createdAt: Date;
+  },
+  lastTransactedAt?: Date | null
+): BusinessSearchRow {
+  const info = (u.businessInfo ?? {}) as { legalName?: string; tradingName?: string; email?: string };
+  return {
+    id: u.id,
+    legalName: info.tradingName || info.legalName || '(unnamed business)',
+    email: u.businessEmailNorm ?? info.email ?? null,
+    kybStatus: u.kybStatus,
+    createdAt: u.createdAt.toISOString(),
+    lastTransactedAt: lastTransactedAt ? lastTransactedAt.toISOString() : null,
+  };
+}
+
+async function getLastTransactedAtByUserIds(userIds: string[]): Promise<Map<string, Date>> {
+  if (userIds.length === 0) return new Map();
+  const [onramps, offramps] = await Promise.all([
+    prisma.onramp.groupBy({
+      by: ['userId'],
+      where: { userId: { in: userIds } },
+      _max: { createdAt: true },
+    }),
+    prisma.offramp.groupBy({
+      by: ['userId'],
+      where: { userId: { in: userIds } },
+      _max: { createdAt: true },
+    }),
+  ]);
+  const result = new Map<string, Date>();
+  for (const row of onramps) {
+    const d = row._max.createdAt;
+    if (d) result.set(row.userId, d);
+  }
+  for (const row of offramps) {
+    const d = row._max.createdAt;
+    if (!d) continue;
+    const prev = result.get(row.userId);
+    if (!prev || d > prev) result.set(row.userId, d);
+  }
+  return result;
+}
+
+function businessSearchWhere(q: string): Prisma.UserWhereInput {
+  return {
+    OR: [
+      { businessEmailNorm: { contains: q.toLowerCase() } },
+      { businessInfo: { path: ['legalName'], string_contains: q, mode: 'insensitive' } },
+      { businessInfo: { path: ['tradingName'], string_contains: q, mode: 'insensitive' } },
+    ],
+  };
+}
+
+/**
+ * Paginated business list for the admin dashboard. Optional `q` filters by
+ * name or email; without `q`, returns the newest businesses first.
+ */
+export async function listUsers(params: ListBusinessesParams = {}): Promise<{
+  users: BusinessSearchRow[];
+  nextCursor: Date | null;
+}> {
+  const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 50) : 25;
+  const q = params.q?.trim();
+  const where: Prisma.UserWhereInput = {};
+  if (q) Object.assign(where, businessSearchWhere(q));
+  if (params.createdBefore) {
+    where.createdAt = { lt: params.createdBefore };
+  }
+
+  const users = await prisma.user.findMany({
+    where,
+    select: { id: true, businessInfo: true, businessEmailNorm: true, kybStatus: true, createdAt: true },
+    take: limit + 1,
+    orderBy: { createdAt: 'desc' },
+  });
+  const hasMore = users.length > limit;
+  const page = hasMore ? users.slice(0, limit) : users;
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1]!.createdAt : null;
+  const lastTransacted = await getLastTransactedAtByUserIds(page.map((u) => u.id));
+  return {
+    users: page.map((u) => mapUserToBusinessRow(u, lastTransacted.get(u.id) ?? null)),
+    nextCursor,
+  };
+}
+
+/**
+ * Ops-facing business lookup by name or email (case-insensitive, partial
+ * match). Backs the admin dashboard's "Businesses" tab so ops don't need
+ * to already know a business's raw User.id.
+ */
+export async function searchUsers(query: string, limit = 20): Promise<BusinessSearchRow[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const { users } = await listUsers({ q, limit });
+  return users;
+}
+
 // --- KYB info (POST /users/:userId/kyb) ---
 
 export async function upsertKybInfo(

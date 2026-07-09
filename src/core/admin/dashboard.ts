@@ -193,6 +193,7 @@ export interface ListParams {
   includeExpired?: boolean;
   cursor?: string;
   limit?: number;
+  userId?: string;
 }
 
 async function expireStaleRampsForType(type: TxnType): Promise<void> {
@@ -236,6 +237,7 @@ export async function listTransactions(
   if (params.type === 'onramp') {
     const onrampRepo = await import('@/db/repositories/onramp.repo');
     const { onramps, nextCursor } = await onrampRepo.listOnramps({
+      userId: params.userId,
       status: params.status as never,
       excludeStatuses: excludeExpired ? (['EXPIRED'] as const) : undefined,
       limit,
@@ -249,6 +251,7 @@ export async function listTransactions(
 
   const offrampRepo = await import('@/db/repositories/offramp.repo');
   const { offramps, nextCursor } = await offrampRepo.listOfframps({
+    userId: params.userId,
     status: params.status as never,
     excludeStatuses: excludeExpired ? (['EXPIRED'] as const) : undefined,
     limit,

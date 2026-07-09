@@ -26,11 +26,19 @@ describe('putBusinessProviderCustomer', () => {
       providerName: 'owlpay',
       channelCustomerId: 'cus_AbCdEfGhIjKlMnOpQrStUvWx',
       setBy: 'ops@bloxfi',
+      businessEmail: 'ops@acme.test',
     });
 
     expect(request).toHaveBeenCalledWith(
-      '/v1/admin/tenants/tnt-1/businesses/biz-1/providers/owlpay/customer',
-      { method: 'PUT', body: { channel_customer_id: 'cus_AbCdEfGhIjKlMnOpQrStUvWx', set_by: 'ops@bloxfi' } }
+      '/v1/businesses/biz-1/providers/owlpay/customer',
+      {
+        method: 'PUT',
+        body: {
+          channel_customer_id: 'cus_AbCdEfGhIjKlMnOpQrStUvWx',
+          set_by: 'ops@bloxfi',
+          business_email: 'ops@acme.test',
+        },
+      }
     );
     expect(res).toEqual({
       ok: true,
@@ -77,7 +85,7 @@ describe('putBusinessProviderCustomer', () => {
       setBy: 'ops',
     });
     expect(request).toHaveBeenCalledWith(
-      '/v1/admin/tenants/tnt-1/businesses/biz%20with%20spaces/providers/owlpay/customer',
+      '/v1/businesses/biz%20with%20spaces/providers/owlpay/customer',
       expect.anything()
     );
   });
@@ -95,7 +103,7 @@ describe('listBusinessProviderCustomers', () => {
 
     const res = await listBusinessProviderCustomers(request, { tenantId: 'tnt-1', businessReference: 'biz-1' });
 
-    expect(request).toHaveBeenCalledWith('/v1/admin/tenants/tnt-1/businesses/biz-1/providers', { method: 'GET' });
+    expect(request).toHaveBeenCalledWith('/v1/businesses/biz-1/providers', { method: 'GET' });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.value.providers).toHaveLength(1);
   });
@@ -119,7 +127,7 @@ describe('deleteBusinessProviderCustomer', () => {
     });
 
     expect(request).toHaveBeenCalledWith(
-      '/v1/admin/tenants/tnt-1/businesses/biz-1/providers/owlpay/customer?set_by=ops%40bloxfi',
+      '/v1/businesses/biz-1/providers/owlpay/customer?set_by=ops%40bloxfi',
       { method: 'DELETE' }
     );
     expect(res).toEqual({ ok: true, value: null });
