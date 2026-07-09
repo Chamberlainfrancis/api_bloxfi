@@ -264,6 +264,22 @@ function addOfframpLpEvents(events: AuditTrailEvent[], row: AuditRowInput): void
     pushEvent(events, row.updatedAt, 'warning', 'Partial crypto deposit at Palremit');
   }
 
+  const payoutError =
+    typeof timeline.fiatPayoutLastError === 'string'
+      ? timeline.fiatPayoutLastError.trim()
+      : typeof orch.fiatPayoutLastError === 'string'
+        ? orch.fiatPayoutLastError.trim()
+        : '';
+  if (payoutError) {
+    pushEvent(
+      events,
+      timeline.fiatPayoutLastErrorAt ?? orch.fiatPayoutLastErrorAt ?? row.updatedAt,
+      'error',
+      'Fiat payout rejected by Palremit',
+      payoutError
+    );
+  }
+
   const withdrawalStatus =
     typeof orch.withdrawalStatus === 'string' ? orch.withdrawalStatus.toLowerCase() : '';
   const withdrawalId =

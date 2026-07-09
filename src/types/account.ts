@@ -102,3 +102,12 @@ export interface DeleteAccountResponse {
   message: string;
   id: string;
 }
+
+// --- Update Account (PUT) ---
+
+/** Partial canonical destination merge; corridor cannot change. */
+export interface UpdateAccountRequest {
+  destination: Record<string, unknown>;
+}
+
+export type UpdateAccountResponse = Account;

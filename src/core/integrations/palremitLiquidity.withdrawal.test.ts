@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   createPalremitWithdrawal,
+  createPalremitWithdrawalDetailed,
+  formatPalremitWithdrawalError,
   getPalremitWithdrawalByClientReference,
 } from '@/core/integrations/palremitLiquidity';
 
@@ -50,6 +52,64 @@ describe('createPalremitWithdrawal', () => {
     const res = await createPalremitWithdrawal(request, {}, 'idem-2');
     expect(res?.id).toBe('wd-wrap-1');
     expect(res?.client_reference).toBe('OFF-bbbbbbbbbbbbbbbbbbbbbbbb-FEE');
+  });
+
+  it('returns null on non-202 via createPalremitWithdrawal', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 403,
+      data: {
+        error: 'provider_customer_not_onboarded',
+        message: 'business has not been onboarded with the required provider',
+      },
+    });
+    const res = await createPalremitWithdrawal(request, {}, 'idem-3');
+    expect(res).toBeNull();
+  });
+});
+
+describe('createPalremitWithdrawalDetailed', () => {
+  it('returns structured failure on non-202', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 403,
+      data: {
+        error: 'provider_customer_not_onboarded',
+        message: 'business has not been onboarded with the required provider',
+      },
+    });
+    const res = await createPalremitWithdrawalDetailed(request, {}, 'idem-4');
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).toContain('provider_customer_not_onboarded');
+      expect(res.httpStatus).toBe(403);
+    }
+  });
+
+  it('returns structured failure when httpRequest throws on 4xx', async () => {
+    const err = new Error('HTTP 400: Bad Request') as Error & { status: number; statusCode: number; data: unknown };
+    err.status = 400;
+    err.statusCode = 400;
+    err.data = {
+      error: 'payout_requirements_invalid',
+      message: 'destination.fields failed validation',
+    };
+    const request = vi.fn().mockRejectedValue(err);
+    const res = await createPalremitWithdrawalDetailed(request, {}, 'idem-5');
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).toContain('destination.fields failed validation');
+      expect(res.httpStatus).toBe(400);
+    }
+  });
+});
+
+describe('formatPalremitWithdrawalError', () => {
+  it('combines error code and message when both differ', () => {
+    expect(
+      formatPalremitWithdrawalError(
+        { error: 'provider_customer_not_onboarded', message: 'business has not been onboarded' },
+        403
+      )
+    ).toBe('provider_customer_not_onboarded: business has not been onboarded');
   });
 });
 

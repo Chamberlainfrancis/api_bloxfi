@@ -112,6 +112,37 @@ describe('buildWithdrawalFromAccount', () => {
     });
     expect(body).not.toHaveProperty('business_reference');
   });
+
+  it('normalizes legacy swift_code to bank_code on payout', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-aed-legacy',
+      destinationAmount: 100,
+      providerPayout: {
+        provider: 'palremit',
+        schemaVersion: 2,
+        corridor: {
+          asset: 'AED',
+          country: 'AE',
+          destinationType: 'local_bank',
+          beneficiaryType: 'individual',
+        },
+        destination: {
+          swift_code: 'WIOBAEADXXX',
+          account_number: 'AE910860000006648238946',
+          bank_name: 'Wio Bank PJSC',
+          account_holder_name: 'Matisse Eykelberg',
+          beneficiary: {
+            type: 'individual',
+            name: 'Matisse Eykelberg',
+            address: { street: 'Main', country: 'AE' },
+          },
+        },
+      },
+    });
+    const dest = body?.destination as Record<string, unknown>;
+    expect(dest.bank_code).toBe('WIOBAEADXXX');
+    expect(dest.swift_code).toBeUndefined();
+  });
 });
 
 describe('isAccountReadyForOfframp', () => {

@@ -120,6 +120,20 @@ export async function deleteAccount(accountId: string, userId: string): Promise<
   return { id: accountId };
 }
 
+export async function updateAccountProviderPayout(
+  accountId: string,
+  userId: string,
+  providerPayout: object
+): Promise<AccountRow | null> {
+  const account = await findOfframpAccountByIdAndUser(accountId, userId);
+  if (!account) return null;
+  const updated = await prisma.account.update({
+    where: { id: accountId },
+    data: { providerPayout: providerPayout as object },
+  });
+  return updated as AccountRow;
+}
+
 /**
  * Whether the account has pending transactions (onramp/offramp).
  * When Feature 5/6 exist, query those tables. Until then, no pending.

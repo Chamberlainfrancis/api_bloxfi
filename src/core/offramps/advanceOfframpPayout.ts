@@ -103,11 +103,34 @@ export async function advanceOfframpIfDepositReady(
       : null
   ) as Record<string, unknown> | null;
 
+  if (!result.ok) {
+    const now = new Date().toISOString();
+    await offrampRepo.updateOfframpStatus(row.id, 'CRYPTO_CONFIRMED', {
+      timeline: {
+        ...timeline,
+        fiatPayoutLastError: result.error,
+        fiatPayoutLastErrorAt: now,
+      },
+      providerRefs: {
+        palremitOrchestrator: {
+          ...(orch && typeof orch === 'object' ? orch : {}),
+          fiatPayoutLastError: result.error,
+          fiatPayoutLastErrorAt: now,
+          rawFiatWithdrawalRequest: withdrawalBody,
+          rawFiatWithdrawalResponse: result.rawResponse ?? null,
+        },
+      },
+    });
+    return;
+  }
+
   await offrampRepo.updateOfframpStatus(row.id, 'FIAT_PENDING', {
     timeline: {
       ...timeline,
       fiatWithdrawalId: result.withdrawalId,
       fiatInitiatedAt: new Date().toISOString(),
+      fiatPayoutLastError: null,
+      fiatPayoutLastErrorAt: null,
     },
     lpReference: result.withdrawalId,
     providerRefs: {
@@ -115,6 +138,8 @@ export async function advanceOfframpIfDepositReady(
         ...(orch && typeof orch === 'object' ? orch : {}),
         withdrawalStatus: 'pending',
         palremitWithdrawalId: result.withdrawalId,
+        fiatPayoutLastError: null,
+        fiatPayoutLastErrorAt: null,
         rawFiatWithdrawalRequest: result.rawRequest,
         rawFiatWithdrawalResponse: result.rawResponse,
       },

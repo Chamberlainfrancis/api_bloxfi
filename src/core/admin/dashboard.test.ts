@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing, sumProfitUsdc } from '@/core/admin/dashboard';
+import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing, sumProfitUsdc, extractFiatPayoutError, canRetryOfframpFiatPayout } from '@/core/admin/dashboard';
 
 describe('resolveMarkStatus', () => {
   it('maps success to COMPLETED for both types', () => {
@@ -166,5 +166,44 @@ describe('isWithdrawalProcessing', () => {
         palremitOrchestrator: { depositStatus: 'credited' },
       })
     ).toBe(false);
+  });
+});
+
+describe('extractFiatPayoutError', () => {
+  it('reads from timeline then providerRefs', () => {
+    expect(
+      extractFiatPayoutError({
+        timeline: { fiatPayoutLastError: 'timeline error' },
+        providerRefs: { palremitOrchestrator: { fiatPayoutLastError: 'orch error' } },
+      })
+    ).toBe('timeline error');
+    expect(
+      extractFiatPayoutError({
+        providerRefs: { palremitOrchestrator: { fiatPayoutLastError: 'orch error' } },
+      })
+    ).toBe('orch error');
+    expect(extractFiatPayoutError({})).toBeNull();
+  });
+});
+
+describe('canRetryOfframpFiatPayout', () => {
+  it('allows retry only in CRYPTO_CONFIRMED without a withdrawal id', () => {
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'CRYPTO_CONFIRMED',
+        timeline: {},
+        providerRefs: {},
+      })
+    ).toBe(true);
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'CRYPTO_CONFIRMED',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        providerRefs: {},
+      })
+    ).toBe(false);
+    expect(canRetryOfframpFiatPayout({ status: 'FIAT_PENDING', timeline: {}, providerRefs: {} })).toBe(
+      false
+    );
   });
 });

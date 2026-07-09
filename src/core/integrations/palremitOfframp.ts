@@ -4,7 +4,7 @@
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
-  createPalremitWithdrawal,
+  createPalremitWithdrawalDetailed,
   getPalremitProvisionedAccount,
   listPalremitProvisionedAccounts,
   provisionPalremitDepositAccount,
@@ -12,6 +12,7 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
+import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   usdOfframpOptionalMetadataSchema,
@@ -262,7 +263,7 @@ export function buildWithdrawalFromAccount(
   if (!pp) return null;
 
   const destination = mergeOfframpExtrasIntoDestination(
-    pp.destination,
+    normalizePalremitDestination(pp.destination),
     input.purposeOfPayment,
     input.metadata
   );
@@ -282,19 +283,31 @@ export function isAccountReadyForOfframp(input: { providerPayout: unknown }): bo
   return parseProviderPayout(input.providerPayout) != null;
 }
 
+export type PalremitOfframpFiatWithdrawalResult =
+  | { ok: true; withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown }
+  | { ok: false; error: string; httpStatus: number; rawResponse?: unknown };
+
 export async function createPalremitOfframpFiatWithdrawal(
   liquidityRequest: PalremitLiquidityRequestFn,
   params: { body: Record<string, unknown>; txnRef: string }
-): Promise<{ withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown } | null> {
+): Promise<PalremitOfframpFiatWithdrawalResult | null> {
   const body = params.body;
   const txnRef = params.txnRef;
   if (!body) return null;
 
   const idempotencyKey = `offramp-fiat-wd:${txnRef.trim()}`;
-  const created = await createPalremitWithdrawal(liquidityRequest, body, idempotencyKey);
-  if (!created?.id) return null;
+  const created = await createPalremitWithdrawalDetailed(liquidityRequest, body, idempotencyKey);
+  if (!created.ok) {
+    return {
+      ok: false,
+      error: created.message,
+      httpStatus: created.httpStatus,
+      rawResponse: created.raw,
+    };
+  }
 
   return {
+    ok: true,
     withdrawalId: created.id,
     rawRequest: body,
     rawResponse: created.raw,

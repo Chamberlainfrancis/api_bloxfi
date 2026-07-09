@@ -1,6 +1,6 @@
 /**
  * Offramp payout bank accounts (fiat destination). Spec §3.
- * POST /users/:userId/accounts (idempotent), GET list, GET one, DELETE.
+ * POST /users/:userId/accounts (idempotent), GET list, GET one, PUT, DELETE.
  */
 
 import { Router } from 'express';
@@ -18,6 +18,8 @@ router.post(
 router.get('/users/:userId/accounts', controllers.listAccounts);
 
 router.get('/users/:userId/accounts/:accountId', controllers.getAccount);
+
+router.put('/users/:userId/accounts/:accountId', controllers.updateAccount);
 
 router.delete('/users/:userId/accounts/:accountId', controllers.deleteAccount);
 

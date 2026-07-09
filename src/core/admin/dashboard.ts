@@ -100,22 +100,13 @@ const PAYOUT_SENT_STATUSES: Record<TxnType, readonly string[]> = {
   offramp: ['FIAT_INITIATED', 'FIAT_PENDING'],
 };
 
-function getPalremitOrchestrator(providerRefs: unknown): Record<string, unknown> {
-  if (providerRefs == null || typeof providerRefs !== 'object' || Array.isArray(providerRefs)) {
-    return {};
-  }
-  const o = (providerRefs as Record<string, unknown>).palremitOrchestrator;
-  if (o == null || typeof o !== 'object' || Array.isArray(o)) return {};
-  return o as Record<string, unknown>;
-}
-
 /** True when Palremit has an in-flight withdrawal (pending webhook). */
 export function isWithdrawalProcessing(
   type: TxnType,
   status: string,
   providerRefs: unknown
 ): boolean {
-  const orch = getPalremitOrchestrator(providerRefs);
+  const orch = orchRefs(providerRefs);
   const ws =
     typeof orch.withdrawalStatus === 'string' ? orch.withdrawalStatus.trim().toLowerCase() : '';
   if (TERMINAL_WITHDRAWAL_STATUSES.has(ws)) return false;
@@ -126,6 +117,49 @@ export function isWithdrawalProcessing(
   if (!payoutSent) return false;
 
   return ws === 'pending' || ws === 'processing' || ws === '';
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value != null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function orchRefs(providerRefs: unknown): Record<string, unknown> {
+  return asRecord(asRecord(providerRefs).palremitOrchestrator);
+}
+
+/** Last Palremit fiat-payout rejection (persisted when LP returns non-202). */
+export function extractFiatPayoutError(row: {
+  timeline?: unknown;
+  providerRefs?: unknown;
+}): string | null {
+  const timeline = asRecord(row.timeline);
+  const orch = orchRefs(row.providerRefs);
+  const fromTimeline =
+    typeof timeline.fiatPayoutLastError === 'string' ? timeline.fiatPayoutLastError.trim() : '';
+  if (fromTimeline) return fromTimeline;
+  const fromOrch =
+    typeof orch.fiatPayoutLastError === 'string' ? orch.fiatPayoutLastError.trim() : '';
+  return fromOrch || null;
+}
+
+/** Operator may retry fiat payout when crypto is confirmed but LP handoff never started. */
+export function canRetryOfframpFiatPayout(row: {
+  status: string;
+  timeline?: unknown;
+  providerRefs?: unknown;
+}): boolean {
+  if (row.status !== 'CRYPTO_CONFIRMED') return false;
+  const timeline = asRecord(row.timeline);
+  if (timeline.fiatWithdrawalCompleted === true) return false;
+  const orch = orchRefs(row.providerRefs);
+  const wd =
+    (typeof timeline.fiatWithdrawalId === 'string' && timeline.fiatWithdrawalId.trim()) ||
+    (typeof orch.palremitWithdrawalId === 'string' && orch.palremitWithdrawalId.trim()) ||
+    '';
+  return !wd;
 }
 
 export interface ListRow {
@@ -337,6 +371,8 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     adminActions,
     beneficiaryAccount,
     withdrawalProcessing: isWithdrawalProcessing(type, row.status, row.providerRefs),
+    payoutError: type === 'offramp' ? extractFiatPayoutError(row) : null,
+    canRetryFiatPayout: type === 'offramp' ? canRetryOfframpFiatPayout(row) : false,
     feeSettlementPending:
       type === 'offramp' &&
       (() => {
@@ -638,4 +674,82 @@ export async function approveFeeSettlement(
     settlement: result.settlement,
     row: updated ? toPendingFeeSettlementRow(updated) : null,
   };
+}
+
+export interface RetryOfframpFiatPayoutAdminParams {
+  offrampId: string;
+  actor?: string;
+}
+
+export async function retryOfframpFiatPayoutAdmin(
+  params: RetryOfframpFiatPayoutAdminParams
+): Promise<{
+  status: string;
+  withdrawalId?: string;
+  txnRef?: string;
+  message?: string;
+  detail: unknown;
+}> {
+  const [offrampRepo, accountRepo, adminActionRepo, retryMod] = await Promise.all([
+    import('@/db/repositories/offramp.repo'),
+    import('@/db/repositories/account.repo'),
+    import('@/db/repositories/adminAction.repo'),
+    import('@/core/offramps/retryOfframpFiatPayout'),
+  ]);
+  const { createPalremitLiquidityAdapter } = await import('@/services/palremitAdapters');
+  const liquidityRequest = createPalremitLiquidityAdapter();
+
+  const existing = await offrampRepo.findOfframpById(params.offrampId);
+  if (!existing) throw new AppError('Offramp not found', 'NOT_FOUND', 404);
+
+  const outcome = await retryMod.retryOfframpFiatPayout(
+    {
+      findOfframpById: offrampRepo.findOfframpById,
+      updateOfframpStatus: offrampRepo.updateOfframpStatus,
+    },
+    { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
+    liquidityRequest,
+    { offrampId: params.offrampId, userId: existing.userId }
+  );
+
+  if (outcome.status === 'rejected') {
+    throw new AppError(outcome.message, outcome.code, outcome.statusCode);
+  }
+
+  const detail = await getTransactionDetail('offramp', params.offrampId);
+
+  if (outcome.status === 'initiated' || outcome.status === 'already_initiated') {
+    await adminActionRepo.createAdminAction({
+      txnType: 'offramp',
+      txnId: params.offrampId,
+      fromStatus: existing.status,
+      toStatus: outcome.status === 'initiated' ? 'FIAT_PENDING' : existing.status,
+      note:
+        outcome.status === 'already_initiated'
+          ? `Fiat payout retry — already initiated (${outcome.withdrawalId})`
+          : `Fiat payout retry initiated (${outcome.withdrawalId})`,
+      actor: params.actor ?? null,
+    });
+    logger.info(
+      { offrampId: params.offrampId, actor: params.actor, status: outcome.status },
+      'admin retried offramp fiat payout'
+    );
+    return {
+      status: outcome.status,
+      withdrawalId: outcome.withdrawalId,
+      txnRef: outcome.txnRef,
+      detail,
+    };
+  }
+
+  await adminActionRepo.createAdminAction({
+    txnType: 'offramp',
+    txnId: params.offrampId,
+    fromStatus: existing.status,
+    toStatus: existing.status,
+    note: `Fiat payout retry failed: ${outcome.message}`,
+    actor: params.actor ?? null,
+  });
+
+  throw new AppError(outcome.message, 'PAYOUT_RETRY_FAILED', 422);
 }

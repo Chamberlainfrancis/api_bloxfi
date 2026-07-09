@@ -14,3 +14,6 @@ export type { AccountRepoGet } from '@/core/accounts/getAccount';
 
 export { deleteAccount } from '@/core/accounts/deleteAccount';
 export type { AccountRepoDelete } from '@/core/accounts/deleteAccount';
+
+export { updateAccount } from '@/core/accounts/updateAccount';
+export type { AccountRepoUpdate } from '@/core/accounts/updateAccount';

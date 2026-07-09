@@ -112,10 +112,18 @@ export async function retryOfframpFiatPayout(
     return { status: 'initiated', withdrawalId: wd, txnRef: after.txnRef };
   }
 
+  const t2err =
+    typeof t2.fiatPayoutLastError === 'string' && t2.fiatPayoutLastError.trim()
+      ? t2.fiatPayoutLastError.trim()
+      : typeof o2?.fiatPayoutLastError === 'string' && o2.fiatPayoutLastError.trim()
+        ? o2.fiatPayoutLastError.trim()
+        : '';
+
   return {
     status: 'failed_to_initiate',
     txnRef: after.txnRef,
     message:
-      'Palremit did not accept the payout (e.g. missing bank_code on destination account, insufficient LP balance). Fix data and retry with a new requestId.',
+      t2err ||
+      'Palremit did not accept the payout (e.g. missing bank_code on destination account, business not onboarded with provider, insufficient LP balance). Fix data and retry.',
   };
 }

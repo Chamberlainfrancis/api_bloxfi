@@ -1,4 +1,5 @@
 import { logger } from '@/lib/logger';
+import { isHttpError } from '@/services/http';
 import {
   buildPalremitFailureLogMsg,
   extractPalremitErrorMessage,
@@ -236,24 +237,73 @@ export async function getPalremitWithdrawalByClientReference(
   return parsePalremitWithdrawalBody(res.data);
 }
 
-export async function createPalremitWithdrawal(
+export type PalremitWithdrawalFailure = {
+  ok: false;
+  message: string;
+  httpStatus: number;
+  raw?: unknown;
+};
+
+export type PalremitWithdrawalOutcome =
+  | ({ ok: true } & PalremitWithdrawalCreateResult)
+  | PalremitWithdrawalFailure;
+
+/** Human-readable LP rejection for operators (code + message when both exist). */
+export function formatPalremitWithdrawalError(data: unknown, httpStatus: number): string {
+  const msg = extractPalremitErrorMessage(data);
+  if (data != null && typeof data === 'object' && !Array.isArray(data)) {
+    const code = (data as Record<string, unknown>).error;
+    if (typeof code === 'string' && code.trim() && msg && code.trim() !== msg) {
+      return `${code.trim()}: ${msg}`;
+    }
+  }
+  return msg || `Palremit rejected withdrawal (HTTP ${httpStatus})`;
+}
+
+export async function createPalremitWithdrawalDetailed(
   request: PalremitLiquidityRequestFn,
   body: Record<string, unknown>,
   idempotencyKey: string
-): Promise<PalremitWithdrawalCreateResult | null> {
+): Promise<PalremitWithdrawalOutcome> {
   const logCategory = getPalremitLogCategory({
     api: 'liquidity',
     method: 'POST',
     path: '/v1/withdrawals',
     idempotencyKey,
   });
-  const res = await request<Record<string, unknown>>('/v1/withdrawals', {
-    method: 'POST',
-    body,
-    headers: { 'Idempotency-Key': idempotencyKey },
-  });
+  let res: { status: number; data: Record<string, unknown> };
+  try {
+    res = await request<Record<string, unknown>>('/v1/withdrawals', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  } catch (e) {
+    if (isHttpError(e)) {
+      const message = formatPalremitWithdrawalError(e.data, e.status);
+      logger.error(
+        {
+          logCategory,
+          path: '/v1/withdrawals',
+          operation: 'POST /v1/withdrawals',
+          httpStatus: e.status,
+          expectedHttpStatus: 202,
+          palremitMessage: message,
+        },
+        buildPalremitFailureLogMsg({
+          category: logCategory,
+          responseData: e.data,
+          method: 'POST',
+          path: '/v1/withdrawals',
+          httpStatus: e.status,
+        })
+      );
+      return { ok: false, message, httpStatus: e.status, raw: e.data };
+    }
+    throw e;
+  }
   if (res.status !== 202) {
-    const palremitMessage = extractPalremitErrorMessage(res.data);
+    const message = formatPalremitWithdrawalError(res.data, res.status);
     logger.error(
       {
         logCategory,
@@ -261,7 +311,7 @@ export async function createPalremitWithdrawal(
         operation: 'POST /v1/withdrawals',
         httpStatus: res.status,
         expectedHttpStatus: 202,
-        palremitMessage,
+        palremitMessage: message,
       },
       buildPalremitFailureLogMsg({
         category: logCategory,
@@ -271,7 +321,31 @@ export async function createPalremitWithdrawal(
         httpStatus: res.status,
       })
     );
-    return null;
+    return { ok: false, message, httpStatus: res.status, raw: res.data };
   }
-  return parsePalremitWithdrawalBody(res.data);
+  const parsed = parsePalremitWithdrawalBody(res.data);
+  if (!parsed) {
+    return {
+      ok: false,
+      message: 'Palremit accepted withdrawal but response was missing id/client_reference',
+      httpStatus: res.status,
+      raw: res.data,
+    };
+  }
+  return { ok: true, ...parsed };
+}
+
+export async function createPalremitWithdrawal(
+  request: PalremitLiquidityRequestFn,
+  body: Record<string, unknown>,
+  idempotencyKey: string
+): Promise<PalremitWithdrawalCreateResult | null> {
+  const outcome = await createPalremitWithdrawalDetailed(request, body, idempotencyKey);
+  if (!outcome.ok) return null;
+  return {
+    id: outcome.id,
+    client_reference: outcome.client_reference,
+    state: outcome.state,
+    raw: outcome.raw,
+  };
 }

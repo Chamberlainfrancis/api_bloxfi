@@ -63,3 +63,14 @@ export const listAccountsQuerySchema = z.object({
 
 export type CreateAccountBody = z.infer<typeof createAccountBodySchema>;
 export type ListAccountsQuery = z.infer<typeof listAccountsQuerySchema>;
+
+/** PUT account: merge partial destination; re-validated against live Palremit corridor. */
+export const updateAccountBodySchema = z.object({
+  destination: z
+    .record(z.unknown())
+    .refine((d) => d != null && typeof d === 'object' && !Array.isArray(d) && Object.keys(d).length > 0, {
+      message: 'destination must be a non-empty object with fields to add or update',
+    }),
+});
+
+export type UpdateAccountBody = z.infer<typeof updateAccountBodySchema>;

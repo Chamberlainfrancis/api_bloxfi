@@ -160,6 +160,31 @@ export async function approveFeeSettlement(
   }
 }
 
+export async function retryOfframpFiatPayout(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const body = (req.body ?? {}) as { actor?: unknown; secret?: unknown };
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    const actor = typeof body.actor === 'string' ? body.actor : undefined;
+    const result = await dashboard.retryOfframpFiatPayoutAdmin({
+      offrampId: req.params.offrampId,
+      actor,
+    });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
 // --- Business provider customer (033) ---
 // Proxies to the orchestrator's business-provider-customer admin API.
 // Deliberately no passcode gate here (unlike markTransaction/approveFeeSettlement

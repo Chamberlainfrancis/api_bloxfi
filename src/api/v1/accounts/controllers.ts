@@ -10,7 +10,7 @@ import * as accountCore from "@/core/accounts";
 import * as accountRepo from "@/db/repositories/account.repo";
 import * as userRepo from "@/db/repositories/user.repo";
 import type { CreateAccountRequest } from "@/types/account";
-import { createAccountBodySchema, listAccountsQuerySchema } from "@/api/v1/accounts/schemas";
+import { createAccountBodySchema, listAccountsQuerySchema, updateAccountBodySchema } from "@/api/v1/accounts/schemas";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 
 const REQUEST_ID_HEADER = "requestid";
@@ -24,6 +24,7 @@ const repos = {
     listAccounts: accountRepo.listAccounts,
     deleteAccount: accountRepo.deleteAccount,
     hasPendingTransactions: accountRepo.hasPendingTransactions,
+    updateAccountProviderPayout: accountRepo.updateAccountProviderPayout,
   },
   user: {
     findUserById: userRepo.findUserById,
@@ -146,6 +147,49 @@ export async function deleteAccount(req: Request<{ userId: string; accountId: st
   } catch (e) {
     if (e instanceof Error && e.message === "ACCOUNT_HAS_PENDING_TRANSACTIONS") {
       next(new AppError("Account has pending transactions", "CONFLICT", 409));
+      return;
+    }
+    next(e);
+  }
+}
+
+export async function updateAccount(
+  req: Request<{ userId: string; accountId: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const parsed = updateAccountBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ");
+      next(validationError(message, parsed.error.flatten()));
+      return;
+    }
+    const { userId, accountId } = req.params;
+    const user = await userRepo.findUserById(userId);
+    if (!user) {
+      next(new AppError("User not found", "NOT_FOUND", 404));
+      return;
+    }
+    const result = await accountCore.updateAccount(
+      repos.account,
+      userId,
+      accountId,
+      parsed.data,
+      { palremitLiquidityRequest: palremitLiquidity }
+    );
+    if (!result) {
+      next(new AppError("Account not found", "NOT_FOUND", 404));
+      return;
+    }
+    sendSuccess(res, result);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("INVALID_ACCOUNT:")) {
+      next(new AppError(e.message.replace("INVALID_ACCOUNT:", "").trim(), "INVALID_REQUEST", 400));
+      return;
+    }
+    if (e instanceof Error && e.message === "PALREMIT_CORRIDORS_UNAVAILABLE") {
+      next(new AppError("Palremit payout corridors unavailable", "BAD_GATEWAY", 502));
       return;
     }
     next(e);

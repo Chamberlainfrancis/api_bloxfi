@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createAccountBodySchema } from '@/api/v1/accounts/schemas';
+import { createAccountBodySchema, updateAccountBodySchema } from '@/api/v1/accounts/schemas';
 
 describe('createAccountBodySchema', () => {
   it('accepts corridor + destination', () => {
@@ -53,6 +53,22 @@ describe('createAccountBodySchema', () => {
         bankCode: '058',
       },
     });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('updateAccountBodySchema', () => {
+  it('accepts non-empty destination patch', () => {
+    const r = updateAccountBodySchema.safeParse({
+      destination: {
+        beneficiary: { email: 'a@b.com', phone_number: '+971501234567' },
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects empty destination', () => {
+    const r = updateAccountBodySchema.safeParse({ destination: {} });
     expect(r.success).toBe(false);
   });
 });

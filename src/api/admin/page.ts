@@ -42,6 +42,18 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); font-weight:500; }
   button.danger { background:var(--bad); }
   button.ok { background:var(--ok); }
+  button:disabled { opacity:.65; cursor:wait; }
+  button.loading::after { content:" …"; }
+  .payout-retry-form { margin-top:12px; }
+  .payout-retry-fields { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .payout-retry-fields label { font-size:12px; color:var(--mut); }
+  .payout-retry-fields input { padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--txt); font:inherit; }
+  .payout-retry-fields input[type="password"] { min-width:150px; }
+  .payout-retry-fields input[type="text"] { min-width:160px; }
+  .payout-retry-msg { padding:8px 10px; border-radius:8px; font-size:13px; margin-bottom:10px; }
+  .payout-retry-msg.bad { background:#ef444414; border:1px solid #ef444455; color:var(--bad); }
+  .payout-retry-msg.ok { background:#22c55e14; border:1px solid #22c55e55; color:var(--ok); }
+  .payout-retry-msg.info { background:#2563eb14; border:1px solid #2563eb55; color:var(--accent); }
   table { width:100%; border-collapse:collapse; }
   th, td { text-align:left; padding:11px 24px; border-bottom:1px solid var(--line); font-size:13px; }
   th { color:var(--mut); font-weight:600; }
@@ -84,6 +96,10 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .actions { display:flex; gap:10px; margin-top:6px; }
   .notice { background:#f59e0b14; border:1px solid #f59e0b55; color:var(--warn); border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
   .notice.bad { background:#ef444414; border-color:#ef444455; color:var(--bad); }
+  .d-inline-msg { margin:0 20px 12px; padding:10px 12px; border-radius:8px; font-size:13px; }
+  .d-inline-msg.bad { background:#ef444414; border:1px solid #ef444455; color:var(--bad); }
+  .d-inline-msg.ok { background:#22c55e14; border:1px solid #22c55e55; color:var(--ok); }
+  .d-inline-msg.info { background:#2563eb14; border:1px solid #2563eb55; color:var(--accent); }
   .audit { display:flex; flex-direction:column; gap:10px; }
   .audit-item { border-left:3px solid var(--line); padding:8px 0 8px 12px; }
   .audit-item.ok { border-left-color:var(--ok); }
@@ -153,7 +169,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div id="bizMoreWrap" class="biz-more" style="display:none"><button class="ghost" id="bizMore" style="display:none">Load more</button></div>
 
 <dialog id="detail">
-  <div class="dhead"><span class="t" id="dTitle">Transaction</span><button class="ghost" id="dClose">Close</button></div>
+  <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
   <div class="dbody" id="dBody"></div>
 </dialog>
 
@@ -191,7 +207,81 @@ const LABELS = {
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
 let state = { view: "transactions", type: "onramp", status: "", includeExpired: false, cursor: null };
+let detailCtx = { id: "", txnRef: "", platformFee: null, withdrawalProcessing: false };
 const $ = (id) => document.getElementById(id);
+
+function showDetailMsg(msg, kind) {
+  const el = $("retryFiatPayoutMsg") || $("dInlineMsg");
+  if (!el) return;
+  if (!msg) { el.style.display = "none"; el.textContent = ""; if (el.id === "retryFiatPayoutMsg") el.className = "payout-retry-msg"; else el.className = "d-inline-msg"; return; }
+  if (el.id === "retryFiatPayoutMsg") {
+    el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+  } else {
+    el.className = "d-inline-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+  }
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function payoutRetryFormHtml() {
+  return '<div class="payout-retry-form">' +
+    '<div class="payout-retry-fields">' +
+    '<label for="retryFiatPasscode">Passcode</label>' +
+    '<input type="password" id="retryFiatPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+    '<label for="retryFiatActor">Your name</label>' +
+    '<input type="text" id="retryFiatActor" placeholder="Optional" autocomplete="name" />' +
+    "</div>" +
+    '<div id="retryFiatPayoutMsg" class="payout-retry-msg" style="display:none"></div>' +
+    '<div class="actions"><button type="button" class="ok" id="retryFiatPayout">Retry fiat payout</button></div>' +
+    "</div>";
+}
+
+function readPasscode() {
+  const el = $("retryFiatPasscode");
+  const v = el && el.value ? el.value.trim() : "";
+  if (v) sessionStorage.setItem("dashSecret", v);
+  return v || (sessionStorage.getItem("dashSecret") || "").trim();
+}
+
+function readActor() {
+  const el = $("retryFiatActor");
+  return el && el.value ? el.value.trim() : undefined;
+}
+
+function restorePasscodeField() {
+  const el = $("retryFiatPasscode");
+  if (!el) return;
+  const saved = sessionStorage.getItem("dashSecret");
+  if (saved && !el.value) el.value = saved;
+}
+
+function focusPasscode() {
+  const el = $("retryFiatPasscode");
+  if (el) { el.focus(); el.select(); }
+}
+
+function setBtnLoading(btn, loading, loadingText) {
+  if (!btn) return;
+  if (loading) {
+    if (!btn.dataset.prevLabel) btn.dataset.prevLabel = btn.textContent || "";
+    btn.disabled = true;
+    btn.classList.add("loading");
+    btn.textContent = loadingText || "Working";
+  } else {
+    btn.disabled = false;
+    btn.classList.remove("loading");
+    btn.textContent = btn.dataset.prevLabel || loadingText || btn.textContent;
+    delete btn.dataset.prevLabel;
+  }
+}
+
+function requirePasscode(actionLabel) {
+  const secret = readPasscode();
+  if (secret) return secret;
+  showDetailMsg("Enter the dashboard passcode above, then " + actionLabel + ".", "bad");
+  focusPasscode();
+  return "";
+}
 
 function setTableHead(view) {
   if (view === "settlements") {
@@ -399,6 +489,12 @@ async function openDetail(id, forceType) {
   const detailType = forceType || state.type;
   try {
     const t = await api("/transactions/" + detailType + "/" + id);
+    detailCtx = {
+      id: id,
+      txnRef: t.txnRef || "",
+      platformFee: t.fees && t.fees.platformFee ? t.fees.platformFee : null,
+      withdrawalProcessing: !!t.withdrawalProcessing
+    };
     const dest = t.destination || {};
     const src = t.source || {};
     const docs = gatherDocs(t);
@@ -417,6 +513,26 @@ async function openDetail(id, forceType) {
 
     // Sections ordered for an operator reading top-to-bottom.
     let body = summary;
+
+    if (t.type === "offramp") {
+      if (!pi.sent && t.payoutError) {
+        var payoutHint = "";
+        if (String(t.payoutError).indexOf("provider_customer_not_onboarded") >= 0) {
+          payoutHint = '<div class="audit-detail" style="margin-top:8px">Set the business Yativo/OwlPay customer ID under the Businesses tab → Provider config, then retry.</div>';
+        }
+        body += '<div class="section"><h3>Fiat payout error</h3><div class="card">' +
+          '<div class="notice bad">Palremit rejected the fiat payout:</div>' +
+          '<div class="mono" style="font-size:12px;margin:8px 0;word-break:break-word">' + esc(t.payoutError) + "</div>" +
+          payoutHint +
+          (t.canRetryFiatPayout ? payoutRetryFormHtml() : "") +
+          "</div></div>";
+      } else if (t.canRetryFiatPayout) {
+        body += '<div class="section"><h3>Fiat payout</h3><div class="card">' +
+          '<div class="notice">Crypto is confirmed but fiat payout has not been sent to Palremit yet.</div>' +
+          payoutRetryFormHtml() +
+          "</div></div>";
+      }
+    }
 
     if (t.type === "offramp") {
       body += section("Beneficiary — who gets paid", kvBlock(dest));
@@ -479,11 +595,11 @@ async function openDetail(id, forceType) {
       let actions = "";
       if (st === "pending") {
         notice = '<div class="notice">This offramp has a platform fee waiting for admin approval before USDC is sent.</div>';
-        actions = '<div class="actions"><button class="ok" id="approveFee">Approve fee settlement</button></div>';
+        actions = '<div class="actions"><button type="button" class="ok" id="approveFee">Approve fee settlement</button></div>';
       } else if (st === "failed") {
         const failNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : (t.failedReason || "Settlement failed");
         notice = '<div class="notice bad">Platform fee settlement failed. See audit trail below.</div><div class="audit-detail" style="margin-bottom:8px">' + esc(failNotes) + "</div>";
-        actions = '<div class="actions"><button class="ok" id="approveFee">Retry fee settlement</button></div>';
+        actions = '<div class="actions"><button type="button" class="ok" id="approveFee">Retry fee settlement</button></div>';
       } else if (st === "skipped") {
         const skipNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : "Settlement skipped";
         notice = '<div class="notice">Platform fee settlement was skipped.</div><div class="audit-detail" style="margin-bottom:8px">' + esc(skipNotes) + "</div>";
@@ -526,30 +642,18 @@ async function openDetail(id, forceType) {
 
     body += '<div class="section"><h3>Mark this transaction</h3><div class="card">' +
       processingWarn +
-      '<div class="actions"><button class="ok" id="markOk">Mark Successful</button><button class="danger" id="markFail">Mark Failed</button></div></div></div>';
+      '<div class="actions"><button type="button" class="ok" id="markOk">Mark Successful</button><button type="button" class="danger" id="markFail">Mark Failed</button></div></div></div>';
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
 
     $("dBody").innerHTML = body;
-    $("markOk").onclick = function () { mark(id, "success", t.withdrawalProcessing); };
-    $("markFail").onclick = function () { mark(id, "failed", t.withdrawalProcessing); };
-    const approveBtn = $("approveFee");
-    if (approveBtn) approveBtn.onclick = function () { approveSettlement(id, t.fees && t.fees.platformFee); };
+    restorePasscodeField();
     $("detail").showModal();
     $("dBody").scrollTop = 0;
   } catch (e) { showErr(e.message); }
 }
 
 // --- mark with shared passcode ---------------------------------------------
-
-function getSecret(force) {
-  let s = force ? null : sessionStorage.getItem("dashSecret");
-  if (!s) {
-    s = prompt("Enter the dashboard passcode to mark transactions:", "");
-    if (s) sessionStorage.setItem("dashSecret", s);
-  }
-  return s;
-}
 
 async function mark(id, outcome, withdrawalProcessing) {
   if (withdrawalProcessing) {
@@ -561,9 +665,12 @@ async function mark(id, outcome, withdrawalProcessing) {
   const verb = outcome === "success" ? "successful" : "failed";
   const note = prompt("Why are you marking this " + verb + "? (note)", "");
   if (note === null) return;
-  const actor = prompt("Your name (optional):", "") || undefined;
-  let secret = getSecret(false);
+  const secret = requirePasscode("mark this transaction");
   if (!secret) return;
+  const actor = readActor();
+  const btn = outcome === "success" ? $("markOk") : $("markFail");
+  setBtnLoading(btn, true, "Saving");
+  showDetailMsg("Marking transaction…", "info");
   try {
     await api("/transactions/" + state.type + "/" + id + "/mark", {
       method: "POST",
@@ -575,10 +682,51 @@ async function mark(id, outcome, withdrawalProcessing) {
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      showErr("Incorrect passcode — please try the mark again.");
+      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
+      focusPasscode();
     } else {
+      showDetailMsg(e.message, "bad");
       showErr(e.message);
     }
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function retryFiatPayout(offrampId, txnRef) {
+  const btn = $("retryFiatPayout");
+  const secret = requirePasscode("retry fiat payout");
+  if (!secret) return;
+  const actor = readActor();
+  showErr("");
+  setBtnLoading(btn, true, "Retrying");
+  showDetailMsg("Sending fiat payout to Palremit…", "info");
+  try {
+    const data = await api("/offramps/" + offrampId + "/retry-fiat-payout", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ actor: actor })
+    });
+    const okMsg = data.status === "already_initiated"
+      ? "Fiat payout was already initiated at Palremit."
+      : "Fiat payout initiated at Palremit.";
+    showDetailMsg(okMsg, "ok");
+    await openDetail(offrampId, "offramp");
+    if (state.view === "transactions" && state.type === "offramp") await load(true);
+  } catch (e) {
+    if (e.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
+      focusPasscode();
+    } else {
+      showDetailMsg(e.message || "Retry failed.", "bad");
+      showErr(e.message);
+      await openDetail(offrampId, "offramp");
+    }
+  } finally {
+    setBtnLoading(btn, false, "Retry fiat payout");
   }
 }
 
@@ -588,12 +736,15 @@ async function approveSettlement(offrampId, platformFee) {
   const verb = isRetry ? "Retry sending" : "Approve sending";
   const msg = verb + " " +
     (pf.amount ? pf.amount + " " + String(pf.currency || pf.settlementCurrency || "USDC").toUpperCase() : "platform fee") +
-    " to\\n" + (pf.walletAddress || "(no wallet)") +
-    "\\non network " + (pf.settlementNetwork || "(unknown)") + "?";
+    " to " + (pf.walletAddress || "(no wallet)") +
+    " on network " + (pf.settlementNetwork || "(unknown)") + "?";
   if (!confirm(msg)) return;
-  const actor = prompt("Your name (optional):", "") || undefined;
-  let secret = getSecret(false);
+  const secret = requirePasscode("approve fee settlement");
   if (!secret) return;
+  const actor = readActor();
+  const btn = $("approveFee");
+  setBtnLoading(btn, true, isRetry ? "Retrying" : "Approving");
+  showDetailMsg((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
   try {
     await api("/fee-settlements/" + offrampId + "/approve", {
       method: "POST",
@@ -605,10 +756,15 @@ async function approveSettlement(offrampId, platformFee) {
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      showErr("Incorrect passcode — please try approval again.");
+      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
+      focusPasscode();
     } else {
+      showDetailMsg(e.message, "bad");
       showErr(e.message);
     }
+  } finally {
+    setBtnLoading(btn, false, isRetry ? "Retry fee settlement" : "Approve fee settlement");
   }
 }
 
@@ -1015,6 +1171,12 @@ $("reload").addEventListener("click", function () { load(true); });
 $("more").addEventListener("click", function () { load(false); });
 $("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
+$("dBody").addEventListener("click", function (e) {
+  if (e.target.closest("#markOk")) { mark(detailCtx.id, "success", detailCtx.withdrawalProcessing); return; }
+  if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
+  if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.platformFee); return; }
+  if (e.target.closest("#retryFiatPayout")) { retryFiatPayout(detailCtx.id, detailCtx.txnRef); return; }
+});
 $("rows").addEventListener("click", function (e) {
   const approve = e.target.closest(".approve-btn");
   if (approve) {
