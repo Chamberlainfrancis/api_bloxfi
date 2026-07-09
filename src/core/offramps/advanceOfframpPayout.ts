@@ -45,14 +45,9 @@ export interface AccountRepoAdvance {
   } | null>;
 }
 
-export interface UserRepoAdvance {
-  getPalremitChannelUserId(userId: string): Promise<string | null>;
-}
-
 export async function advanceOfframpIfDepositReady(
   offrampRepo: OfframpRepoAdvance,
   accountRepo: AccountRepoAdvance,
-  userRepo: UserRepoAdvance,
   liquidityRequest: PalremitLiquidityRequestFn,
   offrampId: string
 ): Promise<void> {
@@ -83,15 +78,15 @@ export async function advanceOfframpIfDepositReady(
   const destinationAmount = Number(destination.amount);
   if (!Number.isFinite(destinationAmount) || destinationAmount <= 0) return;
 
-  const businessReference = await userRepo.getPalremitChannelUserId(userId);
-
+  // Prisma User.id — always populated, unlike palremitChannelUserId (defined
+  // but never actually written by anything today). Stable per business.
   const withdrawalBody = buildWithdrawalFromAccount({
     txnRef: row.txnRef,
     destinationAmount,
     providerPayout: account.providerPayout,
     purposeOfPayment: destination.purposeOfPayment,
     metadata: destination.metadata,
-    businessReference: businessReference ?? undefined,
+    businessReference: userId,
   });
   if (!withdrawalBody) return;
 

@@ -110,6 +110,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
   <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
   <div class="tab" data-view="settlements">Fee settlements</div>
+  <div class="tab" data-view="businesses">Businesses</div>
 </div>
 <div class="toolbar" id="txnToolbar">
   <label class="muted" id="statusLabel">Status</label>
@@ -117,12 +118,18 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <label class="muted" id="includeExpiredLabel"><input type="checkbox" id="includeExpired" /> Include expired</label>
   <button class="ghost" id="reload">Reload</button>
 </div>
+<div class="toolbar" id="bizToolbar" style="display:none">
+  <label class="muted">Business ID</label>
+  <input id="bizIdInput" type="text" placeholder="Paste the Business ID from a transaction's Reference & timeline section" style="min-width:340px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)" />
+  <button id="bizLoad">Load</button>
+</div>
 <div id="err" class="err" style="display:none"></div>
-<table>
+<table id="txnTable">
   <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
   <tbody id="rows"></tbody>
 </table>
 <div style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
+<div id="bizPanel" style="display:none;padding:0 24px 24px"></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button class="ghost" id="dClose">Close</button></div>
@@ -478,7 +485,8 @@ async function openDetail(id, forceType) {
       ["Failure reason", t.failedReason],
       ["Created", t.createdAt ? new Date(t.createdAt).toLocaleString() : null],
       ["Updated", t.updatedAt ? new Date(t.updatedAt).toLocaleString() : null],
-      ["Internal ID", t.id, "mono"]
+      ["Internal ID", t.id, "mono"],
+      ["Business ID", t.userId, "mono"]
     ]));
 
     const processingWarn = t.withdrawalProcessing
@@ -573,6 +581,102 @@ async function approveSettlement(offrampId, platformFee) {
   }
 }
 
+// --- businesses: provider customer ID management ----------------------------
+
+var BIZ_PROVIDERS = ["owlpay", "yativo"];
+var bizState = { userId: null, providers: {} };
+
+function providerCardHtml(name, current) {
+  var hasValue = !!(current && current.channel_customer_id);
+  var label = name === "owlpay" ? "OwlPay" : name === "yativo" ? "Yativo" : name;
+  var currentHtml = hasValue
+    ? '<div class="kv2" style="margin-bottom:10px"><div class="k">Current customer ID</div><div class="v mono">' + esc(current.channel_customer_id) + '</div>' +
+      '<div class="k">Last updated</div><div class="v muted">' + esc(current.updated_at ? new Date(current.updated_at).toLocaleString() : "—") + "</div></div>"
+    : '<div class="muted" style="margin-bottom:10px">Not onboarded with ' + esc(label) + " yet.</div>";
+  return '<div class="section"><h3>' + esc(label) + '</h3><div class="card">' +
+    currentHtml +
+    '<div class="actions" style="align-items:center">' +
+    '<input type="text" class="biz-cust-input" data-provider="' + esc(name) + '" placeholder="Provider customer ID" value="' + (hasValue ? esc(current.channel_customer_id) : "") + '" style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)" />' +
+    '<button class="ok biz-save-btn" data-provider="' + esc(name) + '">' + (hasValue ? "Update" : "Save") + "</button>" +
+    (hasValue ? '<button class="danger biz-remove-btn" data-provider="' + esc(name) + '">Remove</button>' : "") +
+    "</div></div></div>";
+}
+
+function renderBusinessPanel() {
+  var panel = $("bizPanel");
+  if (!bizState.userId) {
+    panel.style.display = "none";
+    return;
+  }
+  var html = '<div class="summary"><span class="flow" style="font-size:14px">Business <span class="mono">' + esc(bizState.userId) + "</span></span></div>";
+  html += '<div class="notice">Same provider customer ID applies to both onramp and offramp — set it once per provider.</div>';
+  html += BIZ_PROVIDERS.map(function (p) { return providerCardHtml(p, bizState.providers[p]); }).join("");
+  panel.innerHTML = html;
+  panel.style.display = "block";
+}
+
+async function loadBusiness(userId) {
+  showErr("");
+  bizState.userId = userId;
+  bizState.providers = {};
+  try {
+    var data = await api("/businesses/" + encodeURIComponent(userId) + "/providers");
+    (data.providers || []).forEach(function (p) { bizState.providers[p.provider_name] = p; });
+    renderBusinessPanel();
+  } catch (e) {
+    showErr(e.message);
+    var panel = $("bizPanel");
+    panel.innerHTML = '<div class="err" style="padding:12px 0">Could not load business: ' + esc(e.message) + "</div>";
+    panel.style.display = "block";
+  }
+}
+
+async function saveBusinessProvider(provider, customerId) {
+  if (!customerId || !customerId.trim()) { showErr("Enter a customer ID before saving."); return; }
+  var actor = prompt("Your name (for the audit trail):", "") || undefined;
+  showErr("");
+  try {
+    await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers/" + encodeURIComponent(provider) + "/customer", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ channel_customer_id: customerId.trim(), actor: actor })
+    });
+    await loadBusiness(bizState.userId);
+  } catch (e) { showErr(e.message); }
+}
+
+async function removeBusinessProvider(provider) {
+  if (!confirm("Remove the " + provider + " customer ID for this business? Its withdrawals routed to " + provider + " will fail until a new one is set.")) return;
+  var actor = prompt("Your name (for the audit trail):", "") || undefined;
+  showErr("");
+  try {
+    var q = actor ? "?actor=" + encodeURIComponent(actor) : "";
+    await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers/" + encodeURIComponent(provider) + "/customer" + q, {
+      method: "DELETE"
+    });
+    await loadBusiness(bizState.userId);
+  } catch (e) { showErr(e.message); }
+}
+
+$("bizLoad").addEventListener("click", function () {
+  var v = $("bizIdInput").value.trim();
+  if (!v) { showErr("Paste a Business ID first."); return; }
+  loadBusiness(v);
+});
+$("bizIdInput").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") $("bizLoad").click();
+});
+$("bizPanel").addEventListener("click", function (e) {
+  var saveBtn = e.target.closest(".biz-save-btn");
+  if (saveBtn) {
+    var input = $("bizPanel").querySelector('.biz-cust-input[data-provider="' + saveBtn.dataset.provider + '"]');
+    saveBusinessProvider(saveBtn.dataset.provider, input ? input.value : "");
+    return;
+  }
+  var removeBtn = e.target.closest(".biz-remove-btn");
+  if (removeBtn) { removeBusinessProvider(removeBtn.dataset.provider); return; }
+});
+
 // --- wiring -----------------------------------------------------------------
 
 document.querySelectorAll(".tab").forEach(function (el) {
@@ -586,7 +690,19 @@ document.querySelectorAll(".tab").forEach(function (el) {
     state.cursor = null;
     $("statusFilter").value = "";
     $("includeExpired").checked = false;
-    $("txnToolbar").style.display = "flex";
+    showErr("");
+
+    var isBusinesses = state.view === "businesses";
+    $("txnToolbar").style.display = isBusinesses ? "none" : "flex";
+    $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
+    $("txnTable").style.display = isBusinesses ? "none" : "table";
+    $("more").style.display = "none";
+    $("bizPanel").style.display = isBusinesses && bizState.userId ? "block" : "none";
+    if (isBusinesses) {
+      if (bizState.userId) renderBusinessPanel();
+      return;
+    }
+
     $("statusLabel").style.display = state.view === "settlements" ? "none" : "";
     $("statusFilter").style.display = state.view === "settlements" ? "none" : "";
     $("includeExpiredLabel").style.display = state.view === "settlements" ? "none" : "";

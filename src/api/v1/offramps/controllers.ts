@@ -58,7 +58,6 @@ const repos = {
   },
   user: {
     findUserById: userRepo.findUserById,
-    getPalremitChannelUserId: userRepo.getPalremitChannelUserId,
   },
   account: {
     findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser,
@@ -406,7 +405,6 @@ export async function retryOfframpFiatPayout(
         updateOfframpStatus: repos.offramp.updateOfframpStatus,
       },
       { findOfframpAccountByIdAndUser: repos.account.findOfframpAccountByIdAndUser },
-      { getPalremitChannelUserId: repos.user.getPalremitChannelUserId },
       palremitLiquidity,
       { offrampId: id, userId: parsed.data.userId }
     );
