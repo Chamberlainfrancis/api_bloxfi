@@ -83,6 +83,35 @@ describe('buildWithdrawalFromAccount', () => {
       })
     ).toBeNull();
   });
+
+  it('includes business_reference when businessReference is provided', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-biz-1',
+      destinationAmount: 100,
+      providerPayout,
+      businessReference: 'biz-channel-user-123',
+    });
+    expect(body?.business_reference).toBe('biz-channel-user-123');
+  });
+
+  it('omits business_reference entirely when not provided', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-no-biz',
+      destinationAmount: 100,
+      providerPayout,
+    });
+    expect(body).not.toHaveProperty('business_reference');
+  });
+
+  it('omits business_reference when it is an empty/whitespace string', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-blank-biz',
+      destinationAmount: 100,
+      providerPayout,
+      businessReference: '   ',
+    });
+    expect(body).not.toHaveProperty('business_reference');
+  });
 });
 
 describe('isAccountReadyForOfframp', () => {

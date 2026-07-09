@@ -30,6 +30,14 @@ const envSchema = z.object({
   PALREMIT_LIQUIDITY_URL: z.string().url().optional(),
   /** One-time secret from tenant signup / rotate. */
   PALREMIT_LIQUIDITY_SECRET: z.string().min(1, "PALREMIT_LIQUIDITY_SECRET is required"),
+  /**
+   * This api_bloxfi instance's own tenant_id on the orchestrator. Needed only
+   * for the admin business-provider-customer proxy (033), which must
+   * construct /v1/admin/tenants/:tenant_id/... URLs explicitly — unlike
+   * tenant-facing routes, the orchestrator can't resolve this from the
+   * Bearer secret alone on admin paths.
+   */
+  PALREMIT_LIQUIDITY_TENANT_ID: z.string().min(1).optional(),
   PALREMIT_CURRENCY_URL: z.string().url().optional(),
   /** HMAC for inbound orchestrator webhooks (`X-Webhook-Signature`). */
   WEBHOOK_SECRET: z.string().min(1, "WEBHOOK_SECRET is required"),

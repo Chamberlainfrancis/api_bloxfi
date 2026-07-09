@@ -223,6 +223,10 @@ export interface WithdrawalFromAccountInput {
   providerPayout: unknown;
   purposeOfPayment?: string;
   metadata?: Record<string, unknown>;
+  /** Business's stable Palremit channel user id — required by the orchestrator
+   * for withdrawals routed to OwlPay/Yativo; harmlessly ignored for other
+   * corridors (e.g. NGN/palmpay). Omit only if genuinely unavailable. */
+  businessReference?: string;
 }
 
 function mergeOfframpExtrasIntoDestination(
@@ -269,6 +273,7 @@ export function buildWithdrawalFromAccount(
     amount: input.destinationAmount,
     destination_type: pp.corridor.destinationType,
     destination,
+    ...(input.businessReference?.trim() ? { business_reference: input.businessReference.trim() } : {}),
   };
 }
 

@@ -73,6 +73,7 @@ const webhookRepos = {
           updateOfframpStatus: offrampRepo.updateOfframpStatus,
         },
         { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
+        { getPalremitChannelUserId: userRepo.getPalremitChannelUserId },
         palremitLiquidity,
         offrampId,
       );

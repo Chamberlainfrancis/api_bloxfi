@@ -14,4 +14,16 @@ router.post('/transactions/:type/:id/mark', controllers.markTransaction);
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:offrampId/approve', controllers.approveFeeSettlement);
 
+// 033: business provider customer identity (proxies to the orchestrator's
+// admin API — see core/admin/providerCustomer.ts).
+router.put(
+  '/businesses/:businessReference/providers/:providerName/customer',
+  controllers.putBusinessProviderCustomer
+);
+router.get('/businesses/:businessReference/providers', controllers.getBusinessProviderCustomers);
+router.delete(
+  '/businesses/:businessReference/providers/:providerName/customer',
+  controllers.deleteBusinessProviderCustomer
+);
+
 export const adminRouter = router;

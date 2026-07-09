@@ -8,6 +8,22 @@ import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
 import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
+import * as providerCustomer from '@/core/admin/providerCustomer';
+import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
+
+const palremitLiquidity = createPalremitLiquidityAdapter();
+
+function requirePalremitTenantId(): string {
+  const tenantId = env.PALREMIT_LIQUIDITY_TENANT_ID;
+  if (!tenantId) {
+    throw new AppError(
+      'PALREMIT_LIQUIDITY_TENANT_ID is not configured',
+      'CONFIG_ERROR',
+      500
+    );
+  }
+  return tenantId;
+}
 
 function parseType(raw: unknown): dashboard.TxnType {
   if (raw === 'onramp' || raw === 'offramp') return raw;
@@ -127,6 +143,87 @@ export async function approveFeeSettlement(
       actor,
     });
     sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+// --- Business provider customer (033) ---
+// Proxies to the orchestrator's business-provider-customer admin API.
+// Deliberately no passcode gate here (unlike markTransaction/approveFeeSettlement
+// above) — see core/admin/providerCustomer.ts header comment.
+
+export async function putBusinessProviderCustomer(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const businessReference = req.params.businessReference;
+    const providerName = req.params.providerName;
+    const body = (req.body ?? {}) as { channel_customer_id?: unknown; actor?: unknown };
+    const channelCustomerId =
+      typeof body.channel_customer_id === 'string' ? body.channel_customer_id.trim() : '';
+    if (!channelCustomerId) {
+      throw new AppError('channel_customer_id is required', 'INVALID_REQUEST', 400);
+    }
+    const setBy = typeof body.actor === 'string' && body.actor.trim() ? body.actor.trim() : 'bloxfi-admin-dashboard';
+    const result = await providerCustomer.putBusinessProviderCustomer(palremitLiquidity, {
+      tenantId: requirePalremitTenantId(),
+      businessReference,
+      providerName,
+      channelCustomerId,
+      setBy,
+    });
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    sendSuccess(res, result.value);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getBusinessProviderCustomers(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const businessReference = req.params.businessReference;
+    const result = await providerCustomer.listBusinessProviderCustomers(palremitLiquidity, {
+      tenantId: requirePalremitTenantId(),
+      businessReference,
+    });
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    sendSuccess(res, result.value);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function deleteBusinessProviderCustomer(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const businessReference = req.params.businessReference;
+    const providerName = req.params.providerName;
+    const actorRaw = req.query.actor;
+    const setBy = typeof actorRaw === 'string' && actorRaw.trim() ? actorRaw.trim() : 'bloxfi-admin-dashboard';
+    const result = await providerCustomer.deleteBusinessProviderCustomer(palremitLiquidity, {
+      tenantId: requirePalremitTenantId(),
+      businessReference,
+      providerName,
+      setBy,
+    });
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    res.status(204).end();
   } catch (e) {
     next(e);
   }

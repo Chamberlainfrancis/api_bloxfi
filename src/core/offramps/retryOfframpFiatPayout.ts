@@ -8,6 +8,7 @@ import {
   advanceOfframpIfDepositReady,
   type AccountRepoAdvance,
   type OfframpRepoAdvance,
+  type UserRepoAdvance,
 } from '@/core/offramps/advanceOfframpPayout';
 
 function getPalremitOrchestrator(providerRefs: unknown): Record<string, unknown> | null {
@@ -32,6 +33,7 @@ export type RetryOfframpFiatPayoutResult =
 export async function retryOfframpFiatPayout(
   offrampRepo: OfframpRepoAdvance,
   accountRepo: AccountRepoAdvance,
+  userRepo: UserRepoAdvance,
   liquidityRequest: PalremitLiquidityRequestFn,
   params: { offrampId: string; userId: string }
 ): Promise<RetryOfframpFiatPayoutResult> {
@@ -88,7 +90,7 @@ export async function retryOfframpFiatPayout(
     };
   }
 
-  await advanceOfframpIfDepositReady(offrampRepo, accountRepo, liquidityRequest, params.offrampId);
+  await advanceOfframpIfDepositReady(offrampRepo, accountRepo, userRepo, liquidityRequest, params.offrampId);
 
   const after = await offrampRepo.findOfframpById(params.offrampId);
   if (!after?.txnRef) {
