@@ -10,6 +10,7 @@ import { networksRouter } from '@/api/v1/networks/routes';
 import { coinsRouter } from '@/api/v1/coins/routes';
 import { banksRouter } from '@/api/v1/banks/routes';
 import { payoutCorridorsRouter } from '@/api/v1/payout-corridors/routes';
+import { miscRouter } from '@/api/v1/misc/routes';
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use(banksRouter);
 router.use(payoutCorridorsRouter);
 router.use(networksRouter);
 router.use(limitsRouter);
+router.use(miscRouter);
 
 export const v1Router = router;
