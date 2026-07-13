@@ -65,6 +65,8 @@ export interface CreateOnrampOptions {
      * defined but never actually populated.
      */
     businessReference: string;
+    /** Business legal/trading name when present — preferred for deposit beneficiary. */
+    businessName?: string;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
   /**
    * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
@@ -415,6 +417,7 @@ export async function createOnramp(
     depositByIso: expiresAt.toISOString(),
     txnRef,
     businessReference: userId,
+    businessName: userDisplayInfo.businessName,
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

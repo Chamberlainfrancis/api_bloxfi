@@ -38,18 +38,36 @@ function resolveFiatBeneficiaryName(
   return 'Beneficiary';
 }
 
+/**
+ * Prefer business legal/trading name when present; fall back to person name.
+ * Business users always have a legalRepresentative, so person-first ordering
+ * incorrectly labeled deposits with the director instead of the company.
+ */
+export function preferredBeneficiaryDisplayName(input: {
+  businessName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+}): string | undefined {
+  const biz = typeof input.businessName === 'string' ? input.businessName.trim() : '';
+  if (biz) return biz;
+  const joined = [input.firstName, input.lastName]
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return joined || undefined;
+}
+
 /** Build display name from persisted onramp `source.user` (KYC + businessName). */
 export function beneficiaryDisplayNameFromOnrampSource(source: unknown): string | undefined {
   if (source == null || typeof source !== 'object' || Array.isArray(source)) return undefined;
   const u = (source as { user?: Record<string, unknown> }).user;
   if (!u || typeof u !== 'object') return undefined;
-  const fn = typeof u.firstName === 'string' ? u.firstName.trim() : '';
-  const ln = typeof u.lastName === 'string' ? u.lastName.trim() : '';
-  const joined = [fn, ln].filter(Boolean).join(' ').trim();
-  if (joined) return joined;
-  const biz = typeof u.businessName === 'string' ? u.businessName.trim() : '';
-  if (biz) return biz;
-  return undefined;
+  return preferredBeneficiaryDisplayName({
+    businessName: typeof u.businessName === 'string' ? u.businessName : undefined,
+    firstName: typeof u.firstName === 'string' ? u.firstName : undefined,
+    lastName: typeof u.lastName === 'string' ? u.lastName : undefined,
+  });
 }
 
 /** Map orchestrator `deposit_instructions` (fiat_account) → BloxFi DepositInfo. */
@@ -142,6 +160,8 @@ export async function createOnrampPalremitFiatDeposit(
     depositByIso: string;
     txnRef: string;
     businessReference: string;
+    /** Business legal/trading name — preferred over person name for beneficiary.label. */
+    businessName?: string;
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
@@ -203,11 +223,11 @@ export async function createOnrampPalremitFiatDeposit(
   const instr = account.deposit_instructions as PalremitDepositInstructions;
   if (instr.kind !== 'fiat_account') return null;
 
-  const preferredBeneficiaryName = [params.firstName, params.lastName]
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(' ')
-    .trim();
+  const preferredBeneficiaryName = preferredBeneficiaryDisplayName({
+    businessName: params.businessName,
+    firstName: params.firstName,
+    lastName: params.lastName,
+  });
 
   const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
     instr,

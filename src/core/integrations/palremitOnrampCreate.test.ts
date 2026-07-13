@@ -48,6 +48,39 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(body.kyc_input).toBeUndefined();
     expect(body.provider_extras).toEqual({ amount: '250' });
     expect(result?.depositInfo.reference).toBe('SWX-REF-1');
+    // Without businessName, falls back to person name from params.
+    expect(result?.depositInfo.beneficiary.name).toBe('Adaeze Okeke');
+  });
+
+  it('uses businessName as deposit beneficiary when provided (not legal-rep person name)', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async (path) => {
+      if (path === '/v1/provisioned-accounts') {
+        return {
+          status: 201,
+          data: {
+            id: 'acct_biz',
+            state: 'pending',
+            deposit_instructions: {
+              kind: 'fiat_account',
+              account_number: '9988776655',
+              bank_code: '021000021',
+              bank_name: 'Pooled Bank',
+              account_holder_name: 'Veem Inc.',
+              reference: 'SWX-REF-biz',
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      businessName: 'BRIANA PAYMENTS LIMITED',
+    });
+
+    expect(result?.depositInfo.beneficiary.name).toBe('BRIANA PAYMENTS LIMITED');
   });
 
   it('still selects FIAT_DEPOSIT_NO_KYC for NGN (Kuda), unaffected by the USD change', async () => {

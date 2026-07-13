@@ -1,5 +1,44 @@
 import { describe, it, expect } from 'vitest';
-import { mapOrchestratorFiatInstructionsToDepositInfo } from '@/core/integrations/palremitOnramp';
+import {
+  mapOrchestratorFiatInstructionsToDepositInfo,
+  beneficiaryDisplayNameFromOnrampSource,
+  preferredBeneficiaryDisplayName,
+} from '@/core/integrations/palremitOnramp';
+
+describe('preferredBeneficiaryDisplayName', () => {
+  it('prefers businessName over legal-representative person name', () => {
+    expect(
+      preferredBeneficiaryDisplayName({
+        businessName: 'BRIANA PAYMENTS LIMITED',
+        firstName: 'Murray David Leslie',
+        lastName: 'Beer',
+      })
+    ).toBe('BRIANA PAYMENTS LIMITED');
+  });
+
+  it('falls back to person name when businessName is absent', () => {
+    expect(
+      preferredBeneficiaryDisplayName({
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+      })
+    ).toBe('Ada Lovelace');
+  });
+});
+
+describe('beneficiaryDisplayNameFromOnrampSource', () => {
+  it('prefers source.user.businessName over firstName+lastName', () => {
+    expect(
+      beneficiaryDisplayNameFromOnrampSource({
+        user: {
+          businessName: 'Acme Ltd',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+        },
+      })
+    ).toBe('Acme Ltd');
+  });
+});
 
 describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
   it('maps fiat_account instructions to DepositInfo', () => {
