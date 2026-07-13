@@ -770,7 +770,7 @@ async function approveSettlement(offrampId, platformFee) {
 
 // --- businesses: provider customer ID management ----------------------------
 
-var BIZ_PROVIDERS = ["owlpay", "yativo"];
+var BIZ_PROVIDERS = ["owlpay", "yativo", "swipelux"];
 var bizState = {
   userId: null,
   providers: {},
@@ -821,6 +821,7 @@ function businessRowHtml(biz) {
     "<td>" + kybBadge(biz.kybStatus) + "</td>" +
     "<td>" + providerStatusBadge(providers.owlpay) + "</td>" +
     "<td>" + providerStatusBadge(providers.yativo) + "</td>" +
+    "<td>" + providerStatusBadge(providers.swipelux) + "</td>" +
     "</tr>";
 }
 
@@ -839,7 +840,7 @@ function renderBusinessResults() {
     updateBizMore();
     return;
   }
-  el.innerHTML = '<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Last txn</th><th>KYB</th><th>OwlPay</th><th>Yativo</th></tr></thead><tbody>' +
+  el.innerHTML = '<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Last txn</th><th>KYB</th><th>OwlPay</th><th>Yativo</th><th>SwipeLux</th></tr></thead><tbody>' +
     bizState.results.map(businessRowHtml).join("") +
     "</tbody></table>";
   el.style.display = "block";
@@ -848,7 +849,7 @@ function renderBusinessResults() {
 
 function providerCardHtml(name, current) {
   var hasValue = !!(current && current.channel_customer_id);
-  var label = name === "owlpay" ? "OwlPay" : name === "yativo" ? "Yativo" : name;
+  var label = name === "owlpay" ? "OwlPay" : name === "yativo" ? "Yativo" : name === "swipelux" ? "SwipeLux" : name;
   var currentHtml = hasValue
     ? '<div class="kv2" style="margin-bottom:10px"><div class="k">Current customer ID</div><div class="v mono">' + esc(current.channel_customer_id) + '</div>' +
       '<div class="k">Last updated</div><div class="v muted">' + esc(current.updated_at ? new Date(current.updated_at).toLocaleString() : "—") + "</div></div>"
@@ -874,6 +875,7 @@ function renderBizDetailsTab(biz) {
       ["Last transaction", biz.lastTransactedAt ? new Date(biz.lastTransactedAt).toLocaleString() : null],
       ["OwlPay", providers.owlpay === "active" ? "Active" : "Inactive"],
       ["Yativo", providers.yativo === "active" ? "Active" : "Inactive"],
+      ["SwipeLux", providers.swipelux === "active" ? "Active" : "Inactive"],
     ]);
 }
 
@@ -977,7 +979,7 @@ async function loadBusinessList(reset) {
 function syncBusinessRowProviders(userId) {
   var row = bizState.results.find(function (item) { return item.id === userId; });
   if (!row) return;
-  var providers = { owlpay: "inactive", yativo: "inactive" };
+  var providers = { owlpay: "inactive", yativo: "inactive", swipelux: "inactive" };
   BIZ_PROVIDERS.forEach(function (name) {
     if (bizState.providers[name] && bizState.providers[name].channel_customer_id) {
       providers[name] = "active";

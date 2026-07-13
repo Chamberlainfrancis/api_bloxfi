@@ -37,14 +37,22 @@ export type ProviderCustomerResult<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; message: string };
 
-export const DASHBOARD_PROVIDER_NAMES = ['owlpay', 'yativo'] as const;
+// 037-swipelux-onramp: swipelux added — it's an onramp (deposit) provider
+// resolved via this same business_provider_customers mapping, not a
+// payout provider like owlpay/yativo, but the mechanism (and this
+// dashboard's status display) is identical.
+export const DASHBOARD_PROVIDER_NAMES = ['owlpay', 'yativo', 'swipelux'] as const;
 export type DashboardProviderName = (typeof DASHBOARD_PROVIDER_NAMES)[number];
 export type DashboardProviderStatus = 'active' | 'inactive';
 
 export type DashboardProviderStatusMap = Record<DashboardProviderName, DashboardProviderStatus>;
 
 export function emptyDashboardProviderStatus(): DashboardProviderStatusMap {
-  return { owlpay: 'inactive', yativo: 'inactive' };
+  return { owlpay: 'inactive', yativo: 'inactive', swipelux: 'inactive' };
+}
+
+function isDashboardProviderName(name: string): name is DashboardProviderName {
+  return (DASHBOARD_PROVIDER_NAMES as readonly string[]).includes(name);
 }
 
 export async function resolveDashboardProviderStatus(
@@ -56,7 +64,7 @@ export async function resolveDashboardProviderStatus(
     const result = await listBusinessProviderCustomers(request, params);
     if (!result.ok) return status;
     for (const row of result.value.providers) {
-      if (row.provider_name === 'owlpay' || row.provider_name === 'yativo') {
+      if (isDashboardProviderName(row.provider_name)) {
         if (row.channel_customer_id?.trim()) {
           status[row.provider_name] = 'active';
         }

@@ -64,4 +64,46 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
 
     expect(depositInfo.beneficiary.name).toBe('Beneficiary');
   });
+
+  it('uses the orchestrator-provided reference when present — required for pooled-payin providers like SwipeLux, where account_number is shared across depositors and only the reference disambiguates a wire', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '9988776655',
+      bank_code: '021000021',
+      bank_name: 'Pooled Bank',
+      account_holder_name: 'Pooled Account',
+      reference: 'SWX-REF-abc123',
+    };
+
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
+      'blox-request-id',
+      '2026-04-24T08:27:35.726Z',
+      250,
+      'USD'
+    );
+
+    expect(depositInfo.reference).toBe('SWX-REF-abc123');
+    expect(depositInfo.instruction).toContain('SWX-REF-abc123');
+  });
+
+  it('falls back to account_number-bank_code when no reference is present (dedicated-account providers)', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '7000746820',
+      bank_code: '090267',
+      bank_name: 'Kuda Microfinance Bank',
+      account_holder_name: 'Palremit-BloxFi Test Corp',
+    };
+
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
+      'blox-request-id',
+      '2026-04-24T08:27:35.726Z',
+      20000,
+      'NGN'
+    );
+
+    expect(depositInfo.reference).toBe('7000746820-090267');
+  });
 });

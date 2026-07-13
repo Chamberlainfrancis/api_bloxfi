@@ -55,6 +55,16 @@ export interface CreateOnrampOptions {
     bloxRequestId: string;
     depositByIso: string;
     txnRef: string;
+    /**
+     * Prisma User.id, sent to Palremit as `business_reference` for
+     * providers whose deposit arm resolves a pre-onboarded provider
+     * customer (e.g. SwipeLux FIAT_DEPOSIT_NO_KYC) rather than orchestrating
+     * KYC itself. Mirrors the exact same `businessReference: userId`
+     * pattern already used for offramp withdrawals
+     * (advanceOfframpPayout.ts) — not palremitChannelUserId, which is
+     * defined but never actually populated.
+     */
+    businessReference: string;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
   /**
    * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
@@ -404,6 +414,7 @@ export async function createOnramp(
     bloxRequestId: requestId,
     depositByIso: expiresAt.toISOString(),
     txnRef,
+    businessReference: userId,
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

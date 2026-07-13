@@ -77,8 +77,15 @@ export function mapOrchestratorFiatInstructionsToDepositInfo(
     [inst.country, inst.country_code, inst.bank_country]
       .find((v) => typeof v === 'string' && String(v).trim() !== '') ?? '';
   const country = typeof rawCountry === 'string' ? rawCountry.trim() : '';
+  // Prefer the orchestrator's own reference when present — required for
+  // pooled-payin providers (e.g. SwipeLux), where account_number is
+  // shared across many depositors and only this reference disambiguates
+  // an incoming wire. Fabricating our own reference here would mean the
+  // depositor is shown a value the provider can never match to anything.
+  const providerReference =
+    typeof inst.reference === 'string' && inst.reference.trim() !== '' ? inst.reference.trim() : null;
   const ref =
-    [accountNumber, bankCode].filter(Boolean).join('-') || bloxRequestId;
+    providerReference ?? ([accountNumber, bankCode].filter(Boolean).join('-') || bloxRequestId);
   return {
     bankName: String(instructions.bank_name ?? 'Bank'),
     beneficiary: {
@@ -95,7 +102,19 @@ export function mapOrchestratorFiatInstructionsToDepositInfo(
   };
 }
 
-async function pollProvisionedUntilActiveOrFailed(
+/**
+ * Poll until deposit instructions are usable or the account fails.
+ *
+ * NOT the same as "poll until active". For providers whose deposit
+ * instructions are only confirmed-funds-safe once settlement lands
+ * (SwipeLux), `active` is reached only after the depositor's money is
+ * actually confirmed — which can take far longer than a synchronous poll
+ * window. Instructions themselves are available earlier, while the row is
+ * still `pending` (see the orchestrator's provider_context.provider_substate
+ * design). Stop as soon as `deposit_instructions` is non-null, regardless
+ * of state — that's the signal this function's caller actually needs.
+ */
+async function pollProvisionedUntilInstructionsOrFailed(
   request: PalremitLiquidityRequestFn,
   accountId: string,
   opts: { maxAttempts: number; delayMs: number }
@@ -103,8 +122,8 @@ async function pollProvisionedUntilActiveOrFailed(
   for (let i = 0; i < opts.maxAttempts; i++) {
     const acc = await getPalremitProvisionedAccount(request, accountId);
     const st = acc?.state?.toLowerCase() ?? '';
-    if (st === 'active') return { account: acc, failed: false };
     if (st === 'failed') return { account: acc, failed: true };
+    if (acc?.deposit_instructions) return { account: acc, failed: false };
     await sleep(opts.delayMs);
   }
   const last = await getPalremitProvisionedAccount(request, accountId);
@@ -122,16 +141,23 @@ export async function createOnrampPalremitFiatDeposit(
     bloxRequestId: string;
     depositByIso: string;
     txnRef: string;
+    businessReference: string;
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
+  // NGN (Kuda) and USD (SwipeLux) both onboard identity out of band — Kuda
+  // has no KYC concept at all; SwipeLux resolves a pre-vetted provider
+  // customer via business_reference (ops-managed, see
+  // business_provider_customers on the orchestrator side). Every other
+  // currency still uses the orchestrator-driven KYC path.
   const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' =
-    asset === 'NGN' ? 'FIAT_DEPOSIT_NO_KYC' : 'FIAT_DEPOSIT_KYC';
+    asset === 'NGN' || asset === 'USD' ? 'FIAT_DEPOSIT_NO_KYC' : 'FIAT_DEPOSIT_KYC';
 
   const body: Record<string, unknown> = {
     asset,
     mode,
     client_reference: params.txnRef.trim(),
+    business_reference: params.businessReference,
   };
 
   if (mode === 'FIAT_DEPOSIT_KYC') {
@@ -150,8 +176,8 @@ export async function createOnrampPalremitFiatDeposit(
   let account = prov.account;
   const rawProvisionResponse = { ...account };
 
-  if (account.state?.toLowerCase() === 'pending' || account.state?.toLowerCase() === 'kyc_pending') {
-    const polled = await pollProvisionedUntilActiveOrFailed(liquidityRequest, account.id, {
+  if (!account.deposit_instructions && account.state?.toLowerCase() !== 'failed') {
+    const polled = await pollProvisionedUntilInstructionsOrFailed(liquidityRequest, account.id, {
       maxAttempts: 20,
       delayMs: 2000,
     });
@@ -159,7 +185,11 @@ export async function createOnrampPalremitFiatDeposit(
     account = polled.account;
   }
 
-  if (account.state?.toLowerCase() !== 'active' || !account.deposit_instructions) {
+  // NOT gated on state === 'active' — for providers like SwipeLux,
+  // instructions are correctly available while the row is still `pending`
+  // (funds not yet confirmed; see pollProvisionedUntilInstructionsOrFailed's
+  // doc comment). deposit_instructions being present is the actual signal.
+  if (!account.deposit_instructions) {
     return null;
   }
 
