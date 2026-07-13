@@ -160,6 +160,13 @@ export async function createOnrampPalremitFiatDeposit(
     business_reference: params.businessReference,
   };
 
+  // 037-swipelux-onramp: pooled pay-ins are amount-scoped — SwipeLux requires
+  // provider_extras.amount (decimal string). Sourced from the existing onramp
+  // amount the client already sends; NGN/Kuda ignores extras.
+  if (asset === 'USD') {
+    body.provider_extras = { amount: String(params.amount) };
+  }
+
   if (mode === 'FIAT_DEPOSIT_KYC') {
     body.kyc_input = {
       first_name: params.firstName,

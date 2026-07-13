@@ -46,6 +46,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
     expect(body.business_reference).toBe('user-prisma-id-1');
     expect(body.kyc_input).toBeUndefined();
+    expect(body.provider_extras).toEqual({ amount: '250' });
     expect(result?.depositInfo.reference).toBe('SWX-REF-1');
   });
 
@@ -73,6 +74,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
 
     const body = calls[0]?.body as Record<string, unknown>;
     expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
+    expect(body.provider_extras).toBeUndefined();
   });
 
   it('accepts deposit instructions on a still-pending account without waiting for active (the polling-gate fix)', async () => {
