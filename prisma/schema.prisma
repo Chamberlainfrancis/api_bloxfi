@@ -96,6 +96,7 @@ model User {
   onramps           Onramp[]
   offramps          Offramp[]
   highValueRequests HighValueRequest[]
+  onrampBeneficiaries OnrampBeneficiary[]
 }
 
 model KybInfo {
@@ -348,6 +349,33 @@ model HighValueRequest {
 
   @@index([userId])
   @@index([userId, status])
+}
+
+// --- Onramp beneficiaries (SwipeLux Sumsub share-token KYC import) ---
+
+enum OnrampBeneficiaryStatus {
+  pending_import
+  approved
+  rejected
+  failed
+}
+
+model OnrampBeneficiary {
+  id                 String                  @id @default(uuid())
+  businessUserId     String
+  businessUser       User                    @relation(fields: [businessUserId], references: [id], onDelete: Cascade)
+  status             OnrampBeneficiaryStatus @default(pending_import)
+  swipeluxCustomerId String?
+  email              String
+  firstName          String
+  lastName           String
+  phone              String
+  identitySnapshot   Json?
+  creationRequestId  String                  @unique
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([businessUserId])
 }
 
 // Partner/API keys: min 32 chars per spec; store hash only; support sandbox/production and rotation.
