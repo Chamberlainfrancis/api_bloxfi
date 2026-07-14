@@ -11,11 +11,19 @@ import {
 import { isSwipeluxBeneficiaryKycImportEnabled } from '@/core/beneficiaries/flag';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
 import type { findAccountByCreationRequestId, updateAccountKycImport } from '@/db/repositories/account.repo';
+import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
+import { CreateAccountConflictError } from '@/types/createAccountConflict';
 import type {
   CreateAccountRequest,
   CreateAccountResponse,
   RailType,
 } from '@/types/account';
+
+// Mirrors user.repo.ts's isPrismaUniqueError — kept local (not imported) since account.repo.ts's
+// createAccount is called here through an injected interface, not raw Prisma.
+function isPrismaUniqueError(e: unknown): e is { code: string } {
+  return typeof e === 'object' && e !== null && 'code' in e && (e as { code: string }).code === 'P2002';
+}
 
 export interface AccountRepoCreate {
   createAccount(data: {
@@ -86,20 +94,48 @@ export async function createAccount(
     }
 
     const existing = await accountRepo.findByCreationRequestId(options.requestId);
-    if (existing) return { status: 'ACTIVE', message: 'Account already exists', id: existing.id }; // soft replay, no re-import
+    if (existing) {
+      // creationRequestId is globally unique (not scoped by userId) — a bare hit is not proof
+      // this row belongs to this caller. Mirror user.repo.ts's createUser/userCreationPayloadsMatch:
+      // corroborate userId + identity before replaying, else throw a distinct conflict error.
+      if (!accountCreationPayloadsMatch(existing, userId, data)) {
+        throw new CreateAccountConflictError(
+          'REQUEST_ID_MISMATCH',
+          'requestId was already used to create an onramp account with different data'
+        );
+      }
+      return { status: 'ACTIVE', message: 'Account already exists', id: existing.id }; // soft replay, no re-import
+    }
 
-    const created = await accountRepo.createAccount({
-      userId,
-      railType: 'onramp',
-      currency: null,
-      paymentRail: null,
-      accountType: data.type,
-      accountHolder: data.accountHolder as object,
-      providerPayout: null,
-      swipeluxCustomerId: null,
-      kycImportStatus: 'pending_import',
-      creationRequestId: options.requestId,
-    });
+    let created;
+    try {
+      created = await accountRepo.createAccount({
+        userId,
+        railType: 'onramp',
+        currency: null,
+        paymentRail: null,
+        accountType: data.type,
+        accountHolder: data.accountHolder as object,
+        providerPayout: null,
+        swipeluxCustomerId: null,
+        kycImportStatus: 'pending_import',
+        creationRequestId: options.requestId,
+      });
+    } catch (e) {
+      if (!isPrismaUniqueError(e)) throw e;
+      // Concurrent double-submit on the same creationRequestId: the other request won the
+      // unique-constraint race. Mirror user.repo.ts's createUser — collapse the P2002 into a
+      // lookup-and-return instead of propagating the uncaught DB error.
+      const raced = await accountRepo.findByCreationRequestId(options.requestId);
+      if (!raced) throw e;
+      if (!accountCreationPayloadsMatch(raced, userId, data)) {
+        throw new CreateAccountConflictError(
+          'REQUEST_ID_MISMATCH',
+          'requestId was already used to create an onramp account with different data'
+        );
+      }
+      return { status: 'ACTIVE', message: 'Account already exists', id: raced.id };
+    }
 
     // firstName/lastName are required by the Task 7 zod schema whenever rail='onramp' — never
     // derived by splitting accountHolder.name (unreliable for compound surnames).

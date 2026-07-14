@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createAccount } from '@/core/accounts/createAccount';
+import { CreateAccountConflictError } from '@/types/createAccountConflict';
 
 const corridor = {
   asset: 'AED',
@@ -252,6 +253,115 @@ describe('createAccount — onramp', () => {
     });
     expect(accountRepo.createAccount).not.toHaveBeenCalled();
     expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('throws REQUEST_ID_MISMATCH and does NOT return the other user\'s account when the same creationRequestId belongs to a different userId', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    accountRepo.findByCreationRequestId.mockResolvedValue({
+      ...onrampAccountRow,
+      userId: 'user-2', // a different user's row happens to share this requestId
+    });
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow(CreateAccountConflictError);
+
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('throws REQUEST_ID_MISMATCH when the same creationRequestId + userId belongs to a different identity', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    accountRepo.findByCreationRequestId.mockResolvedValue({
+      ...onrampAccountRow,
+      accountHolder: { ...onrampAccountHolder, email: 'someone-else@example.com' },
+    });
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow('requestId was already used to create an onramp account with different data');
+
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('collapses a concurrent double-submit (P2002 on createAccount) into a lookup-and-return instead of throwing', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    // Pre-check sees nothing (no row yet); the other concurrent request wins the DB race and
+    // inserts first, so our createAccount call hits the unique constraint.
+    accountRepo.findByCreationRequestId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(onrampAccountRow);
+    accountRepo.createAccount.mockRejectedValueOnce({ code: 'P2002', message: 'Unique constraint failed' });
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      {
+        rail: 'onramp',
+        type: 'primary',
+        accountHolder: onrampAccountHolder,
+        sumsubShareToken: 'share-token-abc',
+      },
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+    );
+
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account already exists',
+      id: 'acc-onramp-1',
+    });
+    expect(accountRepo.findByCreationRequestId).toHaveBeenCalledTimes(2);
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a P2002 from createAccount if the redo-lookup still finds nothing (should not happen, but must not swallow the error)', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    accountRepo.findByCreationRequestId.mockResolvedValue(null);
+    const p2002 = { code: 'P2002', message: 'Unique constraint failed' };
+    accountRepo.createAccount.mockRejectedValueOnce(p2002);
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toBe(p2002);
   });
 
   it('marks the row failed and throws a transient error string on a 5xx import failure', async () => {
