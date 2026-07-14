@@ -65,4 +65,118 @@ describe('importSwipeluxBeneficiaryKyc', () => {
       expect(result.message.length).toBeGreaterThan(0);
     }
   });
+
+  it('asserts importToken never appears in request path or headers (only in body)', async () => {
+    const secretToken = 'tok_secret_confidential_do_not_log';
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      data: { channel_customer_id: 'cus_1', status: 'approved' },
+    });
+
+    await importSwipeluxBeneficiaryKyc(request, {
+      clientReference: 'ben-1',
+      importToken: secretToken,
+      kycInput: {
+        customer_type: 'individual',
+        email: 'a@b.com',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone: '+15555550100',
+      },
+    });
+
+    const [path, options] = request.mock.calls[0];
+
+    // Token must NOT appear in the request path
+    expect(path).not.toContain(secretToken);
+
+    // Token must NOT appear in headers
+    if (options?.headers) {
+      const headersStr = JSON.stringify(options.headers);
+      expect(headersStr).not.toContain(secretToken);
+    }
+
+    // Token MUST appear in the request body
+    expect(options?.body).toBeDefined();
+    const bodyStr = JSON.stringify(options.body);
+    expect(bodyStr).toContain(secretToken);
+  });
+
+  it('handles invalid response data (missing channel_customer_id)', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      data: { status: 'approved' }, // missing channel_customer_id
+    });
+
+    const result = await importSwipeluxBeneficiaryKyc(request, {
+      clientReference: 'ben-1',
+      importToken: 'tok_secret',
+      kycInput: {
+        customer_type: 'individual',
+        email: 'a@b.com',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone: '+15555550100',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.message).toContain('invalid');
+    }
+  });
+
+  it('handles invalid response data (missing status)', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      data: { channel_customer_id: 'cus_1' }, // missing status
+    });
+
+    const result = await importSwipeluxBeneficiaryKyc(request, {
+      clientReference: 'ben-1',
+      importToken: 'tok_secret',
+      kycInput: {
+        customer_type: 'individual',
+        email: 'a@b.com',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone: '+15555550100',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.message).toContain('invalid');
+    }
+  });
+
+  it('does not leak importToken in error messages', async () => {
+    const secretToken = 'tok_confidential_must_not_leak';
+    const request = vi.fn().mockResolvedValue({
+      status: 400,
+      data: { error: 'invalid_request', message: 'Bad request data' },
+    });
+
+    const result = await importSwipeluxBeneficiaryKyc(request, {
+      clientReference: 'ben-1',
+      importToken: secretToken,
+      kycInput: {
+        customer_type: 'individual',
+        email: 'a@b.com',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        phone: '+15555550100',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Verify token is NOT in the error message
+      expect(result.message).not.toContain(secretToken);
+      // Error message should come from extractPalremitErrorMessage, not raw token
+      expect(result.message.length).toBeGreaterThan(0);
+    }
+  });
 });
