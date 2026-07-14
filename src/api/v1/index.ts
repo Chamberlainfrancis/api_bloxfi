@@ -11,7 +11,6 @@ import { coinsRouter } from '@/api/v1/coins/routes';
 import { banksRouter } from '@/api/v1/banks/routes';
 import { payoutCorridorsRouter } from '@/api/v1/payout-corridors/routes';
 import { miscRouter } from '@/api/v1/misc/routes';
-import { beneficiariesRouter } from '@/api/v1/beneficiaries/routes';
 
 const router = Router();
 
@@ -21,7 +20,6 @@ router.use(walletsRouter);
 router.use(accountsRouter);
 router.use('/onramps', onrampsRouter);
 router.use('/offramps', offrampsRouter);
-router.use('/beneficiaries', beneficiariesRouter);
 router.use(coinsRouter);
 router.use(banksRouter);
 router.use(payoutCorridorsRouter);
