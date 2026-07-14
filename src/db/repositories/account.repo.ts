@@ -159,7 +159,9 @@ export async function listAccounts(params: ListAccountsParams): Promise<{
 }
 
 export async function deleteAccount(accountId: string, userId: string): Promise<{ id: string } | null> {
-  const account = await findOfframpAccountByIdAndUser(accountId, userId);
+  // Rail-agnostic: onramp rows are deletable too (Task 7). Using the offramp-only lookup here
+  // would silently 404 an onramp row even after the core layer's existence check passed.
+  const account = await findAccountByIdAndUser(accountId, userId);
   if (!account) return null;
   await prisma.account.delete({
     where: { id: accountId },

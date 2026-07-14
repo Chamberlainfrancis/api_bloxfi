@@ -61,7 +61,8 @@ export interface Account {
   type: string;
   details: RegionAccountDetails | null;
   accountHolder?: AccountHolder | null;
-  providerPayout: ProviderPayout;
+  /** Offramp only — onramp rows have no Palremit payout corridor, this is undefined. */
+  providerPayout?: ProviderPayout;
   /** SwipeLux customer id (cus_*) once known. Onramp only. */
   swipeluxCustomerId?: string | null;
   /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */

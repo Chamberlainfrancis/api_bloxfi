@@ -21,8 +21,8 @@ describe('createAccountBodySchema', () => {
     });
     expect(r.success).toBe(true);
     if (r.success) {
-      expect(r.data.corridor.asset).toBe('USD');
-      expect(r.data.corridor.country).toBe('GE');
+      expect(r.data.corridor?.asset).toBe('USD');
+      expect(r.data.corridor?.country).toBe('GE');
     }
   });
 
@@ -54,6 +54,89 @@ describe('createAccountBodySchema', () => {
       },
     });
     expect(r.success).toBe(false);
+  });
+
+  it('accepts a well-formed onramp body without corridor/destination', () => {
+    const r = createAccountBodySchema.safeParse({
+      rail: 'onramp',
+      type: 'sumsub_kyc_import',
+      accountHolder: {
+        type: 'individual',
+        name: 'Matisse Eykelberg',
+        firstName: 'Matisse',
+        lastName: 'Eykelberg',
+        email: 'matisse@example.com',
+      },
+      sumsubShareToken: 'share-tok-123',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.corridor).toBeUndefined();
+      expect(r.data.destination).toBeUndefined();
+      expect(r.data.sumsubShareToken).toBe('share-tok-123');
+    }
+  });
+
+  it('rejects onramp body missing sumsubShareToken', () => {
+    const r = createAccountBodySchema.safeParse({
+      rail: 'onramp',
+      type: 'sumsub_kyc_import',
+      accountHolder: {
+        type: 'individual',
+        name: 'Matisse Eykelberg',
+        firstName: 'Matisse',
+        lastName: 'Eykelberg',
+      },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects onramp body missing firstName/lastName', () => {
+    const r = createAccountBodySchema.safeParse({
+      rail: 'onramp',
+      type: 'sumsub_kyc_import',
+      accountHolder: { type: 'individual', name: 'Matisse Eykelberg' },
+      sumsubShareToken: 'share-tok-123',
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const paths = r.error.errors.map((e) => e.path.join('.'));
+      expect(paths).toContain('accountHolder');
+    }
+  });
+
+  it('rejects onramp body with accountHolder.type=business', () => {
+    const r = createAccountBodySchema.safeParse({
+      rail: 'onramp',
+      type: 'sumsub_kyc_import',
+      accountHolder: {
+        type: 'business',
+        name: 'Acme Inc',
+        firstName: 'Matisse',
+        lastName: 'Eykelberg',
+      },
+      sumsubShareToken: 'share-tok-123',
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const paths = r.error.errors.map((e) => e.path.join('.'));
+      expect(paths).toContain('accountHolder.type');
+    }
+  });
+
+  it('does not require corridor/destination for onramp', () => {
+    const r = createAccountBodySchema.safeParse({
+      rail: 'onramp',
+      type: 'sumsub_kyc_import',
+      accountHolder: {
+        type: 'individual',
+        name: 'Matisse Eykelberg',
+        firstName: 'Matisse',
+        lastName: 'Eykelberg',
+      },
+      sumsubShareToken: 'share-tok-123',
+    });
+    expect(r.success).toBe(true);
   });
 });
 

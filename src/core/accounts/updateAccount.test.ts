@@ -87,14 +87,14 @@ describe('updateAccount', () => {
     );
 
     expect(result?.id).toBe('acc-1');
-    expect(result?.providerPayout.destination.beneficiary).toMatchObject({
+    expect(result?.providerPayout!.destination.beneficiary).toMatchObject({
       email: 'matisse@example.com',
       phone_number: '+971501234567',
     });
-    expect(result?.providerPayout.destination.bank_code).toBe('WIOBAEADXXX');
-    expect((result?.providerPayout.destination as Record<string, unknown>).swift_code).toBeUndefined();
+    expect(result?.providerPayout!.destination.bank_code).toBe('WIOBAEADXXX');
+    expect((result?.providerPayout!.destination as Record<string, unknown>).swift_code).toBeUndefined();
     expect(updateAccountProviderPayout).toHaveBeenCalledOnce();
-    expect(result?.providerPayout.requirementsSnapshot?.fetchedAt).toBeDefined();
+    expect(result?.providerPayout!.requirementsSnapshot?.fetchedAt).toBeDefined();
   });
 
   it('returns null when account not found', async () => {

@@ -19,11 +19,37 @@ export interface AccountRowLike {
   accountType: string;
   accountHolder: unknown;
   providerPayout: unknown;
+  /** SwipeLux customer id (cus_*) once known. Onramp only. */
+  swipeluxCustomerId?: string | null;
+  /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
+  kycImportStatus?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean }): Account {
+  if (row.railType === 'onramp') {
+    // Onramp rows are Sumsub share-token KYC imports (Task 6/7) — no Palremit payout corridor,
+    // so there is no providerPayout to parse and no bank `details` to derive.
+    return {
+      id: row.id,
+      userId: row.userId,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      rail: {
+        currency: row.currency,
+        railType: row.railType as RailType,
+        paymentRail: row.paymentRail,
+      },
+      type: row.accountType,
+      details: null,
+      accountHolder: (row.accountHolder as AccountHolder | null) ?? undefined,
+      providerPayout: undefined,
+      swipeluxCustomerId: row.swipeluxCustomerId ?? null,
+      kycImportStatus: row.kycImportStatus ?? null,
+    };
+  }
+
   const pp = parseProviderPayout(row.providerPayout);
   if (!pp) {
     throw new Error('ACCOUNT_MISSING_PROVIDER_PAYOUT');

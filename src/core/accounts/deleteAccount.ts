@@ -1,11 +1,11 @@
 /**
- * Core: delete offramp payout account. Cannot delete if pending transactions. Spec §3.4.
+ * Core: delete account (offramp payout or onramp KYC-import). Cannot delete if pending transactions. Spec §3.4.
  */
 
 import type { DeleteAccountResponse } from '@/types/account';
 
 export interface AccountRepoDelete {
-  findOfframpAccountByIdAndUser(accountId: string, userId: string): Promise<{ id: string } | null>;
+  findAccountByIdAndUser(accountId: string, userId: string): Promise<{ id: string } | null>;
   hasPendingTransactions(accountId: string): Promise<boolean>;
   deleteAccount(accountId: string, userId: string): Promise<{ id: string } | null>;
 }
@@ -15,7 +15,7 @@ export async function deleteAccount(
   userId: string,
   accountId: string
 ): Promise<DeleteAccountResponse | null> {
-  const account = await repo.findOfframpAccountByIdAndUser(accountId, userId);
+  const account = await repo.findAccountByIdAndUser(accountId, userId);
   if (!account) return null;
 
   const pending = await repo.hasPendingTransactions(accountId);
