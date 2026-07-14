@@ -191,18 +191,27 @@ model ExternalWallet {
 // --- Feature 4: Accounts / Fiat (spec §3) ---
 
 model Account {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  railType       String // offramp for API-created payout accounts
-  currency       String
-  paymentRail    String // corridor destinationType (local_bank, wire, etc.)
-  accountType    String // free-form corridor label
-  accountHolder  Json // AccountHolder shape
-  /** Palremit corridor + canonical destination; API `details` is derived from this at read time. */
-  providerPayout Json
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  railType           String // 'onramp' | 'offramp'
+  currency           String? // was non-nullable; onramp rows don't have a payout currency
+  paymentRail        String? // corridor destinationType (local_bank, wire, etc.); unused for onramp rail
+  accountType        String // free-form corridor label
+  accountHolder      Json // AccountHolder shape
+  /** Palremit corridor + canonical destination; API `details` is derived from this at read time. Offramp only. */
+  providerPayout     Json? // was non-nullable; NULL for onramp rows (no payout destination)
+  /** SwipeLux customer id (cus_*) once known. Onramp only. */
+  swipeluxCustomerId String?
+  /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
+  kycImportStatus    String?
+  /**
+   * Onramp-only idempotency key (POST /beneficiaries requestId). Offramp rows leave this null and
+   * keep relying on idempotencyMiddleware's Redis lock as today.
+   */
+  creationRequestId  String?  @unique
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, railType])

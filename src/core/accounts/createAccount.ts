@@ -17,11 +17,14 @@ export interface AccountRepoCreate {
   createAccount(data: {
     userId: string;
     railType: RailType;
-    currency: string;
-    paymentRail: string;
+    currency?: string | null;
+    paymentRail?: string | null;
     accountType: string;
     accountHolder: object;
-    providerPayout: object;
+    providerPayout?: object | null;
+    swipeluxCustomerId?: string | null;
+    kycImportStatus?: string | null;
+    creationRequestId?: string | null;
   }): Promise<{
     id: string;
     userId: string;
@@ -31,6 +34,9 @@ export interface AccountRepoCreate {
     accountType: string;
     accountHolder: unknown;
     providerPayout: unknown;
+    swipeluxCustomerId: string | null;
+    kycImportStatus: string | null;
+    creationRequestId: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -62,6 +68,12 @@ export async function createAccount(
   const accountType = data.type.trim();
   if (!accountType) {
     throw new Error('INVALID_ACCOUNT: type is required');
+  }
+
+  // corridor/destination are optional on CreateAccountRequest to accommodate the onramp path
+  // (Task 6); this function is still offramp-only, so both remain required here.
+  if (!data.corridor || !data.destination) {
+    throw new Error('INVALID_ACCOUNT: corridor and destination are required');
   }
 
   const user = await userRepo.findUserById(userId);

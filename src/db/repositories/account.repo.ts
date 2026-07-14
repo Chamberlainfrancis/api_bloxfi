@@ -9,11 +9,14 @@ import type { RailType } from "@/types/account";
 export interface CreateAccountData {
   userId: string;
   railType: RailType;
-  currency: string;
-  paymentRail: string;
+  currency?: string | null;
+  paymentRail?: string | null;
   accountType: string;
   accountHolder: object;
-  providerPayout: object;
+  providerPayout?: object | null;
+  swipeluxCustomerId?: string | null;
+  kycImportStatus?: string | null;
+  creationRequestId?: string | null;
 }
 
 export interface AccountRow {
@@ -25,6 +28,9 @@ export interface AccountRow {
   accountType: string;
   accountHolder: unknown;
   providerPayout: unknown;
+  swipeluxCustomerId: string | null;
+  kycImportStatus: string | null;
+  creationRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,11 +40,52 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
     data: {
       userId: data.userId,
       railType: data.railType,
-      currency: data.currency,
-      paymentRail: data.paymentRail,
+      currency: data.currency ?? undefined,
+      paymentRail: data.paymentRail ?? undefined,
       accountType: data.accountType,
       accountHolder: data.accountHolder as object,
-      providerPayout: data.providerPayout as object,
+      providerPayout: data.providerPayout != null ? (data.providerPayout as object) : undefined,
+      swipeluxCustomerId: data.swipeluxCustomerId ?? undefined,
+      kycImportStatus: data.kycImportStatus ?? undefined,
+      creationRequestId: data.creationRequestId ?? undefined,
+    },
+  });
+  return account as AccountRow;
+}
+
+/**
+ * Soft-replay on creationRequestId, mirroring user.repo.ts's createUser/userCreationPayloadsMatch
+ * (NOT onramp.repo.ts's createOnramp, which has no such function and relies on a hard controller-level
+ * 409). Onramp callers look this up before calling accountRepo.createAccount to decide whether to
+ * short-circuit and return the existing row instead of re-calling liquidity.
+ */
+export async function findAccountByCreationRequestId(requestId: string): Promise<AccountRow | null> {
+  const account = await prisma.account.findUnique({
+    where: { creationRequestId: requestId },
+  });
+  return account as AccountRow | null;
+}
+
+/**
+ * Rail-agnostic lookup — unlike findOfframpAccountByIdAndUser (which hardcodes `railType: "offramp"`
+ * and would incorrectly 404 an onramp row), this matches any rail.
+ */
+export async function findAccountByIdAndUser(accountId: string, userId: string): Promise<AccountRow | null> {
+  const account = await prisma.account.findFirst({
+    where: { id: accountId, userId },
+  });
+  return account as AccountRow | null;
+}
+
+export async function updateAccountKycImport(
+  accountId: string,
+  patch: { kycImportStatus: string; swipeluxCustomerId?: string | null }
+): Promise<AccountRow> {
+  const account = await prisma.account.update({
+    where: { id: accountId },
+    data: {
+      kycImportStatus: patch.kycImportStatus,
+      ...(patch.swipeluxCustomerId !== undefined && { swipeluxCustomerId: patch.swipeluxCustomerId }),
     },
   });
   return account as AccountRow;

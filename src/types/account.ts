@@ -8,6 +8,8 @@ export type RailType = 'onramp' | 'offramp';
 export interface AccountHolder {
   type: 'business' | 'individual';
   name: string;
+  firstName?: string; // required when rail='onramp', enforced by the Task 7 zod schema, not by this type
+  lastName?: string;
   email?: string | null;
   phone?: string | null;
 }
@@ -60,6 +62,10 @@ export interface Account {
   details: RegionAccountDetails | null;
   accountHolder?: AccountHolder | null;
   providerPayout: ProviderPayout;
+  /** SwipeLux customer id (cus_*) once known. Onramp only. */
+  swipeluxCustomerId?: string | null;
+  /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
+  kycImportStatus?: string | null;
 }
 
 // --- Create Account (POST) ---
@@ -68,8 +74,9 @@ export interface CreateAccountRequest {
   rail: RailType;
   type: string;
   accountHolder: AccountHolder;
-  corridor: PayoutCorridor;
-  destination: Record<string, unknown>;
+  corridor?: PayoutCorridor;             // was required; offramp-only now
+  destination?: Record<string, unknown>; // was required; offramp-only now
+  sumsubShareToken?: string;             // onramp-only; never persisted, never logged
 }
 
 export interface CreateAccountResponse {
