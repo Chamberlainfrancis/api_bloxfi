@@ -14,6 +14,7 @@ router.post('/transactions/:type/:id/mark', controllers.markTransaction);
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:offrampId/approve', controllers.approveFeeSettlement);
 router.post('/offramps/:offrampId/retry-fiat-payout', controllers.retryOfframpFiatPayout);
+router.patch('/users/:userId/metadata', controllers.patchUserMetadata);
 router.get('/businesses', controllers.listBusinesses);
 router.get('/businesses/search', controllers.searchBusinesses);
 

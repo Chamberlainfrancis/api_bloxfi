@@ -9,7 +9,7 @@ import { AppError } from '@/types';
 import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
 import * as providerCustomer from '@/core/admin/providerCustomer';
-import { listUsers, searchUsers } from '@/db/repositories/user.repo';
+import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
@@ -180,6 +180,32 @@ export async function retryOfframpFiatPayout(
       actor,
     });
     sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function patchUserMetadata(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const body = (req.body ?? {}) as { swipeluxBeneficiaryKycImport?: unknown; secret?: unknown };
+    // Patching metadata mutates user state — require the shared passcode.
+    // Accept it via header or body.
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    const userId = req.params.userId;
+    // Coerce to boolean: === true for truthy, false otherwise
+    const swipeluxBeneficiaryKycImport = body.swipeluxBeneficiaryKycImport === true;
+    await mergeUserMetadata(userId, { swipeluxBeneficiaryKycImport });
+    sendSuccess(res, { ok: true });
   } catch (e) {
     next(e);
   }

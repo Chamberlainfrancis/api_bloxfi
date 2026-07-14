@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
-import { listBusinesses, searchBusinesses } from '@/api/admin/controllers';
-import { listUsers, searchUsers } from '@/db/repositories/user.repo';
+import { listBusinesses, searchBusinesses, patchUserMetadata } from '@/api/admin/controllers';
+import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import * as providerCustomer from '@/core/admin/providerCustomer';
 
 vi.mock('@/config', () => ({
   env: {
     PALREMIT_LIQUIDITY_TENANT_ID: 'tenant_test',
+    DASHBOARD_MARK_SECRET: 'pr2026',
   },
 }));
 
@@ -18,6 +19,7 @@ vi.mock('@/db/repositories/user.repo', () => {
   return {
     listUsers: vi.fn(),
     searchUsers: vi.fn(),
+    mergeUserMetadata: vi.fn(),
   };
 });
 
@@ -137,5 +139,97 @@ describe('listBusinesses', () => {
       },
     });
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('patchUserMetadata', () => {
+  const mockedMergeUserMetadata = vi.mocked(mergeUserMetadata);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('merges swipeluxBeneficiaryKycImport into metadata when passcode is correct', async () => {
+    mockedMergeUserMetadata.mockResolvedValue(undefined);
+    const req = {
+      params: { userId: 'user_123' },
+      body: { swipeluxBeneficiaryKycImport: true, secret: 'pr2026' },
+      headers: {},
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    expect(mockedMergeUserMetadata).toHaveBeenCalledWith('user_123', { swipeluxBeneficiaryKycImport: true });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: { ok: true },
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('accepts passcode via x-dashboard-secret header', async () => {
+    mockedMergeUserMetadata.mockResolvedValue(undefined);
+    const req = {
+      params: { userId: 'user_456' },
+      body: { swipeluxBeneficiaryKycImport: false },
+      headers: { 'x-dashboard-secret': 'pr2026' },
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    expect(mockedMergeUserMetadata).toHaveBeenCalledWith('user_456', { swipeluxBeneficiaryKycImport: false });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('returns 401 when passcode is incorrect', async () => {
+    const req = {
+      params: { userId: 'user_123' },
+      body: { swipeluxBeneficiaryKycImport: true, secret: 'wrong_secret' },
+      headers: {},
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    expect(mockedMergeUserMetadata).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'Incorrect passcode', statusCode: 401 }));
+  });
+
+  it('returns 401 when passcode is missing', async () => {
+    const req = {
+      params: { userId: 'user_123' },
+      body: { swipeluxBeneficiaryKycImport: true },
+      headers: {},
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    expect(mockedMergeUserMetadata).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'Incorrect passcode', statusCode: 401 }));
+  });
+
+  it('coerces non-boolean swipeluxBeneficiaryKycImport to boolean (non-true values become false)', async () => {
+    mockedMergeUserMetadata.mockResolvedValue(undefined);
+    const req = {
+      params: { userId: 'user_123' },
+      body: { swipeluxBeneficiaryKycImport: 'true', secret: 'pr2026' },
+      headers: {},
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    // String 'true' is not === true, so it becomes false
+    expect(mockedMergeUserMetadata).toHaveBeenCalledWith('user_123', { swipeluxBeneficiaryKycImport: false });
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
