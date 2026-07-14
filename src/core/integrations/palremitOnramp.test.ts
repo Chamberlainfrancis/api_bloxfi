@@ -63,7 +63,29 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
     expect(depositInfo.beneficiary.name).toBe('Palremit-BloxFi Test Corp');
   });
 
-  it('prefers KYC display name over orchestrator account_holder_name', () => {
+  it('prefers orchestrator account_holder_name over KYC/business display (SwipeLux Veem)', () => {
+    const instr = {
+      kind: 'fiat_account' as const,
+      account_number: '9988776655',
+      bank_code: '021000021',
+      bank_name: 'Citibank',
+      account_holder_name: 'Veem',
+      reference: 'SWX-1',
+    };
+
+    const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
+      instr,
+      'blox-request-id',
+      '2026-04-24T08:27:35.726Z',
+      250,
+      'USD',
+      'BRIANA PAYMENTS LIMITED'
+    );
+
+    expect(depositInfo.beneficiary.name).toBe('Veem');
+  });
+
+  it('falls back to KYC/business display only when orchestrator holder name is synthetic', () => {
     const instr = {
       kind: 'fiat_account' as const,
       account_number: '7000746820',

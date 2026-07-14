@@ -24,24 +24,31 @@ function isPalremitSyntheticHolderName(name: string): boolean {
   return /^Palremit-(ON|OFF)-[a-f0-9]+$/i.test(name.trim());
 }
 
+/**
+ * Deposit beneficiary must match what the bank expects on the wire.
+ * Prefer liquidity's account_holder_name (e.g. SwipeLux "Veem"). Only fall
+ * back to KYC/business display when the orchestrator returns a synthetic
+ * Palremit-ON/OFF label (or nothing usable).
+ */
 function resolveFiatBeneficiaryName(
   instructions: PalremitDepositInstructions,
   preferredFromKyc?: string
 ): string {
+  if (instructions.kind === 'fiat_account') {
+    const fromOrchestrator = String(instructions.account_holder_name ?? '').trim();
+    if (fromOrchestrator && !isPalremitSyntheticHolderName(fromOrchestrator)) {
+      return fromOrchestrator;
+    }
+  }
   const pref = preferredFromKyc?.trim() ?? '';
   if (pref) return pref;
-  if (instructions.kind !== 'fiat_account') return 'Beneficiary';
-  const fromOrchestrator = String(instructions.account_holder_name ?? '').trim();
-  if (fromOrchestrator && !isPalremitSyntheticHolderName(fromOrchestrator)) {
-    return fromOrchestrator;
-  }
   return 'Beneficiary';
 }
 
 /**
- * Prefer business legal/trading name when present; fall back to person name.
- * Business users always have a legalRepresentative, so person-first ordering
- * incorrectly labeled deposits with the director instead of the company.
+ * KYC/business display used only when liquidity's account_holder_name is
+ * missing or a synthetic Palremit-ON/OFF label. Prefer business legal/trading
+ * name over legal-representative person name.
  */
 export function preferredBeneficiaryDisplayName(input: {
   businessName?: string | null;

@@ -48,11 +48,11 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(body.kyc_input).toBeUndefined();
     expect(body.provider_extras).toEqual({ amount: '250' });
     expect(result?.depositInfo.reference).toBe('SWX-REF-1');
-    // Without businessName, falls back to person name from params.
-    expect(result?.depositInfo.beneficiary.name).toBe('Adaeze Okeke');
+    // Real orchestrator holder wins over person/business KYC display.
+    expect(result?.depositInfo.beneficiary.name).toBe('Pooled Account');
   });
 
-  it('uses businessName as deposit beneficiary when provided (not legal-rep person name)', async () => {
+  it('shows liquidity account_holder_name even when businessName is provided', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async (path) => {
       if (path === '/v1/provisioned-accounts') {
         return {
@@ -65,7 +65,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
               account_number: '9988776655',
               bank_code: '021000021',
               bank_name: 'Pooled Bank',
-              account_holder_name: 'Veem Inc.',
+              account_holder_name: 'Veem',
               reference: 'SWX-REF-biz',
             },
           },
@@ -80,7 +80,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
       businessName: 'BRIANA PAYMENTS LIMITED',
     });
 
-    expect(result?.depositInfo.beneficiary.name).toBe('BRIANA PAYMENTS LIMITED');
+    expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
   it('still selects FIAT_DEPOSIT_NO_KYC for NGN (Kuda), unaffected by the USD change', async () => {
