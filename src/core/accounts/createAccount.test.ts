@@ -1,0 +1,453 @@
+import { describe, it, expect, vi } from 'vitest';
+import { createAccount } from '@/core/accounts/createAccount';
+
+const corridor = {
+  asset: 'AED',
+  country: 'AE',
+  destinationType: 'local_bank',
+  beneficiaryType: 'individual' as const,
+};
+
+const offrampAccountHolder = {
+  type: 'individual' as const,
+  name: 'Matisse Eykelberg',
+};
+
+const offrampDestination = {
+  account_number: 'AE910860000006648238946',
+  bank_code: 'WIOBAEADXXX',
+  beneficiary: {
+    email: 'matisse@example.com',
+    phone_number: '+971501234567',
+  },
+};
+
+const offrampAccountRow = {
+  id: 'acc-1',
+  userId: 'user-1',
+  railType: 'offramp',
+  currency: 'aed',
+  paymentRail: 'local_bank',
+  accountType: 'primary',
+  accountHolder: offrampAccountHolder,
+  providerPayout: {},
+  swipeluxCustomerId: null,
+  kycImportStatus: null,
+  creationRequestId: null,
+  createdAt: new Date('2026-05-22T00:00:00.000Z'),
+  updatedAt: new Date('2026-05-22T00:00:00.000Z'),
+};
+
+function makeOfframpDeps(overrides: { userMetadata?: unknown } = {}) {
+  const liquidityRequest = vi.fn().mockResolvedValue({
+    status: 200,
+    data: {
+      corridor: {
+        target_fiat: 'AED',
+        country: 'AE',
+        destination_type: 'local_bank',
+        beneficiary_type: 'individual',
+      },
+      destination_fields: [
+        { path: 'account_number', type: 'string', required: true, label: 'IBAN' },
+        { path: 'bank_code', type: 'string', required: true, label: 'BIC' },
+        { path: 'beneficiary.email', type: 'string', required: true, label: 'Email' },
+        { path: 'beneficiary.phone_number', type: 'string', required: true, label: 'Phone' },
+      ],
+      destination_template: {},
+      amount: { min: null, max: null, currency: 'AED' },
+    },
+  });
+
+  const accountRepo = {
+    createAccount: vi.fn().mockResolvedValue(offrampAccountRow),
+    findByCreationRequestId: vi.fn().mockResolvedValue(null),
+    updateKycImport: vi.fn(),
+  };
+  const userRepo = {
+    findUserById: vi.fn().mockResolvedValue({
+      id: 'user-1',
+      kybStatus: 'approved',
+      metadata: overrides.userMetadata ?? null,
+    }),
+  };
+  const kybRepo = {
+    getKybRailStatuses: vi.fn().mockResolvedValue([]),
+  };
+  const importKyc = vi.fn();
+
+  return { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc };
+}
+
+const onrampAccountHolder = {
+  type: 'individual' as const,
+  name: 'Ada Lovelace',
+  firstName: 'Ada',
+  lastName: 'Lovelace',
+  email: 'ada@example.com',
+  phone: '+15551234567',
+};
+
+const onrampAccountRow = {
+  id: 'acc-onramp-1',
+  userId: 'user-1',
+  railType: 'onramp',
+  currency: null,
+  paymentRail: null,
+  accountType: 'primary',
+  accountHolder: onrampAccountHolder,
+  providerPayout: null,
+  swipeluxCustomerId: null,
+  kycImportStatus: 'pending_import',
+  creationRequestId: 'req-1',
+  createdAt: new Date('2026-07-14T00:00:00.000Z'),
+  updatedAt: new Date('2026-07-14T00:00:00.000Z'),
+};
+
+function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: true }) {
+  const accountRepo = {
+    createAccount: vi.fn().mockResolvedValue(onrampAccountRow),
+    findByCreationRequestId: vi.fn().mockResolvedValue(null),
+    updateKycImport: vi.fn().mockResolvedValue(onrampAccountRow),
+  };
+  const userRepo = {
+    findUserById: vi.fn().mockResolvedValue({
+      id: 'user-1',
+      kybStatus: 'approved',
+      metadata: userMetadata,
+    }),
+  };
+  const kybRepo = {
+    getKybRailStatuses: vi.fn().mockResolvedValue([]),
+  };
+  const liquidityRequest = vi.fn();
+  const importKyc = vi.fn().mockResolvedValue({
+    ok: true,
+    value: { channel_customer_id: 'cus_123', status: 'approved' },
+  });
+
+  return { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc };
+}
+
+describe('createAccount — onramp', () => {
+  it('rejects onramp create when flag is false', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps(null);
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow('SWIPELUX_BENEFICIARY_KYC_IMPORT_DISABLED');
+
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('rejects onramp create when accountHolder.type is business', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: { ...onrampAccountHolder, type: 'business' },
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow('INVALID_ACCOUNT');
+
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('imports and stores cus_* when flag true', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      {
+        rail: 'onramp',
+        type: 'primary',
+        accountHolder: onrampAccountHolder,
+        sumsubShareToken: 'share-token-abc',
+      },
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+    );
+
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account created successfully',
+      id: 'acc-onramp-1',
+    });
+    expect(accountRepo.createAccount).toHaveBeenCalledOnce();
+    expect(accountRepo.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        railType: 'onramp',
+        kycImportStatus: 'pending_import',
+        creationRequestId: 'req-1',
+      })
+    );
+    expect(importKyc).toHaveBeenCalledOnce();
+    expect(importKyc).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({
+        clientReference: 'acc-onramp-1',
+        importToken: 'share-token-abc',
+        kycInput: expect.objectContaining({
+          customer_type: 'individual',
+          email: 'ada@example.com',
+          first_name: 'Ada',
+          last_name: 'Lovelace',
+          phone: '+15551234567',
+        }),
+      })
+    );
+    expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
+      kycImportStatus: 'approved',
+      swipeluxCustomerId: 'cus_123',
+    });
+  });
+
+  it('replays same creationRequestId without calling importKyc again', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    accountRepo.findByCreationRequestId.mockResolvedValue(onrampAccountRow);
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      {
+        rail: 'onramp',
+        type: 'primary',
+        accountHolder: onrampAccountHolder,
+        sumsubShareToken: 'share-token-abc',
+      },
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+    );
+
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account already exists',
+      id: 'acc-onramp-1',
+    });
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('marks the row failed and throws a transient error string on a 5xx import failure', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    importKyc.mockResolvedValue({ ok: false, status: 503, message: 'orchestrator down' });
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow('PALREMIT_SWIPELUX_KYC_IMPORT_TRANSIENT');
+
+    expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
+      kycImportStatus: 'failed',
+    });
+  });
+
+  it('marks the row failed and throws a permanent error string on a 4xx import failure', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    importKyc.mockResolvedValue({ ok: false, status: 422, message: 'invalid share token' });
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'onramp',
+          type: 'primary',
+          accountHolder: onrampAccountHolder,
+          sumsubShareToken: 'share-token-abc',
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      )
+    ).rejects.toThrow('PALREMIT_SWIPELUX_KYC_IMPORT_PERMANENT');
+
+    expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
+      kycImportStatus: 'failed',
+    });
+  });
+
+  it('never passes sumsubShareToken into the persisted accountHolder or any log call', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      {
+        rail: 'onramp',
+        type: 'primary',
+        accountHolder: onrampAccountHolder,
+        sumsubShareToken: 'super-secret-share-token',
+      },
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+    );
+
+    const createAccountCallArg = accountRepo.createAccount.mock.calls[0][0];
+    expect(JSON.stringify(createAccountCallArg)).not.toContain('super-secret-share-token');
+
+    const allLoggedText = [...logSpy.mock.calls, ...errorSpy.mock.calls]
+      .flat()
+      .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)))
+      .join(' ');
+    expect(allLoggedText).not.toContain('super-secret-share-token');
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe('createAccount — offramp (regression guard)', () => {
+  it('creates an offramp account unaffected by the onramp branch', async () => {
+    const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      {
+        rail: 'offramp',
+        type: 'primary',
+        accountHolder: offrampAccountHolder,
+        corridor,
+        destination: offrampDestination,
+      },
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-offramp-1', importKyc }
+    );
+
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account created successfully',
+      id: 'acc-1',
+    });
+    expect(accountRepo.createAccount).toHaveBeenCalledOnce();
+    expect(accountRepo.findByCreationRequestId).not.toHaveBeenCalled();
+    expect(importKyc).not.toHaveBeenCalled();
+  });
+
+  it('rejects offramp create when type is blank', async () => {
+    const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'offramp',
+          type: '   ',
+          accountHolder: offrampAccountHolder,
+          corridor,
+          destination: offrampDestination,
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-offramp-2', importKyc }
+      )
+    ).rejects.toThrow('INVALID_ACCOUNT: type is required');
+  });
+
+  it('rejects offramp create when corridor/destination are missing', async () => {
+    const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'offramp',
+          type: 'primary',
+          accountHolder: offrampAccountHolder,
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-offramp-3', importKyc }
+      )
+    ).rejects.toThrow('INVALID_ACCOUNT: corridor and destination are required');
+  });
+
+  it('rejects offramp create when user is not KYB verified for the rail', async () => {
+    const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
+    userRepo.findUserById.mockResolvedValue({ id: 'user-1', kybStatus: 'not_started', metadata: null });
+    kybRepo.getKybRailStatuses.mockResolvedValue([{ rail: 'AED', status: 'under_review', capabilities: [] }]);
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'offramp',
+          type: 'primary',
+          accountHolder: offrampAccountHolder,
+          corridor,
+          destination: offrampDestination,
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-offramp-4', importKyc }
+      )
+    ).rejects.toThrow('USER_NOT_KYB_VERIFIED');
+  });
+
+  it('throws USER_NOT_FOUND when the user does not exist', async () => {
+    const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
+    userRepo.findUserById.mockResolvedValue(null);
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        {
+          rail: 'offramp',
+          type: 'primary',
+          accountHolder: offrampAccountHolder,
+          corridor,
+          destination: offrampDestination,
+        },
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-offramp-5', importKyc }
+      )
+    ).rejects.toThrow('USER_NOT_FOUND');
+  });
+});
