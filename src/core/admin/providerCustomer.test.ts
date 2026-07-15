@@ -144,3 +144,41 @@ describe('deleteBusinessProviderCustomer', () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe('computeDashboardProviderStatus', () => {
+  it('marks custom when the business has its own customer id', async () => {
+    const { computeDashboardProviderStatus } = await import('@/core/admin/providerCustomer');
+    expect(
+      computeDashboardProviderStatus({
+        businessProviders: [{ provider_name: 'owlpay', channel_customer_id: 'cus_Biz' }],
+        houseProviders: [{ provider_name: 'owlpay', channel_customer_id: 'cus_House' }],
+        allowHouseFallback: true,
+      })
+    ).toEqual({ owlpay: 'custom', yativo: 'inactive', swipelux: 'inactive' });
+  });
+
+  it('marks house when unmapped, fallback on, and house is seeded', async () => {
+    const { computeDashboardProviderStatus } = await import('@/core/admin/providerCustomer');
+    expect(
+      computeDashboardProviderStatus({
+        businessProviders: [],
+        houseProviders: [
+          { provider_name: 'owlpay', channel_customer_id: 'cus_House' },
+          { provider_name: 'yativo', channel_customer_id: 'cus_YHouse' },
+        ],
+        allowHouseFallback: true,
+      })
+    ).toEqual({ owlpay: 'house', yativo: 'house', swipelux: 'inactive' });
+  });
+
+  it('marks inactive when unmapped and fallback is off even if house is seeded', async () => {
+    const { computeDashboardProviderStatus } = await import('@/core/admin/providerCustomer');
+    expect(
+      computeDashboardProviderStatus({
+        businessProviders: [],
+        houseProviders: [{ provider_name: 'owlpay', channel_customer_id: 'cus_House' }],
+        allowHouseFallback: false,
+      })
+    ).toEqual({ owlpay: 'inactive', yativo: 'inactive', swipelux: 'inactive' });
+  });
+});

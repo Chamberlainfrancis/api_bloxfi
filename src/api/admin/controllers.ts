@@ -252,6 +252,20 @@ export async function listBusinesses(
 
     const { users, nextCursor } = await listUsers({ q, limit, createdBefore });
     const tenantId = env.PALREMIT_LIQUIDITY_TENANT_ID;
+    const allowHouseFallback = providerCustomer.HOUSE_CUSTOMER_FALLBACK_ENABLED;
+    let houseProviders: Array<{
+      provider_name: string;
+      channel_customer_id: string;
+      business_email?: string | null;
+      updated_at: string;
+    }> = [];
+    if (tenantId && allowHouseFallback) {
+      const house = await providerCustomer.listBusinessProviderCustomers(palremitLiquidity, {
+        tenantId,
+        businessReference: providerCustomer.HOUSE_BUSINESS_REFERENCE,
+      });
+      if (house.ok) houseProviders = house.value.providers;
+    }
     const items = tenantId
       ? await Promise.all(
           users.map(async (biz) => ({
@@ -259,6 +273,8 @@ export async function listBusinesses(
             providers: await providerCustomer.resolveDashboardProviderStatus(palremitLiquidity, {
               tenantId,
               businessReference: biz.id,
+              allowHouseFallback,
+              houseProviders,
             }),
           }))
         )
@@ -270,6 +286,7 @@ export async function listBusinesses(
     sendSuccess(res, {
       items,
       nextCursor: nextCursor ? nextCursor.toISOString() : null,
+      house_fallback_enabled: allowHouseFallback,
     });
   } catch (e) {
     next(e);
@@ -323,14 +340,28 @@ export async function getBusinessProviderCustomers(
 ): Promise<void> {
   try {
     const businessReference = req.params.businessReference;
+    const tenantId = requirePalremitTenantId();
     const result = await providerCustomer.listBusinessProviderCustomers(palremitLiquidity, {
-      tenantId: requirePalremitTenantId(),
+      tenantId,
       businessReference,
     });
     if (!result.ok) {
       throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
     }
-    sendSuccess(res, result.value);
+    const allowHouseFallback = providerCustomer.HOUSE_CUSTOMER_FALLBACK_ENABLED;
+    let houseProviders: typeof result.value.providers = [];
+    if (allowHouseFallback || businessReference !== providerCustomer.HOUSE_BUSINESS_REFERENCE) {
+      const house = await providerCustomer.listBusinessProviderCustomers(palremitLiquidity, {
+        tenantId,
+        businessReference: providerCustomer.HOUSE_BUSINESS_REFERENCE,
+      });
+      if (house.ok) houseProviders = house.value.providers;
+    }
+    sendSuccess(res, {
+      ...result.value,
+      house_fallback_enabled: allowHouseFallback,
+      house_providers: houseProviders,
+    });
   } catch (e) {
     next(e);
   }

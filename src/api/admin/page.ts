@@ -518,7 +518,7 @@ async function openDetail(id, forceType) {
       if (!pi.sent && t.payoutError) {
         var payoutHint = "";
         if (String(t.payoutError).indexOf("provider_customer_not_onboarded") >= 0) {
-          payoutHint = '<div class="audit-detail" style="margin-top:8px">Set the business Yativo/OwlPay customer ID under the Businesses tab → Provider config, then retry.</div>';
+          payoutHint = '<div class="audit-detail" style="margin-top:8px">Set a custom OwlPay/Yativo customer ID under Businesses → Provider config, or seed the house default and ensure the orchestrator has ALLOW_HOUSE_CUSTOMER_FALLBACK=true, then retry.</div>';
         }
         body += '<div class="section"><h3>Fiat payout error</h3><div class="card">' +
           '<div class="notice bad">Palremit rejected the fiat payout:</div>' +
@@ -771,9 +771,12 @@ async function approveSettlement(offrampId, platformFee) {
 // --- businesses: provider customer ID management ----------------------------
 
 var BIZ_PROVIDERS = ["owlpay", "yativo", "swipelux"];
+var HOUSE_BUSINESS_REFERENCE = "__house__";
 var bizState = {
   userId: null,
   providers: {},
+  houseProviders: {},
+  houseFallbackEnabled: false,
   providersError: null,
   providersLoading: false,
   results: [],
@@ -795,7 +798,8 @@ function kybBadge(status) {
 }
 
 function providerStatusBadge(status) {
-  if (status === "active") return '<span class="badge ok">Active</span>';
+  if (status === "custom" || status === "active") return '<span class="badge ok">Custom</span>';
+  if (status === "house") return '<span class="badge pend">House</span>';
   return '<span class="badge">Inactive</span>';
 }
 
@@ -849,18 +853,51 @@ function renderBusinessResults() {
 
 function providerCardHtml(name, current) {
   var hasValue = !!(current && current.channel_customer_id);
+  var house = bizState.houseProviders[name];
+  var houseId = house && house.channel_customer_id ? house.channel_customer_id : null;
   var label = name === "owlpay" ? "OwlPay" : name === "yativo" ? "Yativo" : name === "swipelux" ? "SwipeLux" : name;
-  var currentHtml = hasValue
-    ? '<div class="kv2" style="margin-bottom:10px"><div class="k">Current customer ID</div><div class="v mono">' + esc(current.channel_customer_id) + '</div>' +
-      '<div class="k">Last updated</div><div class="v muted">' + esc(current.updated_at ? new Date(current.updated_at).toLocaleString() : "—") + "</div></div>"
-    : '<div class="muted" style="margin-bottom:10px">Not onboarded with ' + esc(label) + " yet.</div>";
+  var mode = hasValue ? "Custom" : (bizState.houseFallbackEnabled && houseId ? "House" : "Inactive");
+  var effectiveId = hasValue ? current.channel_customer_id : (bizState.houseFallbackEnabled && houseId ? houseId : null);
+  var currentHtml = effectiveId
+    ? '<div class="kv2" style="margin-bottom:10px"><div class="k">Mode</div><div class="v">' + esc(mode) + "</div>" +
+      '<div class="k">Effective customer ID</div><div class="v mono">' + esc(effectiveId) + "</div>" +
+      (hasValue
+        ? '<div class="k">Last updated</div><div class="v muted">' + esc(current.updated_at ? new Date(current.updated_at).toLocaleString() : "—") + "</div>"
+        : '<div class="k">House default</div><div class="v muted">Using platform __house__ mapping</div>') +
+      "</div>"
+    : '<div class="muted" style="margin-bottom:10px">Not onboarded with ' + esc(label) +
+      (bizState.houseFallbackEnabled ? " and no house default is set." : " yet. House fallback is off.") + "</div>";
+  var useHouseBtn = hasValue && bizState.houseFallbackEnabled
+    ? '<button class="ghost biz-use-house-btn" data-provider="' + esc(name) + '">Use house</button>'
+    : "";
   return '<div class="section"><h3>' + esc(label) + '</h3><div class="card">' +
     currentHtml +
     '<div class="actions" style="align-items:center">' +
     '<input type="text" class="biz-cust-input" data-provider="' + esc(name) + '" placeholder="Provider customer ID" value="' + (hasValue ? esc(current.channel_customer_id) : "") + '" style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)" />' +
     '<button class="ok biz-save-btn" data-provider="' + esc(name) + '">' + (hasValue ? "Update" : "Save") + "</button>" +
+    useHouseBtn +
     (hasValue ? '<button class="danger biz-remove-btn" data-provider="' + esc(name) + '">Remove</button>' : "") +
     "</div></div></div>";
+}
+
+function houseDefaultsHtml() {
+  var notice = bizState.houseFallbackEnabled
+    ? '<div class="notice">House fallback is <strong>on</strong>. Unmapped businesses use these IDs. Set a custom ID on a business to override.</div>'
+    : '<div class="notice">House fallback is <strong>off</strong> in the dashboard constant. House IDs below are still editable.</div>';
+  var cards = BIZ_PROVIDERS.map(function (name) {
+    var current = bizState.houseProviders[name];
+    var hasValue = !!(current && current.channel_customer_id);
+    var label = name === "owlpay" ? "OwlPay" : name === "yativo" ? "Yativo" : name === "swipelux" ? "SwipeLux" : name;
+    return '<div class="section"><h3>House · ' + esc(label) + '</h3><div class="card">' +
+      (hasValue
+        ? '<div class="kv2" style="margin-bottom:10px"><div class="k">House customer ID</div><div class="v mono">' + esc(current.channel_customer_id) + "</div></div>"
+        : '<div class="muted" style="margin-bottom:10px">No house default for ' + esc(label) + ".</div>") +
+      '<div class="actions" style="align-items:center">' +
+      '<input type="text" class="biz-house-input" data-provider="' + esc(name) + '" placeholder="House customer ID" value="' + (hasValue ? esc(current.channel_customer_id) : "") + '" style="flex:1;min-width:220px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)" />' +
+      '<button class="ok biz-house-save-btn" data-provider="' + esc(name) + '">' + (hasValue ? "Update house" : "Save house") + "</button>" +
+      "</div></div></div>";
+  }).join("");
+  return notice + cards;
 }
 
 function renderBizDetailsTab(biz) {
@@ -873,9 +910,9 @@ function renderBizDetailsTab(biz) {
       ["KYB status", String(biz.kybStatus || "unknown").toUpperCase()],
       ["Created", biz.createdAt ? new Date(biz.createdAt).toLocaleString() : null],
       ["Last transaction", biz.lastTransactedAt ? new Date(biz.lastTransactedAt).toLocaleString() : null],
-      ["OwlPay", providers.owlpay === "active" ? "Active" : "Inactive"],
-      ["Yativo", providers.yativo === "active" ? "Active" : "Inactive"],
-      ["SwipeLux", providers.swipelux === "active" ? "Active" : "Inactive"],
+      ["OwlPay", providers.owlpay === "custom" || providers.owlpay === "active" ? "Custom" : providers.owlpay === "house" ? "House" : "Inactive"],
+      ["Yativo", providers.yativo === "custom" || providers.yativo === "active" ? "Custom" : providers.yativo === "house" ? "House" : "Inactive"],
+      ["SwipeLux", providers.swipelux === "custom" || providers.swipelux === "active" ? "Custom" : providers.swipelux === "house" ? "House" : "Inactive"],
     ]);
 }
 
@@ -916,8 +953,10 @@ function renderBizProvidersTab() {
   if (bizState.providersError) {
     return '<div class="err" style="padding:12px 0">Could not load providers: ' + esc(bizState.providersError) + "</div>";
   }
-  return '<div class="notice">Same provider customer ID applies to both onramp and offramp — set it once per provider.</div>' +
-    BIZ_PROVIDERS.map(function (p) { return providerCardHtml(p, bizState.providers[p]); }).join("");
+  return '<div class="notice">Same provider customer ID applies to both onramp and offramp — set it once per provider. Use house clears a custom ID so this business falls back to the platform default.</div>' +
+    BIZ_PROVIDERS.map(function (p) { return providerCardHtml(p, bizState.providers[p]); }).join("") +
+    '<div class="section" style="margin-top:24px"><h3 style="color:var(--mut)">Platform house defaults</h3></div>' +
+    houseDefaultsHtml();
 }
 
 function renderBusinessModal() {
@@ -971,6 +1010,9 @@ async function loadBusinessList(reset) {
       bizState.results = bizState.results.concat(items);
     }
     bizState.cursor = data.nextCursor;
+    if (typeof data.house_fallback_enabled === "boolean") {
+      bizState.houseFallbackEnabled = data.house_fallback_enabled;
+    }
     updateBizMore();
     renderBusinessResults();
   } catch (e) { showErr(e.message); }
@@ -982,7 +1024,9 @@ function syncBusinessRowProviders(userId) {
   var providers = { owlpay: "inactive", yativo: "inactive", swipelux: "inactive" };
   BIZ_PROVIDERS.forEach(function (name) {
     if (bizState.providers[name] && bizState.providers[name].channel_customer_id) {
-      providers[name] = "active";
+      providers[name] = "custom";
+    } else if (bizState.houseFallbackEnabled && bizState.houseProviders[name] && bizState.houseProviders[name].channel_customer_id) {
+      providers[name] = "house";
     }
   });
   row.providers = providers;
@@ -990,10 +1034,6 @@ function syncBusinessRowProviders(userId) {
     bizState.selectedBusiness.providers = providers;
   }
   renderBusinessResults();
-}
-
-async function searchBusinesses() {
-  await loadBusinessList(true);
 }
 
 async function loadBusinessProviders() {
@@ -1005,6 +1045,11 @@ async function loadBusinessProviders() {
     var data = await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers");
     bizState.providers = {};
     (data.providers || []).forEach(function (p) { bizState.providers[p.provider_name] = p; });
+    bizState.houseProviders = {};
+    (data.house_providers || []).forEach(function (p) { bizState.houseProviders[p.provider_name] = p; });
+    if (typeof data.house_fallback_enabled === "boolean") {
+      bizState.houseFallbackEnabled = data.house_fallback_enabled;
+    }
     bizState.providersLoaded = true;
     syncBusinessRowProviders(bizState.userId);
   } catch (e) {
@@ -1013,6 +1058,10 @@ async function loadBusinessProviders() {
     bizState.providersLoading = false;
     if ($("bizDetail").open) renderBusinessModal();
   }
+}
+
+async function searchBusinesses() {
+  await loadBusinessList(true);
 }
 
 async function loadBusinessTransactions(type, reset) {
@@ -1036,6 +1085,7 @@ async function openBusinessModal(biz) {
   bizState.userId = biz.id;
   bizState.selectedBusiness = biz;
   bizState.providers = {};
+  bizState.houseProviders = {};
   bizState.providersError = null;
   bizState.providersLoading = false;
   bizState.modalTab = "details";
@@ -1069,13 +1119,37 @@ async function saveBusinessProvider(provider, customerId) {
 }
 
 async function removeBusinessProvider(provider) {
-  if (!confirm("Remove the " + provider + " customer ID for this business? Its withdrawals routed to " + provider + " will fail until a new one is set.")) return;
+  var msg = bizState.houseFallbackEnabled
+    ? "Remove the custom " + provider + " customer ID? This business will use the house default if one is set."
+    : "Remove the " + provider + " customer ID for this business? Its withdrawals routed to " + provider + " will fail until a new one is set.";
+  if (!confirm(msg)) return;
   var actor = prompt("Your name (for the audit trail):", "") || undefined;
   showErr("");
   try {
     var q = actor ? "?actor=" + encodeURIComponent(actor) : "";
     await api("/businesses/" + encodeURIComponent(bizState.userId) + "/providers/" + encodeURIComponent(provider) + "/customer" + q, {
       method: "DELETE"
+    });
+    await loadBusinessProviders();
+  } catch (e) { showErr(e.message); }
+}
+
+async function useHouseProvider(provider) {
+  await removeBusinessProvider(provider);
+}
+
+async function saveHouseProvider(provider, customerId) {
+  if (!customerId || !customerId.trim()) { showErr("Enter a house customer ID before saving."); return; }
+  var actor = prompt("Your name (for the audit trail):", "") || undefined;
+  showErr("");
+  try {
+    await api("/businesses/" + encodeURIComponent(HOUSE_BUSINESS_REFERENCE) + "/providers/" + encodeURIComponent(provider) + "/customer", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        channel_customer_id: customerId.trim(),
+        actor: actor
+      })
     });
     await loadBusinessProviders();
   } catch (e) { showErr(e.message); }
@@ -1122,6 +1196,14 @@ $("bizDetail").addEventListener("click", function (e) {
   if (saveBtn) {
     var input = $("bizDBody").querySelector('.biz-cust-input[data-provider="' + saveBtn.dataset.provider + '"]');
     saveBusinessProvider(saveBtn.dataset.provider, input ? input.value : "");
+    return;
+  }
+  var useHouseBtn = e.target.closest(".biz-use-house-btn");
+  if (useHouseBtn) { useHouseProvider(useHouseBtn.dataset.provider); return; }
+  var houseSaveBtn = e.target.closest(".biz-house-save-btn");
+  if (houseSaveBtn) {
+    var houseInput = $("bizDBody").querySelector('.biz-house-input[data-provider="' + houseSaveBtn.dataset.provider + '"]');
+    saveHouseProvider(houseSaveBtn.dataset.provider, houseInput ? houseInput.value : "");
     return;
   }
   var removeBtn = e.target.closest(".biz-remove-btn");

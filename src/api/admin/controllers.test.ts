@@ -28,6 +28,10 @@ vi.mock('@/core/admin/providerCustomer', async (importOriginal) => {
   return {
     ...actual,
     resolveDashboardProviderStatus: vi.fn(),
+    listBusinessProviderCustomers: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { business_reference: '__house__', providers: [] },
+    }),
   };
 });
 
@@ -108,7 +112,7 @@ describe('listBusinesses', () => {
       ],
       nextCursor,
     });
-    mockedResolveStatus.mockResolvedValue({ owlpay: 'active', yativo: 'inactive' });
+    mockedResolveStatus.mockResolvedValue({ owlpay: 'custom', yativo: 'inactive', swipelux: 'inactive' });
     const req = { query: {} } as unknown as Request;
     const res = buildResponse();
     const next = vi.fn() as unknown as NextFunction;
@@ -119,6 +123,8 @@ describe('listBusinesses', () => {
     expect(mockedResolveStatus).toHaveBeenCalledWith(expect.any(Function), {
       tenantId: 'tenant_test',
       businessReference: 'user_123',
+      allowHouseFallback: true,
+      houseProviders: [],
     });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({
@@ -132,10 +138,11 @@ describe('listBusinesses', () => {
             kybStatus: 'approved',
             createdAt: '2026-01-01T00:00:00.000Z',
             lastTransactedAt: '2026-06-15T10:00:00.000Z',
-            providers: { owlpay: 'active', yativo: 'inactive' },
+            providers: { owlpay: 'custom', yativo: 'inactive', swipelux: 'inactive' },
           },
         ],
         nextCursor: nextCursor.toISOString(),
+        house_fallback_enabled: true,
       },
     });
     expect(next).not.toHaveBeenCalled();
