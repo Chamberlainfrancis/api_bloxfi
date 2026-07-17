@@ -1,6 +1,6 @@
 /**
  * USD Account / Source-of-Funds questionnaire served by
- * GET /api/v1/misc/pre-due-diligence-questionnaire (path kept for existing clients).
+ * GET /api/v1/misc/source-of-funds-questionnaire.
  * Onramp account create answers must match these field names/values.
  */
 
@@ -129,6 +129,3 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
     },
   ],
 };
-
-/** @deprecated Alias — same payload as SOF_QUESTIONNAIRE; kept for existing imports. */
-export const PRE_DUE_DILIGENCE_QUESTIONNAIRE = SOF_QUESTIONNAIRE;
