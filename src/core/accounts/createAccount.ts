@@ -9,6 +9,10 @@ import {
   rethrowPalremitCorridorError,
 } from '@/core/accounts/providerPayoutBuild';
 import { isSwipeluxBeneficiaryKycImportEnabled } from '@/core/beneficiaries/flag';
+import {
+  copyRemoteDocumentToS3,
+  RemoteDocumentError,
+} from '@/core/files/copyRemoteDocument';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
 import type { findAccountByCreationRequestId, updateAccountKycImport } from '@/db/repositories/account.repo';
 import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
@@ -25,6 +29,14 @@ function isPrismaUniqueError(e: unknown): e is { code: string } {
   return typeof e === 'object' && e !== null && 'code' in e && (e as { code: string }).code === 'P2002';
 }
 
+function resolveSourceOfFundsDocumentUrl(data: CreateAccountRequest): string {
+  const fromTop = data.sourceOfFundsDocument?.trim();
+  if (fromTop) return fromTop;
+  const nested = data.sofQuestionnaire?.sourceOfFundsDocument;
+  if (typeof nested === 'string' && nested.trim()) return nested.trim();
+  throw new Error('INVALID_ACCOUNT: sourceOfFundsDocument URL is required');
+}
+
 export interface AccountRepoCreate {
   createAccount(data: {
     userId: string;
@@ -37,6 +49,8 @@ export interface AccountRepoCreate {
     swipeluxCustomerId?: string | null;
     kycImportStatus?: string | null;
     creationRequestId?: string | null;
+    sofQuestionnaire?: object | null;
+    sourceOfFundsDocumentPath?: string | null;
   }): Promise<{
     id: string;
     userId: string;
@@ -49,6 +63,8 @@ export interface AccountRepoCreate {
     swipeluxCustomerId: string | null;
     kycImportStatus: string | null;
     creationRequestId: string | null;
+    sofQuestionnaire?: unknown;
+    sourceOfFundsDocumentPath?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -69,6 +85,8 @@ export interface KybRepoForAccount {
 
 export interface CreateAccountOptions {
   palremitLiquidityRequest: PalremitLiquidityRequestFn;
+  /** Injectable for tests; defaults to copyRemoteDocumentToS3. */
+  copySourceOfFundsDocument?: typeof copyRemoteDocumentToS3;
 }
 
 export async function createAccount(
@@ -107,6 +125,18 @@ export async function createAccount(
       return { status: 'ACTIVE', message: 'Account already exists', id: existing.id }; // soft replay, no re-import
     }
 
+    const documentUrl = resolveSourceOfFundsDocumentUrl(data);
+    const copyDoc = options.copySourceOfFundsDocument ?? copyRemoteDocumentToS3;
+    let stored;
+    try {
+      stored = await copyDoc(documentUrl);
+    } catch (e) {
+      if (e instanceof RemoteDocumentError) {
+        throw new Error(`INVALID_ACCOUNT: ${e.message}`);
+      }
+      throw e;
+    }
+
     let created;
     try {
       created = await accountRepo.createAccount({
@@ -120,6 +150,8 @@ export async function createAccount(
         swipeluxCustomerId: null,
         kycImportStatus: 'pending_import',
         creationRequestId: options.requestId,
+        sofQuestionnaire: (data.sofQuestionnaire ?? null) as object | null,
+        sourceOfFundsDocumentPath: stored.storagePath,
       });
     } catch (e) {
       if (!isPrismaUniqueError(e)) throw e;
@@ -148,6 +180,7 @@ export async function createAccount(
         first_name: data.accountHolder.firstName!,
         last_name: data.accountHolder.lastName!,
         phone: data.accountHolder.phone!,
+        tax_id: data.accountHolder.taxId,
       },
     });
 

@@ -17,6 +17,8 @@ export interface CreateAccountData {
   swipeluxCustomerId?: string | null;
   kycImportStatus?: string | null;
   creationRequestId?: string | null;
+  sofQuestionnaire?: object | null;
+  sourceOfFundsDocumentPath?: string | null;
 }
 
 export interface AccountRow {
@@ -31,6 +33,8 @@ export interface AccountRow {
   swipeluxCustomerId: string | null;
   kycImportStatus: string | null;
   creationRequestId: string | null;
+  sofQuestionnaire: unknown;
+  sourceOfFundsDocumentPath: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,6 +52,8 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
       swipeluxCustomerId: data.swipeluxCustomerId ?? undefined,
       kycImportStatus: data.kycImportStatus ?? undefined,
       creationRequestId: data.creationRequestId ?? undefined,
+      sofQuestionnaire: data.sofQuestionnaire != null ? (data.sofQuestionnaire as object) : undefined,
+      sourceOfFundsDocumentPath: data.sourceOfFundsDocumentPath ?? undefined,
     },
   });
   return account as AccountRow;

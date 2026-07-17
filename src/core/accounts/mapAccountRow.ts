@@ -23,6 +23,8 @@ export interface AccountRowLike {
   swipeluxCustomerId?: string | null;
   /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
   kycImportStatus?: string | null;
+  sofQuestionnaire?: unknown;
+  sourceOfFundsDocumentPath?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +49,8 @@ export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean
       providerPayout: undefined,
       swipeluxCustomerId: row.swipeluxCustomerId ?? null,
       kycImportStatus: row.kycImportStatus ?? null,
+      sofQuestionnaire: (row.sofQuestionnaire as Record<string, unknown> | null) ?? null,
+      sourceOfFundsDocumentPath: row.sourceOfFundsDocumentPath ?? null,
     };
   }
 

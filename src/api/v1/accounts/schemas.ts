@@ -1,10 +1,11 @@
 /**
  * Zod schemas for Account endpoints. Spec §3.
  * Offramp accounts are created via Palremit corridor discovery: `corridor` + `destination` (snake_case).
- * Onramp accounts are created via Sumsub share-token KYC import (`sumsubShareToken`), no corridor/destination.
+ * Onramp accounts are created via Sumsub share-token KYC import (`sumsubShareToken`), plus SOF questionnaire.
  */
 
 import { z } from 'zod';
+import { sofQuestionnaireAnswersSchema } from '@/api/v1/accounts/sofAnswersSchema';
 
 const accountHolderSchema = z.object({
   type: z.enum(['business', 'individual']),
@@ -13,6 +14,7 @@ const accountHolderSchema = z.object({
   lastName: z.string().min(1).optional(),
   email: z.string().email().optional().nullable(),
   phone: z.string().optional().nullable(),
+  taxId: z.string().min(1).optional(), // required for rail='onramp', enforced below
 });
 
 const payoutCorridorSchema = z.object({
@@ -30,7 +32,7 @@ const payoutCorridorSchema = z.object({
 
 /**
  * Create account: offramp is a Palremit corridor tuple + canonical destination (unchanged);
- * onramp is a Sumsub share-token KYC import (no corridor/destination).
+ * onramp is a Sumsub share-token KYC import + SOF questionnaire / accountHolder.taxId / sourceOfFundsDocument.
  */
 export const createAccountBodySchema = z
   .object({
@@ -40,6 +42,9 @@ export const createAccountBodySchema = z
     corridor: payoutCorridorSchema.optional(), // was required; now offramp-only
     destination: z.record(z.unknown()).optional(), // was required; now offramp-only
     sumsubShareToken: z.string().min(1).optional(), // onramp-only
+    sofQuestionnaire: sofQuestionnaireAnswersSchema.optional(), // onramp-only
+    /** HTTPS URL to PDF/JPEG/PNG; may also live under sofQuestionnaire.sourceOfFundsDocument. */
+    sourceOfFundsDocument: z.string().url().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.rail === 'offramp') {
@@ -55,7 +60,7 @@ export const createAccountBodySchema = z
         });
       }
     } else {
-      // rail === 'onramp' — NEW branch.
+      // rail === 'onramp'
       if (data.accountHolder.type !== 'individual') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -70,8 +75,39 @@ export const createAccountBodySchema = z
           message: 'firstName and lastName are required for rail=onramp',
         });
       }
+      if (!data.accountHolder.taxId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['accountHolder', 'taxId'],
+          message: 'taxId is required for rail=onramp',
+        });
+      }
       if (!data.sumsubShareToken) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sumsubShareToken'], message: 'sumsubShareToken is required for rail=onramp' });
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sumsubShareToken'],
+          message: 'sumsubShareToken is required for rail=onramp',
+        });
+      }
+      if (!data.sofQuestionnaire) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sofQuestionnaire'],
+          message: 'sofQuestionnaire is required for rail=onramp',
+        });
+      }
+      const docUrl =
+        data.sourceOfFundsDocument ??
+        (typeof data.sofQuestionnaire?.sourceOfFundsDocument === 'string'
+          ? data.sofQuestionnaire.sourceOfFundsDocument
+          : undefined);
+      if (!docUrl) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sourceOfFundsDocument'],
+          message:
+            'sourceOfFundsDocument URL is required (top-level or sofQuestionnaire.sourceOfFundsDocument)',
+        });
       }
     }
   });

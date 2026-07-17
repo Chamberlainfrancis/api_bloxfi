@@ -1,6 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { createAccountBodySchema, updateAccountBodySchema } from '@/api/v1/accounts/schemas';
 
+const onrampSof = {
+  employmentStatus: 'employed' as const,
+  expectedMonthlyPayments: '0_4999' as const,
+  primaryPurpose: 'personal' as const,
+  sourceOfFunds: 'salary' as const,
+};
+
+const onrampBase = {
+  rail: 'onramp' as const,
+  type: 'sumsub_kyc_import',
+  accountHolder: {
+    type: 'individual' as const,
+    name: 'Matisse Eykelberg',
+    firstName: 'Matisse',
+    lastName: 'Eykelberg',
+    email: 'matisse@example.com',
+    taxId: '123-45-6789',
+  },
+  sumsubShareToken: 'share-tok-123',
+  sofQuestionnaire: onrampSof,
+  sourceOfFundsDocument: 'https://cdn.example.com/docs/sof.pdf',
+};
+
 describe('createAccountBodySchema', () => {
   it('accepts corridor + destination', () => {
     const r = createAccountBodySchema.safeParse({
@@ -57,9 +80,48 @@ describe('createAccountBodySchema', () => {
   });
 
   it('accepts a well-formed onramp body without corridor/destination', () => {
+    const r = createAccountBodySchema.safeParse(onrampBase);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.corridor).toBeUndefined();
+      expect(r.data.destination).toBeUndefined();
+      expect(r.data.sumsubShareToken).toBe('share-tok-123');
+      expect(r.data.accountHolder.taxId).toBe('123-45-6789');
+      expect(r.data.sofQuestionnaire?.employmentStatus).toBe('employed');
+    }
+  });
+
+  it('accepts sourceOfFundsDocument inside sofQuestionnaire only', () => {
     const r = createAccountBodySchema.safeParse({
-      rail: 'onramp',
-      type: 'sumsub_kyc_import',
+      ...onrampBase,
+      sourceOfFundsDocument: undefined,
+      sofQuestionnaire: {
+        ...onrampSof,
+        sourceOfFundsDocument: 'https://cdn.example.com/nested-sof.pdf',
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects onramp body missing sumsubShareToken', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      sumsubShareToken: undefined,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects onramp body missing sofQuestionnaire', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      sofQuestionnaire: undefined,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects onramp body missing accountHolder.taxId', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
       accountHolder: {
         type: 'individual',
         name: 'Matisse Eykelberg',
@@ -67,36 +129,23 @@ describe('createAccountBodySchema', () => {
         lastName: 'Eykelberg',
         email: 'matisse@example.com',
       },
-      sumsubShareToken: 'share-tok-123',
     });
-    expect(r.success).toBe(true);
-    if (r.success) {
-      expect(r.data.corridor).toBeUndefined();
-      expect(r.data.destination).toBeUndefined();
-      expect(r.data.sumsubShareToken).toBe('share-tok-123');
-    }
+    expect(r.success).toBe(false);
   });
 
-  it('rejects onramp body missing sumsubShareToken', () => {
+  it('rejects onramp body missing sourceOfFundsDocument everywhere', () => {
     const r = createAccountBodySchema.safeParse({
-      rail: 'onramp',
-      type: 'sumsub_kyc_import',
-      accountHolder: {
-        type: 'individual',
-        name: 'Matisse Eykelberg',
-        firstName: 'Matisse',
-        lastName: 'Eykelberg',
-      },
+      ...onrampBase,
+      sourceOfFundsDocument: undefined,
+      sofQuestionnaire: onrampSof,
     });
     expect(r.success).toBe(false);
   });
 
   it('rejects onramp body missing firstName/lastName', () => {
     const r = createAccountBodySchema.safeParse({
-      rail: 'onramp',
-      type: 'sumsub_kyc_import',
+      ...onrampBase,
       accountHolder: { type: 'individual', name: 'Matisse Eykelberg' },
-      sumsubShareToken: 'share-tok-123',
     });
     expect(r.success).toBe(false);
     if (!r.success) {
@@ -107,15 +156,13 @@ describe('createAccountBodySchema', () => {
 
   it('rejects onramp body with accountHolder.type=business', () => {
     const r = createAccountBodySchema.safeParse({
-      rail: 'onramp',
-      type: 'sumsub_kyc_import',
+      ...onrampBase,
       accountHolder: {
         type: 'business',
         name: 'Acme Inc',
         firstName: 'Matisse',
         lastName: 'Eykelberg',
       },
-      sumsubShareToken: 'share-tok-123',
     });
     expect(r.success).toBe(false);
     if (!r.success) {
@@ -125,17 +172,7 @@ describe('createAccountBodySchema', () => {
   });
 
   it('does not require corridor/destination for onramp', () => {
-    const r = createAccountBodySchema.safeParse({
-      rail: 'onramp',
-      type: 'sumsub_kyc_import',
-      accountHolder: {
-        type: 'individual',
-        name: 'Matisse Eykelberg',
-        firstName: 'Matisse',
-        lastName: 'Eykelberg',
-      },
-      sumsubShareToken: 'share-tok-123',
-    });
+    const r = createAccountBodySchema.safeParse(onrampBase);
     expect(r.success).toBe(true);
   });
 });

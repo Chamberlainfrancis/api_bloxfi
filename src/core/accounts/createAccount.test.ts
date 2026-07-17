@@ -1,4 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@/core/files/copyRemoteDocument', () => ({
+  copyRemoteDocumentToS3: vi.fn(),
+  RemoteDocumentError: class RemoteDocumentError extends Error {
+    code: string;
+    constructor(message: string, code: string) {
+      super(message);
+      this.name = 'RemoteDocumentError';
+      this.code = code;
+    }
+  },
+}));
+
 import { createAccount } from '@/core/accounts/createAccount';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 
@@ -87,7 +100,27 @@ const onrampAccountHolder = {
   lastName: 'Lovelace',
   email: 'ada@example.com',
   phone: '+15551234567',
+  taxId: '123-45-6789',
 };
+
+const onrampSofQuestionnaire = {
+  employmentStatus: 'employed',
+  expectedMonthlyPayments: '0_4999',
+  primaryPurpose: 'personal',
+  sourceOfFunds: 'salary',
+};
+
+function onrampCreateBody(overrides: Record<string, unknown> = {}) {
+  return {
+    rail: 'onramp' as const,
+    type: 'primary',
+    accountHolder: onrampAccountHolder,
+    sumsubShareToken: 'share-token-abc',
+    sofQuestionnaire: onrampSofQuestionnaire,
+    sourceOfFundsDocument: 'https://cdn.example.com/sof.pdf',
+    ...overrides,
+  };
+}
 
 const onrampAccountRow = {
   id: 'acc-onramp-1',
@@ -101,6 +134,8 @@ const onrampAccountRow = {
   swipeluxCustomerId: null,
   kycImportStatus: 'pending_import',
   creationRequestId: 'req-1',
+  sofQuestionnaire: onrampSofQuestionnaire,
+  sourceOfFundsDocumentPath: 'uploads/DOC-sof.pdf',
   createdAt: new Date('2026-07-14T00:00:00.000Z'),
   updatedAt: new Date('2026-07-14T00:00:00.000Z'),
 };
@@ -126,13 +161,17 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
     ok: true,
     value: { channel_customer_id: 'cus_123', status: 'approved' },
   });
+  const copySourceOfFundsDocument = vi.fn().mockResolvedValue({
+    storagePath: 'uploads/DOC-sof.pdf',
+    sanitizedFilename: 'DOC-sof.pdf',
+  });
 
-  return { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc };
+  return { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument };
 }
 
 describe('createAccount — onramp', () => {
   it('rejects onramp create when flag is false', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps(null);
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps(null);
 
     await expect(
       createAccount(
@@ -140,13 +179,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow('SWIPELUX_BENEFICIARY_KYC_IMPORT_DISABLED');
 
@@ -155,7 +189,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('rejects onramp create when accountHolder.type is business', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
 
     await expect(
       createAccount(
@@ -163,13 +197,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: { ...onrampAccountHolder, type: 'business' },
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody({ accountHolder: { ...onrampAccountHolder, type: 'business' } }),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow('INVALID_ACCOUNT');
 
@@ -178,20 +207,15 @@ describe('createAccount — onramp', () => {
   });
 
   it('imports and stores cus_* when flag true', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
 
     const result = await createAccount(
       accountRepo,
       userRepo,
       kybRepo,
       'user-1',
-      {
-        rail: 'onramp',
-        type: 'primary',
-        accountHolder: onrampAccountHolder,
-        sumsubShareToken: 'share-token-abc',
-      },
-      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      onrampCreateBody(),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
     );
 
     expect(result).toEqual({
@@ -205,8 +229,11 @@ describe('createAccount — onramp', () => {
         railType: 'onramp',
         kycImportStatus: 'pending_import',
         creationRequestId: 'req-1',
+        sofQuestionnaire: onrampSofQuestionnaire,
+        sourceOfFundsDocumentPath: 'uploads/DOC-sof.pdf',
       })
     );
+    expect(copySourceOfFundsDocument).toHaveBeenCalledWith('https://cdn.example.com/sof.pdf');
     expect(importKyc).toHaveBeenCalledOnce();
     expect(importKyc).toHaveBeenCalledWith(
       liquidityRequest,
@@ -219,6 +246,7 @@ describe('createAccount — onramp', () => {
           first_name: 'Ada',
           last_name: 'Lovelace',
           phone: '+15551234567',
+          tax_id: '123-45-6789',
         }),
       })
     );
@@ -229,7 +257,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('replays same creationRequestId without calling importKyc again', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     accountRepo.findByCreationRequestId.mockResolvedValue(onrampAccountRow);
 
     const result = await createAccount(
@@ -237,13 +265,8 @@ describe('createAccount — onramp', () => {
       userRepo,
       kybRepo,
       'user-1',
-      {
-        rail: 'onramp',
-        type: 'primary',
-        accountHolder: onrampAccountHolder,
-        sumsubShareToken: 'share-token-abc',
-      },
-      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      onrampCreateBody(),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
     );
 
     expect(result).toEqual({
@@ -256,7 +279,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('throws REQUEST_ID_MISMATCH and does NOT return the other user\'s account when the same creationRequestId belongs to a different userId', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     accountRepo.findByCreationRequestId.mockResolvedValue({
       ...onrampAccountRow,
       userId: 'user-2', // a different user's row happens to share this requestId
@@ -268,13 +291,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow(CreateAccountConflictError);
 
@@ -283,7 +301,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('throws REQUEST_ID_MISMATCH when the same creationRequestId + userId belongs to a different identity', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     accountRepo.findByCreationRequestId.mockResolvedValue({
       ...onrampAccountRow,
       accountHolder: { ...onrampAccountHolder, email: 'someone-else@example.com' },
@@ -295,13 +313,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow('requestId was already used to create an onramp account with different data');
 
@@ -310,7 +323,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('collapses a concurrent double-submit (P2002 on createAccount) into a lookup-and-return instead of throwing', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     // Pre-check sees nothing (no row yet); the other concurrent request wins the DB race and
     // inserts first, so our createAccount call hits the unique constraint.
     accountRepo.findByCreationRequestId
@@ -323,13 +336,8 @@ describe('createAccount — onramp', () => {
       userRepo,
       kybRepo,
       'user-1',
-      {
-        rail: 'onramp',
-        type: 'primary',
-        accountHolder: onrampAccountHolder,
-        sumsubShareToken: 'share-token-abc',
-      },
-      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      onrampCreateBody(),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
     );
 
     expect(result).toEqual({
@@ -342,7 +350,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('rethrows a P2002 from createAccount if the redo-lookup still finds nothing (should not happen, but must not swallow the error)', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     accountRepo.findByCreationRequestId.mockResolvedValue(null);
     const p2002 = { code: 'P2002', message: 'Unique constraint failed' };
     accountRepo.createAccount.mockRejectedValueOnce(p2002);
@@ -353,19 +361,14 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toBe(p2002);
   });
 
   it('marks the row failed and throws a transient error string on a 5xx import failure', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     importKyc.mockResolvedValue({ ok: false, status: 503, message: 'orchestrator down' });
 
     await expect(
@@ -374,13 +377,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow('PALREMIT_SWIPELUX_KYC_IMPORT_TRANSIENT');
 
@@ -390,7 +388,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('marks the row failed and throws a permanent error string on a 4xx import failure', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     importKyc.mockResolvedValue({ ok: false, status: 422, message: 'invalid share token' });
 
     await expect(
@@ -399,13 +397,8 @@ describe('createAccount — onramp', () => {
         userRepo,
         kybRepo,
         'user-1',
-        {
-          rail: 'onramp',
-          type: 'primary',
-          accountHolder: onrampAccountHolder,
-          sumsubShareToken: 'share-token-abc',
-        },
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+        onrampCreateBody(),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
       )
     ).rejects.toThrow('PALREMIT_SWIPELUX_KYC_IMPORT_PERMANENT');
 
@@ -415,7 +408,7 @@ describe('createAccount — onramp', () => {
   });
 
   it('never passes sumsubShareToken into the persisted accountHolder or any log call', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc } = makeOnrampDeps();
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -424,13 +417,8 @@ describe('createAccount — onramp', () => {
       userRepo,
       kybRepo,
       'user-1',
-      {
-        rail: 'onramp',
-        type: 'primary',
-        accountHolder: onrampAccountHolder,
-        sumsubShareToken: 'super-secret-share-token',
-      },
-      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc }
+      onrampCreateBody({ sumsubShareToken: 'super-secret-share-token' }),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
     );
 
     const createAccountCallArg = accountRepo.createAccount.mock.calls[0][0];

@@ -12,6 +12,8 @@ export interface AccountHolder {
   lastName?: string;
   email?: string | null;
   phone?: string | null;
+  /** Onramp only — tax identifier (SSN/ITIN/etc.). */
+  taxId?: string;
 }
 
 export interface RailInfo {
@@ -67,6 +69,10 @@ export interface Account {
   swipeluxCustomerId?: string | null;
   /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
   kycImportStatus?: string | null;
+  /** SOF questionnaire answers (onramp). */
+  sofQuestionnaire?: Record<string, unknown> | null;
+  /** S3 object key for copied source-of-funds document (onramp). */
+  sourceOfFundsDocumentPath?: string | null;
 }
 
 // --- Create Account (POST) ---
@@ -78,6 +84,9 @@ export interface CreateAccountRequest {
   corridor?: PayoutCorridor;             // was required; offramp-only now
   destination?: Record<string, unknown>; // was required; offramp-only now
   sumsubShareToken?: string;             // onramp-only; never persisted, never logged
+  sofQuestionnaire?: Record<string, unknown>; // onramp-only
+  /** HTTPS URL; may also appear inside sofQuestionnaire.sourceOfFundsDocument. */
+  sourceOfFundsDocument?: string;
 }
 
 export interface CreateAccountResponse {

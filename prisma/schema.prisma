@@ -210,6 +210,10 @@ model Account {
    * keep relying on idempotencyMiddleware's Redis lock as today.
    */
   creationRequestId  String?  @unique
+  /** Onramp SOF questionnaire answers (field name → value). */
+  sofQuestionnaire   Json?
+  /** S3 object key for copied source-of-funds document (onramp). */
+  sourceOfFundsDocumentPath String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

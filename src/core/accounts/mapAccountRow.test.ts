@@ -39,10 +39,18 @@ const onrampRow: AccountRowLike = {
     name: 'Matisse Eykelberg',
     firstName: 'Matisse',
     lastName: 'Eykelberg',
+    taxId: '123-45-6789',
   },
   providerPayout: null,
   swipeluxCustomerId: 'cus_123',
   kycImportStatus: 'approved',
+  sofQuestionnaire: {
+    employmentStatus: 'employed',
+    expectedMonthlyPayments: '0_4999',
+    primaryPurpose: 'personal',
+    sourceOfFunds: 'salary',
+  },
+  sourceOfFundsDocumentPath: 'uploads/DOC-sof.pdf',
   createdAt: new Date('2026-07-14T00:00:00.000Z'),
   updatedAt: new Date('2026-07-14T00:00:00.000Z'),
 };
@@ -72,6 +80,9 @@ describe('mapAccountRowToApi', () => {
     expect(result.providerPayout).toBeUndefined();
     expect(result.swipeluxCustomerId).toBe('cus_123');
     expect(result.kycImportStatus).toBe('approved');
+    expect(result.sofQuestionnaire).toEqual(onrampRow.sofQuestionnaire);
+    expect(result.accountHolder?.taxId).toBe('123-45-6789');
+    expect(result.sourceOfFundsDocumentPath).toBe('uploads/DOC-sof.pdf');
   });
 
   it('maps an onramp row before KYC import completes (nulls) without throwing', () => {
