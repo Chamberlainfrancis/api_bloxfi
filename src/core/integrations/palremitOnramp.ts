@@ -253,6 +253,8 @@ export async function createOnrampPalremitFiatDeposit(
         clientReference: account.client_reference,
         asset,
         mode,
+        providerName:
+          typeof account.provider_name === 'string' ? account.provider_name : undefined,
         depositAsset: asset,
         withdrawalAsset: null,
         network: null,
