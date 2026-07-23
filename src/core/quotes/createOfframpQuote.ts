@@ -54,7 +54,7 @@ export interface CreateOfframpQuoteOptions {
 function parseQuoteExpiry(rateValidUntil: string): Date {
   const parsed = Date.parse(rateValidUntil);
   if (Number.isFinite(parsed)) return new Date(parsed);
-  return new Date(Date.now() + 5 * 60 * 1000);
+  return new Date(Date.now() + 30 * 60 * 1000);
 }
 
 export async function createOfframpQuote(

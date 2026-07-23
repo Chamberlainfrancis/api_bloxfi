@@ -143,6 +143,35 @@ describe('buildWithdrawalFromAccount', () => {
     expect(dest.bank_code).toBe('WIOBAEADXXX');
     expect(dest.swift_code).toBeUndefined();
   });
+
+  it('backfills beneficiary.email from accountHolderEmail when missing on destination', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-email',
+      destinationAmount: 100,
+      providerPayout,
+      accountHolderEmail: 'ops@example.com',
+    });
+    const ben = (body?.destination as { beneficiary: { email?: string } }).beneficiary;
+    expect(ben.email).toBe('ops@example.com');
+  });
+
+  it('does not overwrite an existing beneficiary.email', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        ...providerPayout.destination,
+        beneficiary: { ...providerPayout.destination.beneficiary, email: 'keep@example.com' },
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-email-keep',
+      destinationAmount: 100,
+      providerPayout: pp,
+      accountHolderEmail: 'ops@example.com',
+    });
+    const ben = (body?.destination as { beneficiary: { email?: string } }).beneficiary;
+    expect(ben.email).toBe('keep@example.com');
+  });
 });
 
 describe('isAccountReadyForOfframp', () => {

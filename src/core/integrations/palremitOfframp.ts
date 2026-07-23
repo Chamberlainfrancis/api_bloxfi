@@ -228,6 +228,8 @@ export interface WithdrawalFromAccountInput {
    * for withdrawals routed to OwlPay/Yativo; harmlessly ignored for other
    * corridors (e.g. NGN/palmpay). Omit only if genuinely unavailable. */
   businessReference?: string;
+  /** Fallback for destination.beneficiary.email when providerPayout omitted it. */
+  accountHolderEmail?: string;
 }
 
 function mergeOfframpExtrasIntoDestination(
@@ -255,6 +257,23 @@ function mergeOfframpExtrasIntoDestination(
   return out;
 }
 
+function ensureBeneficiaryEmail(
+  destination: Record<string, unknown>,
+  accountHolderEmail?: string
+): void {
+  const email = accountHolderEmail?.trim();
+  if (!email) return;
+  const ben =
+    destination.beneficiary != null &&
+    typeof destination.beneficiary === 'object' &&
+    !Array.isArray(destination.beneficiary)
+      ? (destination.beneficiary as Record<string, unknown>)
+      : null;
+  if (!ben) return;
+  const existing = typeof ben.email === 'string' ? ben.email.trim() : '';
+  if (!existing) ben.email = email;
+}
+
 /** Build POST /v1/withdrawals body from account `providerPayout`. */
 export function buildWithdrawalFromAccount(
   input: WithdrawalFromAccountInput
@@ -267,6 +286,7 @@ export function buildWithdrawalFromAccount(
     input.purposeOfPayment,
     input.metadata
   );
+  ensureBeneficiaryEmail(destination, input.accountHolderEmail);
   return {
     client_reference: input.txnRef.trim(),
     asset: pp.corridor.asset.trim().toUpperCase(),

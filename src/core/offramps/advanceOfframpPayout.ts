@@ -78,6 +78,14 @@ export async function advanceOfframpIfDepositReady(
   const destinationAmount = Number(destination.amount);
   if (!Number.isFinite(destinationAmount) || destinationAmount <= 0) return;
 
+  const holderEmail =
+    account.accountHolder != null &&
+    typeof account.accountHolder === 'object' &&
+    !Array.isArray(account.accountHolder) &&
+    typeof (account.accountHolder as { email?: unknown }).email === 'string'
+      ? (account.accountHolder as { email: string }).email
+      : undefined;
+
   // Prisma User.id — always populated, unlike palremitChannelUserId (defined
   // but never actually written by anything today). Stable per business.
   const withdrawalBody = buildWithdrawalFromAccount({
@@ -87,6 +95,7 @@ export async function advanceOfframpIfDepositReady(
     purposeOfPayment: destination.purposeOfPayment,
     metadata: destination.metadata,
     businessReference: userId,
+    accountHolderEmail: holderEmail,
   });
   if (!withdrawalBody) return;
 

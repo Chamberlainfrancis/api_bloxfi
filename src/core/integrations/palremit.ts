@@ -155,7 +155,7 @@ export async function getPalremitOfframpRates(
     fromChain: fromChain?.trim() || undefined,
     conversionRate: rateStr,
     inverseRate,
-    rateValidUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    rateValidUntil: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     minimumAmount: '10.00',
     maximumAmount: '50000.00',
     estimatedProcessingTime: '1-3 business days',
