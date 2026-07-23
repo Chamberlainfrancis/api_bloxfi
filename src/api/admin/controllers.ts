@@ -119,6 +119,40 @@ export async function markTransaction(
   }
 }
 
+export async function markOnrampFiatReceived(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const body = (req.body ?? {}) as {
+      reason?: unknown;
+      code?: unknown;
+      actor?: unknown;
+      secret?: unknown;
+    };
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    const reason = typeof body.reason === 'string' ? body.reason : '';
+    const code = typeof body.code === 'string' ? body.code : '';
+    const actor = typeof body.actor === 'string' ? body.actor : undefined;
+    const result = await dashboard.markOnrampFiatReceived({
+      id: req.params.id,
+      reason,
+      code,
+      actor,
+    });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function listPendingFeeSettlements(
   req: Request,
   res: Response,

@@ -512,6 +512,126 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
   return getTransactionDetail(type, id);
 }
 
+export interface MarkOnrampFiatReceivedParams {
+  id: string;
+  reason: string;
+  code: string;
+  actor?: string;
+}
+
+/**
+ * Ops marks fiat deposit as received (manual path for static-fallback /
+ * stuck AWAITING_FUNDS|FIAT_PENDING onramps). Advances crypto payout like
+ * `deposit.credited`.
+ */
+export async function markOnrampFiatReceived(
+  params: MarkOnrampFiatReceivedParams
+): Promise<unknown> {
+  const reason = params.reason.trim();
+  const code = params.code.trim();
+  if (!reason) throw new AppError('reason is required', 'INVALID_REQUEST', 400);
+  if (!code) throw new AppError('code is required', 'INVALID_REQUEST', 400);
+
+  const [onrampRepo, adminActionRepo] = await Promise.all([
+    import('@/db/repositories/onramp.repo'),
+    import('@/db/repositories/adminAction.repo'),
+  ]);
+
+  const existing = await onrampRepo.findOnrampById(params.id);
+  if (!existing) throw new AppError('Transaction not found', 'NOT_FOUND', 404);
+
+  const fromStatus = existing.status;
+  if (!['AWAITING_FUNDS', 'FIAT_PENDING'].includes(fromStatus)) {
+    throw new AppError(
+      `Cannot mark fiat received from status ${fromStatus}`,
+      'INVALID_STATE',
+      409
+    );
+  }
+
+  const expired = await expireOnrampIfDepositPastDue(existing, onrampRepo);
+  if (expired === 'EXPIRED') {
+    throw new AppError('Onramp deposit window has expired', 'EXPIRED', 409);
+  }
+
+  const prevRefs =
+    existing.providerRefs &&
+    typeof existing.providerRefs === 'object' &&
+    !Array.isArray(existing.providerRefs)
+      ? (existing.providerRefs as Record<string, unknown>)
+      : {};
+  const orch =
+    prevRefs.palremitOrchestrator &&
+    typeof prevRefs.palremitOrchestrator === 'object' &&
+    !Array.isArray(prevRefs.palremitOrchestrator)
+      ? (prevRefs.palremitOrchestrator as Record<string, unknown>)
+      : {};
+  const creditedAt = new Date().toISOString();
+  const actor = params.actor?.trim() || null;
+  const note = `code=${code} | ${reason}`;
+
+  await onrampRepo.updateOnrampStatus(params.id, 'FIAT_PROCESSED', {
+    receipt: {
+      provider: 'manual_ops',
+      completedManually: true,
+      creditedAt,
+      code,
+      reason,
+    },
+    providerRefs: {
+      ...prevRefs,
+      palremitOrchestrator: {
+        ...orch,
+        depositStatus: 'credited',
+        markedManually: true,
+      },
+      manualFiatCredit: {
+        code,
+        reason,
+        actor,
+        creditedAt,
+      },
+    },
+  });
+
+  await adminActionRepo.createAdminAction({
+    txnType: 'onramp',
+    txnId: params.id,
+    fromStatus,
+    toStatus: 'FIAT_PROCESSED',
+    note,
+    actor,
+  });
+
+  try {
+    const { advanceOnrampIfFiatProcessed } = await import('@/core/onramps/advanceOnrampPayout');
+    const { executePalremitOnrampCryptoWithdrawal } = await import('@/core/integrations');
+    const { createPalremitLiquidityAdapter } = await import('@/services/palremitAdapters');
+    const palremitLiquidity = createPalremitLiquidityAdapter();
+    await advanceOnrampIfFiatProcessed(
+      {
+        findOnrampById: onrampRepo.findOnrampById,
+        updateOnrampStatus: onrampRepo.updateOnrampStatus,
+      },
+      params.id,
+      (b, rid, receiveNet, destAddr, txnRef, destMemo) =>
+        executePalremitOnrampCryptoWithdrawal(
+          palremitLiquidity,
+          b,
+          rid,
+          receiveNet,
+          destAddr,
+          txnRef,
+          destMemo
+        )
+    );
+  } catch (e) {
+    logger.error({ onrampId: params.id, err: e }, 'markOnrampFiatReceived advance failed');
+  }
+
+  return getTransactionDetail('onramp', params.id);
+}
+
 export interface PendingFeeSettlementRow {
   offrampId: string;
   txnRef: string | null;

@@ -11,6 +11,7 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { DepositInfo } from '@/types/onramp';
+import { buildStaticFallbackDepositInfo } from '@/core/onramps/staticDepositAccounts';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -155,6 +156,41 @@ async function pollProvisionedUntilInstructionsOrFailed(
   return { account: last, failed: last?.state?.toLowerCase() === 'failed' };
 }
 
+function staticFallbackDepositResult(params: {
+  currency: string;
+  amount: number;
+  txnRef: string;
+  depositByIso: string;
+  reason: string;
+}): { depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null {
+  const asset = params.currency.trim().toUpperCase();
+  const depositInfo = buildStaticFallbackDepositInfo({
+    currency: asset,
+    amount: params.amount,
+    txnRef: params.txnRef,
+    depositByIso: params.depositByIso,
+  });
+  if (!depositInfo) return null;
+  return {
+    depositInfo,
+    providerRefs: {
+      palremitOrchestrator: {
+        providerName: 'static_fallback',
+        clientReference: params.txnRef.trim(),
+        asset,
+        mode: 'STATIC_FALLBACK',
+        depositAsset: asset,
+        withdrawalAsset: null,
+        network: null,
+        depositStatus: 'awaiting_manual_credit',
+        withdrawalStatus: null,
+        provisionedAccountId: null,
+        staticFallbackReason: params.reason,
+      },
+    },
+  };
+}
+
 export async function createOnrampPalremitFiatDeposit(
   liquidityRequest: PalremitLiquidityRequestFn,
   params: {
@@ -172,6 +208,15 @@ export async function createOnrampPalremitFiatDeposit(
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
+  const fallback = (reason: string) =>
+    staticFallbackDepositResult({
+      currency: asset,
+      amount: params.amount,
+      txnRef: params.txnRef,
+      depositByIso: params.depositByIso,
+      reason,
+    });
+
   // NGN (Kuda) and USD (SwipeLux) both onboard identity out of band — Kuda
   // has no KYC concept at all; SwipeLux resolves a pre-vetted provider
   // customer via business_reference (ops-managed, see
@@ -205,7 +250,7 @@ export async function createOnrampPalremitFiatDeposit(
   const idempotencyKey = `onramp-fiat-prov:${params.txnRef.trim()}`;
   const rawRequest = { ...body };
   const prov = await provisionPalremitDepositAccount(liquidityRequest, body, idempotencyKey);
-  if (!prov) return null;
+  if (!prov) return fallback('provision_failed');
 
   let account = prov.account;
   const rawProvisionResponse = { ...account };
@@ -215,7 +260,9 @@ export async function createOnrampPalremitFiatDeposit(
       maxAttempts: 20,
       delayMs: 2000,
     });
-    if (polled.failed || !polled.account) return null;
+    if (polled.failed || !polled.account) {
+      return fallback(polled.failed ? 'provision_state_failed' : 'provision_poll_empty');
+    }
     account = polled.account;
   }
 
@@ -224,11 +271,13 @@ export async function createOnrampPalremitFiatDeposit(
   // (funds not yet confirmed; see pollProvisionedUntilInstructionsOrFailed's
   // doc comment). deposit_instructions being present is the actual signal.
   if (!account.deposit_instructions) {
-    return null;
+    return fallback(
+      account.state?.toLowerCase() === 'failed' ? 'provision_state_failed' : 'no_deposit_instructions'
+    );
   }
 
   const instr = account.deposit_instructions as PalremitDepositInstructions;
-  if (instr.kind !== 'fiat_account') return null;
+  if (instr.kind !== 'fiat_account') return fallback('unsupported_instruction_kind');
 
   const preferredBeneficiaryName = preferredBeneficiaryDisplayName({
     businessName: params.businessName,

@@ -145,15 +145,22 @@ export async function provisionPalremitDepositAccount(
   body: Record<string, unknown>,
   idempotencyKey: string
 ): Promise<{ account: PalremitProvisionedAccount; httpStatus: number } | null> {
-  const res = await request<PalremitProvisionedAccount>('/v1/provisioned-accounts', {
-    method: 'POST',
-    body,
-    headers: { 'Idempotency-Key': idempotencyKey },
-  });
-  if (![200, 201, 202].includes(res.status)) return null;
-  const acc = res.data as PalremitProvisionedAccount;
-  if (!acc?.id) return null;
-  return { account: acc, httpStatus: res.status };
+  try {
+    const res = await request<PalremitProvisionedAccount>('/v1/provisioned-accounts', {
+      method: 'POST',
+      body,
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+    if (![200, 201, 202].includes(res.status)) return null;
+    const acc = res.data as PalremitProvisionedAccount;
+    if (!acc?.id) return null;
+    return { account: acc, httpStatus: res.status };
+  } catch (e) {
+    // Real HTTP adapter throws on non-2xx; treat as provision failure so
+    // callers (e.g. static onramp fallback) can recover.
+    if (isHttpError(e)) return null;
+    throw e;
+  }
 }
 
 export async function getPalremitProvisionedAccount(
@@ -162,11 +169,16 @@ export async function getPalremitProvisionedAccount(
 ): Promise<PalremitProvisionedAccount | null> {
   const trimmed = id?.trim();
   if (!trimmed) return null;
-  const res = await request<PalremitProvisionedAccount>(`/v1/provisioned-accounts/${trimmed}`, {
-    method: 'GET',
-  });
-  if (res.status !== 200) return null;
-  return res.data as PalremitProvisionedAccount;
+  try {
+    const res = await request<PalremitProvisionedAccount>(`/v1/provisioned-accounts/${trimmed}`, {
+      method: 'GET',
+    });
+    if (res.status !== 200) return null;
+    return res.data as PalremitProvisionedAccount;
+  } catch (e) {
+    if (isHttpError(e)) return null;
+    throw e;
+  }
 }
 
 export async function listPalremitProvisionedAccounts(

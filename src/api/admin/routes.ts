@@ -11,6 +11,7 @@ const router = Router();
 router.get('/transactions', controllers.listTransactions);
 router.get('/transactions/:type/:id', controllers.getTransaction);
 router.post('/transactions/:type/:id/mark', controllers.markTransaction);
+router.post('/transactions/onramp/:id/mark-fiat-received', controllers.markOnrampFiatReceived);
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:offrampId/approve', controllers.approveFeeSettlement);
 router.post('/offramps/:offrampId/retry-fiat-payout', controllers.retryOfframpFiatPayout);

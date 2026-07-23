@@ -202,7 +202,8 @@ const LABELS = {
   accountId:"Account ID", depositBy:"Pay before", depositInfo:"Deposit details", conversionRate:"Rate",
   inverseRate:"Inverse rate", fromCurrency:"From", toCurrency:"To", fromChain:"Network", failedReason:"Failure reason",
   expiresAt:"Quote expires", createdAt:"Created", updatedAt:"Updated", provisionedAccountId:"Palremit account",
-  clientReference:"Palremit reference", withdrawalAsset:"Payout asset", user:"Customer", beneficiary:"Beneficiary", reference:"Reference"
+  clientReference:"Palremit reference", withdrawalAsset:"Payout asset", user:"Customer", beneficiary:"Beneficiary", reference:"Reference",
+  sortCode:"Sort code", iban:"IBAN", bic:"BIC / SWIFT"
 };
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
@@ -642,6 +643,10 @@ async function openDetail(id, forceType) {
 
     body += '<div class="section"><h3>Mark this transaction</h3><div class="card">' +
       processingWarn +
+      (t.type === "onramp" && (t.status === "AWAITING_FUNDS" || t.status === "FIAT_PENDING")
+        ? '<div class="notice">Use “Mark fiat received” when the customer has paid into a static/fallback account (or fiat is confirmed offline). This starts the crypto payout. “Mark Successful” is for final payout completion only.</div>' +
+          '<div class="actions" style="margin-bottom:12px"><button type="button" class="ok" id="markFiatReceived">Mark fiat received</button></div>'
+        : "") +
       '<div class="actions"><button type="button" class="ok" id="markOk">Mark Successful</button><button type="button" class="danger" id="markFail">Mark Failed</button></div></div></div>';
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
@@ -676,6 +681,48 @@ async function mark(id, outcome, withdrawalProcessing) {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
       body: JSON.stringify({ outcome: outcome, note: note, actor: actor })
+    });
+    $("detail").close();
+    await load(true);
+  } catch (e) {
+    if (e.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
+      focusPasscode();
+    } else {
+      showDetailMsg(e.message, "bad");
+      showErr(e.message);
+    }
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+async function markFiatReceived(id) {
+  const code = prompt("Confirmation / bank reference code (required)", "");
+  if (code === null) return;
+  if (!String(code).trim()) {
+    showDetailMsg("A confirmation code is required.", "bad");
+    return;
+  }
+  const reason = prompt("Why are you marking fiat received? (required)", "");
+  if (reason === null) return;
+  if (!String(reason).trim()) {
+    showDetailMsg("A reason is required.", "bad");
+    return;
+  }
+  const secret = requirePasscode("mark fiat received");
+  if (!secret) return;
+  const actor = readActor();
+  const btn = $("markFiatReceived");
+  setBtnLoading(btn, true, "Saving");
+  showDetailMsg("Marking fiat received and starting crypto payout…", "info");
+  try {
+    await api("/transactions/onramp/" + id + "/mark-fiat-received", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ code: String(code).trim(), reason: String(reason).trim(), actor: actor })
     });
     $("detail").close();
     await load(true);
@@ -1256,6 +1303,7 @@ $("more").addEventListener("click", function () { load(false); });
 $("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
 $("dBody").addEventListener("click", function (e) {
+  if (e.target.closest("#markFiatReceived")) { markFiatReceived(detailCtx.id); return; }
   if (e.target.closest("#markOk")) { mark(detailCtx.id, "success", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.platformFee); return; }

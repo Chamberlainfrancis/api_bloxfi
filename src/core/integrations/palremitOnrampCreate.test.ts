@@ -142,4 +142,69 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(getCallCount).toBe(0);
     expect(result?.depositInfo.reference).toBe('SWX-REF-3');
   });
+
+  it('falls back to static GBP account when provision fails', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
+      status: 500,
+      data: { error: 'boom' },
+    }));
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'GBP',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.depositInfo.iban).toBe('GB76CLRB04095400000094');
+    expect(result?.depositInfo.beneficiary.name).toBe('Tranzy');
+    expect(result?.depositInfo.reference).toBe('ON1234567890');
+    expect(result?.depositInfo.instruction).toContain(
+      'add this exact reference to the payment narration / reference: ON1234567890'
+    );
+    const orch = result?.providerRefs.palremitOrchestrator as Record<string, unknown>;
+    expect(orch.providerName).toBe('static_fallback');
+    expect(orch.staticFallbackReason).toBe('provision_failed');
+  });
+
+  it('falls back when the HTTP adapter throws on non-2xx (live client behavior)', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      const err = new Error('HTTP 400: Bad Request') as Error & {
+        status: number;
+        statusCode: number;
+        data: unknown;
+      };
+      err.status = 400;
+      err.statusCode = 400;
+      err.data = {
+        error: 'validation_failed',
+        message: 'no KYC schema registered for this (asset, mode)',
+      };
+      throw err;
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'GBP',
+    });
+
+    expect(result?.depositInfo.iban).toBe('GB76CLRB04095400000094');
+    expect(result?.depositInfo.reference).toBe('ON1234567890');
+    expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
+      providerName: 'static_fallback',
+    });
+  });
+
+  it('does not fall back for NGN when provision fails', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
+      status: 500,
+      data: { error: 'boom' },
+    }));
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'NGN',
+    });
+
+    expect(result).toBeNull();
+  });
 });

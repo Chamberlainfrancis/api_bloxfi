@@ -362,11 +362,16 @@ export function buildAuditTrail(
       );
       continue;
     }
+    const fiatReceived =
+      (action.fromStatus === 'AWAITING_FUNDS' || action.fromStatus === 'FIAT_PENDING') &&
+      action.toStatus === 'FIAT_PROCESSED';
     pushEvent(
       events,
       action.createdAt,
       'admin',
-      `Manual status change: ${action.fromStatus} → ${action.toStatus}`,
+      fiatReceived
+        ? 'Fiat deposit marked received'
+        : `Manual status change: ${action.fromStatus} → ${action.toStatus}`,
       adminDetail(action)
     );
   }
