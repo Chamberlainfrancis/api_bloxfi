@@ -143,17 +143,17 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.reference).toBe('SWX-REF-3');
   });
 
-  it('falls back to static GBP account when provision fails', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
-      status: 500,
-      data: { error: 'boom' },
-    }));
+  it('prefers static GBP account without calling provision', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity for preferred GBP static');
+    });
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
       currency: 'GBP',
     });
 
+    expect(request).not.toHaveBeenCalled();
     expect(result).not.toBeNull();
     expect(result?.depositInfo.iban).toBe('GB76CLRB04095400000094');
     expect(result?.depositInfo.beneficiary.name).toBe('Tranzy');
@@ -163,10 +163,31 @@ describe('createOnrampPalremitFiatDeposit', () => {
     );
     const orch = result?.providerRefs.palremitOrchestrator as Record<string, unknown>;
     expect(orch.providerName).toBe('static_fallback');
-    expect(orch.staticFallbackReason).toBe('provision_failed');
+    expect(orch.staticFallbackReason).toBe('preferred_static');
   });
 
-  it('falls back when the HTTP adapter throws on non-2xx (live client behavior)', async () => {
+  it('prefers static GHS account without calling provision', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity for preferred GHS static');
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'GHS',
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result?.depositInfo.wire).toEqual({
+      accountNumber: '9990000103912',
+      routingNumber: 'INCEGHAC',
+    });
+    expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
+      providerName: 'static_fallback',
+      staticFallbackReason: 'preferred_static',
+    });
+  });
+
+  it('falls back when the HTTP adapter throws on non-2xx for USD (live client behavior)', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async () => {
       const err = new Error('HTTP 400: Bad Request') as Error & {
         status: number;
@@ -184,13 +205,13 @@ describe('createOnrampPalremitFiatDeposit', () => {
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
-      currency: 'GBP',
+      currency: 'USD',
     });
 
-    expect(result?.depositInfo.iban).toBe('GB76CLRB04095400000094');
-    expect(result?.depositInfo.reference).toBe('ON1234567890');
+    expect(result?.depositInfo.wire?.accountNumber).toBe('387199357253');
     expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
       providerName: 'static_fallback',
+      staticFallbackReason: 'provision_failed',
     });
   });
 

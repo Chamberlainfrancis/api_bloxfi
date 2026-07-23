@@ -11,7 +11,10 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { DepositInfo } from '@/types/onramp';
-import { buildStaticFallbackDepositInfo } from '@/core/onramps/staticDepositAccounts';
+import {
+  buildStaticFallbackDepositInfo,
+  isPreferredStaticDepositCurrency,
+} from '@/core/onramps/staticDepositAccounts';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -216,6 +219,12 @@ export async function createOnrampPalremitFiatDeposit(
       depositByIso: params.depositByIso,
       reason,
     });
+
+  // GBP / GHS: prefer platform receiving accounts for now (ops manual credit).
+  // Skip orchestrator provision entirely so we always return bank details.
+  if (isPreferredStaticDepositCurrency(asset)) {
+    return fallback('preferred_static');
+  }
 
   // NGN (Kuda) and USD (SwipeLux) both onboard identity out of band — Kuda
   // has no KYC concept at all; SwipeLux resolves a pre-vetted provider

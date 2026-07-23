@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildStaticFallbackDepositInfo,
+  isPreferredStaticDepositCurrency,
   isStaticDepositCurrency,
   staticDepositNarrationRef,
 } from '@/core/onramps/staticDepositAccounts';
@@ -11,6 +12,12 @@ describe('staticDepositAccounts', () => {
     expect(isStaticDepositCurrency('usd')).toBe(true);
     expect(isStaticDepositCurrency('GHS')).toBe(true);
     expect(isStaticDepositCurrency('NGN')).toBe(false);
+  });
+
+  it('marks GBP and GHS as preferred static (not USD)', () => {
+    expect(isPreferredStaticDepositCurrency('GBP')).toBe(true);
+    expect(isPreferredStaticDepositCurrency('ghs')).toBe(true);
+    expect(isPreferredStaticDepositCurrency('USD')).toBe(false);
   });
 
   it('uses the onramp txnRef as the bank narration reference', () => {

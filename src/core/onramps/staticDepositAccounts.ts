@@ -1,6 +1,9 @@
 /**
- * Platform receiving accounts used when Palremit provision fails for
- * GBP / USD / GHS onramps. Ops marks fiat received manually.
+ * Platform receiving accounts for GBP / USD / GHS onramps.
+ * Ops marks fiat received manually (no provider deposit webhook).
+ *
+ * GBP / GHS: preferred first (skip orchestrator provision for now).
+ * USD: still try orchestrator first; use these only if provision fails.
  *
  * Each deposit gets a unique payment reference (from the onramp txnRef).
  * Customers must put that exact value in the bank transfer narration so
@@ -66,6 +69,12 @@ function narrationLabel(asset: StaticDepositCurrency): string {
 export function isStaticDepositCurrency(asset: string): asset is StaticDepositCurrency {
   const a = asset.trim().toUpperCase();
   return a === 'GBP' || a === 'USD' || a === 'GHS';
+}
+
+/** Currencies that should skip orchestrator and use platform accounts immediately. */
+export function isPreferredStaticDepositCurrency(asset: string): boolean {
+  const a = asset.trim().toUpperCase();
+  return a === 'GBP' || a === 'GHS';
 }
 
 export function buildStaticFallbackDepositInfo(params: {
