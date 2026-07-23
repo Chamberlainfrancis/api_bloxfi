@@ -44,7 +44,7 @@ export interface CreateOnrampQuoteOptions {
   convertToUsdc: (from: string, amount: number) => Promise<number | null>;
 }
 
-function parseQuoteExpiry(minutes = 30): Date {
+function parseQuoteExpiry(minutes = 180): Date {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 

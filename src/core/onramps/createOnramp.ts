@@ -21,7 +21,7 @@ import type {
 } from '@/types/onramp';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
 
-const QUOTE_EXPIRY_MINUTES = 30;
+const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
 export interface CreateOnrampOptions {
   getQuoteFromPalremit?: (
