@@ -83,7 +83,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  it('provisions NGN (Kuda) as pooled under Palremit LTD', async () => {
+  it('provisions NGN (Kuda) as pooled (LTD. → Palremit-LTD. after merchant prefix)', async () => {
     const calls: { path: string; body: unknown }[] = [];
     const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
       calls.push({ path, body: options?.body });
@@ -97,7 +97,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
             account_number: '7000746820',
             bank_code: '090267',
             bank_name: 'Kuda Microfinance Bank',
-            account_holder_name: 'Palremit LTD',
+            account_holder_name: 'Palremit-LTD.',
           },
         },
       };
@@ -111,9 +111,10 @@ describe('createOnrampPalremitFiatDeposit', () => {
 
     const body = calls[0]?.body as Record<string, unknown>;
     expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
-    expect(body.provider_extras).toEqual({ account_name: 'Palremit LTD' });
+    expect(body.provider_extras).toEqual({ account_name: 'LTD.' });
     expect(body.kyc_input).toBeUndefined();
-    expect(result?.depositInfo.beneficiary.name).toBe('Palremit LTD');
+    // Show the real Kuda holder so UI matches NIP name-enquiry.
+    expect(result?.depositInfo.beneficiary.name).toBe('Palremit-LTD.');
   });
 
   it('does not fall back to customer/business name for pooled NGN when holder is synthetic', async () => {

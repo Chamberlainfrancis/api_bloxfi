@@ -10,8 +10,20 @@
 
 export type DepositAccountStyle = 'pooled' | 'named' | 'static';
 
-/** Platform name used when provisioning / displaying pooled NGN (Kuda) VAs. */
+/**
+ * Platform label for pooled deposits when the LP holder is missing/synthetic.
+ * Prefer the orchestrator's real account_holder_name when present (must match
+ * bank name-enquiry).
+ */
 export const POOLED_PLATFORM_ACCOUNT_NAME = 'Palremit LTD';
+
+/**
+ * Kuda `provider_extras.account_name` for pooled NGN VAs.
+ * Kuda always merchant-prefixes `Palremit-`, so sending "Palremit LTD" yields
+ * "Palremit-Palremit LTD". Send "LTD." → issued holder "Palremit-LTD.".
+ * (Bare "LTD"/"Ltd" are rejected by Kuda.)
+ */
+export const NGN_POOLED_KUDA_ACCOUNT_NAME = 'LTD.';
 
 /**
  * Style for orchestrator-provisioned (dynamic) deposit accounts.

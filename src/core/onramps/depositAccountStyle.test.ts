@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  NGN_POOLED_KUDA_ACCOUNT_NAME,
   POOLED_PLATFORM_ACCOUNT_NAME,
   dynamicDepositAccountStyle,
 } from '@/core/onramps/depositAccountStyle';
@@ -16,7 +17,8 @@ describe('depositAccountStyle', () => {
     expect(dynamicDepositAccountStyle('KES')).toBe('named');
   });
 
-  it('exposes the pooled platform account name', () => {
+  it('exposes pooled platform + Kuda account-name constants', () => {
     expect(POOLED_PLATFORM_ACCOUNT_NAME).toBe('Palremit LTD');
+    expect(NGN_POOLED_KUDA_ACCOUNT_NAME).toBe('LTD.');
   });
 });

@@ -16,6 +16,7 @@ import {
   isPreferredStaticDepositCurrency,
 } from '@/core/onramps/staticDepositAccounts';
 import {
+  NGN_POOLED_KUDA_ACCOUNT_NAME,
   POOLED_PLATFORM_ACCOUNT_NAME,
   dynamicDepositAccountStyle,
 } from '@/core/onramps/depositAccountStyle';
@@ -273,10 +274,11 @@ export async function createOnrampPalremitFiatDeposit(
   };
 
   // Deposit naming: pooled vs named (static is handled above / on fallback).
-  // - NGN (Kuda): pass account_name so the VA is issued as Palremit LTD.
+  // - NGN (Kuda): account_name "LTD." → issued holder "Palremit-LTD."
+  //   (Kuda merchant-prefixes "Palremit-"; do not send "Palremit LTD").
   // - USD (SwipeLux): amount-scoped pooled pay-ins; holder comes from LP.
   if (asset === 'NGN') {
-    body.provider_extras = { account_name: POOLED_PLATFORM_ACCOUNT_NAME };
+    body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
   } else if (asset === 'USD') {
     body.provider_extras = { amount: String(params.amount) };
   }
