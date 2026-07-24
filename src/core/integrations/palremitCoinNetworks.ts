@@ -108,6 +108,29 @@ export async function fetchPalremitNetworksForCoin(
   return palremitNetworkOptionsFromCoinData(data as Record<string, unknown>);
 }
 
+/**
+ * Client-facing aliases → catalogue `network_code`. Only applied when the
+ * target code is present in the fetched options (never invents networks).
+ * Matches common UI labels (TRON) and orchestrator aliases (TRX → TRC20).
+ */
+const NETWORK_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  TRC20: ['TRON', 'TRX'],
+  ERC20: ['ETH', 'ETHEREUM'],
+  BEP20: ['BSC', 'BNB'],
+};
+
+function resolveViaAlias(
+  options: PalremitNetworkOption[],
+  want: string
+): string | null {
+  for (const [canonical, aliases] of Object.entries(NETWORK_ALIASES)) {
+    if (!aliases.some((a) => a === want)) continue;
+    const hit = options.find((o) => o.code.toUpperCase() === canonical);
+    if (hit) return hit.code;
+  }
+  return null;
+}
+
 export function resolvePalremitNetworkFromOptions(
   options: PalremitNetworkOption[],
   clientChain: string
@@ -115,7 +138,8 @@ export function resolvePalremitNetworkFromOptions(
   const want = clientChain.trim().toUpperCase();
   if (!want) return null;
   const hit = options.find((o) => o.code.toUpperCase() === want);
-  return hit ? hit.code : null;
+  if (hit) return hit.code;
+  return resolveViaAlias(options, want);
 }
 
 export async function resolvePalremitNetworkOrThrow(

@@ -57,6 +57,40 @@ describe('palremitCoinNetworks', () => {
     expect(resolvePalremitNetworkFromOptions(opts, 'erc20')).toBe('ERC20');
   });
 
+  it('resolves TRON / TRX aliases to TRC20 when TRC20 is in the catalogue', () => {
+    const opts = palremitNetworkOptionsFromCoinNetworkList([
+      {
+        network_code: 'TRC20',
+        network_name: 'Tron (TRC20)',
+        deposit_enabled: true,
+        withdraw_enabled: true,
+      },
+      {
+        network_code: 'ERC20',
+        network_name: 'Ethereum (ERC20)',
+        deposit_enabled: true,
+        withdraw_enabled: true,
+      },
+    ]);
+    expect(resolvePalremitNetworkFromOptions(opts, 'tron')).toBe('TRC20');
+    expect(resolvePalremitNetworkFromOptions(opts, 'TRON')).toBe('TRC20');
+    expect(resolvePalremitNetworkFromOptions(opts, 'TRX')).toBe('TRC20');
+    expect(resolvePalremitNetworkFromOptions(opts, 'eth')).toBe('ERC20');
+  });
+
+  it('does not invent aliased networks that are absent from the catalogue', () => {
+    const opts = palremitNetworkOptionsFromCoinNetworkList([
+      {
+        network_code: 'ERC20',
+        network_name: 'Ethereum (ERC20)',
+        deposit_enabled: true,
+        withdraw_enabled: true,
+      },
+    ]);
+    expect(resolvePalremitNetworkFromOptions(opts, 'tron')).toBeNull();
+    expect(resolvePalremitNetworkFromOptions(opts, 'TRX')).toBeNull();
+  });
+
   it('parses live get_coin_network_list rows with network_name only (no network_code)', () => {
     const rows = [
       {
