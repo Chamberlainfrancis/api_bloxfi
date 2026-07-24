@@ -15,6 +15,10 @@ import {
   buildStaticFallbackDepositInfo,
   isPreferredStaticDepositCurrency,
 } from '@/core/onramps/staticDepositAccounts';
+import {
+  POOLED_PLATFORM_ACCOUNT_NAME,
+  dynamicDepositAccountStyle,
+} from '@/core/onramps/depositAccountStyle';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -30,13 +34,14 @@ function isPalremitSyntheticHolderName(name: string): boolean {
 
 /**
  * Deposit beneficiary must match what the bank expects on the wire.
- * Prefer liquidity's account_holder_name (e.g. SwipeLux "Veem"). Only fall
- * back to KYC/business display when the orchestrator returns a synthetic
- * Palremit-ON/OFF label (or nothing usable).
+ * Prefer liquidity's account_holder_name (e.g. SwipeLux "Veem", Kuda "Palremit LTD").
+ * Fallback when missing/synthetic depends on deposit style:
+ *   pooled → platform name (never the end customer)
+ *   named  → KYC/business display
  */
 function resolveFiatBeneficiaryName(
   instructions: PalremitDepositInstructions,
-  preferredFromKyc?: string
+  preferredFallback?: string
 ): string {
   if (instructions.kind === 'fiat_account') {
     const fromOrchestrator = String(instructions.account_holder_name ?? '').trim();
@@ -44,14 +49,13 @@ function resolveFiatBeneficiaryName(
       return fromOrchestrator;
     }
   }
-  const pref = preferredFromKyc?.trim() ?? '';
+  const pref = preferredFallback?.trim() ?? '';
   if (pref) return pref;
   return 'Beneficiary';
 }
 
 /**
- * KYC/business display used only when liquidity's account_holder_name is
- * missing or a synthetic Palremit-ON/OFF label. Prefer business legal/trading
+ * KYC/business display for named deposit accounts. Prefer business legal/trading
  * name over legal-representative person name.
  */
 export function preferredBeneficiaryDisplayName(input: {
@@ -69,16 +73,43 @@ export function preferredBeneficiaryDisplayName(input: {
   return joined || undefined;
 }
 
-/** Build display name from persisted onramp `source.user` (KYC + businessName). */
-export function beneficiaryDisplayNameFromOnrampSource(source: unknown): string | undefined {
+/**
+ * Fallback beneficiary when the orchestrator holder is missing/synthetic.
+ * Pooled → Palremit LTD; named → business/person from KYC.
+ */
+export function preferredDepositBeneficiaryFallback(input: {
+  currency: string;
+  businessName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+}): string | undefined {
+  if (dynamicDepositAccountStyle(input.currency) === 'pooled') {
+    return POOLED_PLATFORM_ACCOUNT_NAME;
+  }
+  return preferredBeneficiaryDisplayName(input);
+}
+
+/** Build display-name fallback from persisted onramp `source` + currency. */
+export function beneficiaryDisplayNameFromOnrampSource(
+  source: unknown,
+  currency?: string
+): string | undefined {
   if (source == null || typeof source !== 'object' || Array.isArray(source)) return undefined;
   const u = (source as { user?: Record<string, unknown> }).user;
   if (!u || typeof u !== 'object') return undefined;
-  return preferredBeneficiaryDisplayName({
+  const names = {
     businessName: typeof u.businessName === 'string' ? u.businessName : undefined,
     firstName: typeof u.firstName === 'string' ? u.firstName : undefined,
     lastName: typeof u.lastName === 'string' ? u.lastName : undefined,
-  });
+  };
+  const asset =
+    (typeof currency === 'string' && currency.trim() !== ''
+      ? currency
+      : typeof (source as { currency?: unknown }).currency === 'string'
+        ? (source as { currency: string }).currency
+        : '') || '';
+  if (asset) return preferredDepositBeneficiaryFallback({ currency: asset, ...names });
+  return preferredBeneficiaryDisplayName(names);
 }
 
 /** Map orchestrator `deposit_instructions` (fiat_account) → BloxFi DepositInfo. */
@@ -241,10 +272,12 @@ export async function createOnrampPalremitFiatDeposit(
     business_reference: params.businessReference,
   };
 
-  // 037-swipelux-onramp: pooled pay-ins are amount-scoped — SwipeLux requires
-  // provider_extras.amount (decimal string). Sourced from the existing onramp
-  // amount the client already sends; NGN/Kuda ignores extras.
-  if (asset === 'USD') {
+  // Deposit naming: pooled vs named (static is handled above / on fallback).
+  // - NGN (Kuda): pass account_name so the VA is issued as Palremit LTD.
+  // - USD (SwipeLux): amount-scoped pooled pay-ins; holder comes from LP.
+  if (asset === 'NGN') {
+    body.provider_extras = { account_name: POOLED_PLATFORM_ACCOUNT_NAME };
+  } else if (asset === 'USD') {
     body.provider_extras = { amount: String(params.amount) };
   }
 
@@ -288,7 +321,8 @@ export async function createOnrampPalremitFiatDeposit(
   const instr = account.deposit_instructions as PalremitDepositInstructions;
   if (instr.kind !== 'fiat_account') return fallback('unsupported_instruction_kind');
 
-  const preferredBeneficiaryName = preferredBeneficiaryDisplayName({
+  const preferredBeneficiaryName = preferredDepositBeneficiaryFallback({
+    currency: asset,
     businessName: params.businessName,
     firstName: params.firstName,
     lastName: params.lastName,

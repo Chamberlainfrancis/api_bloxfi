@@ -575,13 +575,17 @@ export async function processWebhookEvent(
           (qi?.expiresAt && String(qi.expiresAt).trim()) ||
           new Date(Date.now() + 7 * 86400000).toISOString();
         const src = onramp.source as { currency?: string; amount?: number };
-        const preferredBeneficiary = beneficiaryDisplayNameFromOnrampSource(onramp.source);
+        const sourceCurrency = (src.currency ?? '').trim().toUpperCase() || 'FIAT';
+        const preferredBeneficiary = beneficiaryDisplayNameFromOnrampSource(
+          onramp.source,
+          sourceCurrency
+        );
         const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
           instructions,
           onramp.requestId,
           depositByIso,
           typeof src.amount === 'number' ? src.amount : 0,
-          (src.currency ?? '').trim().toUpperCase() || 'FIAT',
+          sourceCurrency,
           preferredBeneficiary,
         );
         const nextStatus: OnrampStatus =

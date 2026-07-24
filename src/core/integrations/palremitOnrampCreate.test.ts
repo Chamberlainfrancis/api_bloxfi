@@ -83,7 +83,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  it('still selects FIAT_DEPOSIT_NO_KYC for NGN (Kuda), unaffected by the USD change', async () => {
+  it('provisions NGN (Kuda) as pooled under Palremit LTD', async () => {
     const calls: { path: string; body: unknown }[] = [];
     const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
       calls.push({ path, body: options?.body });
@@ -97,17 +97,48 @@ describe('createOnrampPalremitFiatDeposit', () => {
             account_number: '7000746820',
             bank_code: '090267',
             bank_name: 'Kuda Microfinance Bank',
-            account_holder_name: 'BloxFi Test',
+            account_holder_name: 'Palremit LTD',
           },
         },
       };
     });
 
-    await createOnrampPalremitFiatDeposit(request, { ...baseParams, currency: 'NGN' });
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'NGN',
+      businessName: 'BloxFi Test Corp',
+    });
 
     const body = calls[0]?.body as Record<string, unknown>;
     expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
-    expect(body.provider_extras).toBeUndefined();
+    expect(body.provider_extras).toEqual({ account_name: 'Palremit LTD' });
+    expect(body.kyc_input).toBeUndefined();
+    expect(result?.depositInfo.beneficiary.name).toBe('Palremit LTD');
+  });
+
+  it('does not fall back to customer/business name for pooled NGN when holder is synthetic', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
+      status: 201,
+      data: {
+        id: 'acct_ngn_syn',
+        state: 'active',
+        deposit_instructions: {
+          kind: 'fiat_account',
+          account_number: '7000746820',
+          bank_code: '090267',
+          bank_name: 'Kuda Microfinance Bank',
+          account_holder_name: 'Palremit-ON-3cb51f7df3a85a4e71b03b50',
+        },
+      },
+    }));
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'NGN',
+      businessName: 'BloxFi Test Corp',
+    });
+
+    expect(result?.depositInfo.beneficiary.name).toBe('Palremit LTD');
   });
 
   it('accepts deposit instructions on a still-pending account without waiting for active (the polling-gate fix)', async () => {

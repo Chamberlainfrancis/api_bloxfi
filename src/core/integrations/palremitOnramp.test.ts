@@ -3,6 +3,7 @@ import {
   mapOrchestratorFiatInstructionsToDepositInfo,
   beneficiaryDisplayNameFromOnrampSource,
   preferredBeneficiaryDisplayName,
+  preferredDepositBeneficiaryFallback,
 } from '@/core/integrations/palremitOnramp';
 
 describe('preferredBeneficiaryDisplayName', () => {
@@ -26,17 +27,67 @@ describe('preferredBeneficiaryDisplayName', () => {
   });
 });
 
-describe('beneficiaryDisplayNameFromOnrampSource', () => {
-  it('prefers source.user.businessName over firstName+lastName', () => {
+describe('preferredDepositBeneficiaryFallback', () => {
+  it('returns Palremit LTD for pooled currencies regardless of customer name', () => {
     expect(
-      beneficiaryDisplayNameFromOnrampSource({
-        user: {
-          businessName: 'Acme Ltd',
-          firstName: 'Ada',
-          lastName: 'Lovelace',
-        },
+      preferredDepositBeneficiaryFallback({
+        currency: 'NGN',
+        businessName: 'BloxFi Test Corp',
+        firstName: 'Ada',
+        lastName: 'Okeke',
+      })
+    ).toBe('Palremit LTD');
+    expect(
+      preferredDepositBeneficiaryFallback({
+        currency: 'USD',
+        businessName: 'Acme Ltd',
+      })
+    ).toBe('Palremit LTD');
+  });
+
+  it('returns KYC/business name for named currencies', () => {
+    expect(
+      preferredDepositBeneficiaryFallback({
+        currency: 'EUR',
+        businessName: 'Acme Ltd',
+        firstName: 'Ada',
+        lastName: 'Okeke',
       })
     ).toBe('Acme Ltd');
+  });
+});
+
+describe('beneficiaryDisplayNameFromOnrampSource', () => {
+  it('prefers source.user.businessName over firstName+lastName when currency is named', () => {
+    expect(
+      beneficiaryDisplayNameFromOnrampSource(
+        {
+          currency: 'EUR',
+          user: {
+            businessName: 'Acme Ltd',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+          },
+        },
+        'EUR'
+      )
+    ).toBe('Acme Ltd');
+  });
+
+  it('returns Palremit LTD for pooled NGN even when businessName is present', () => {
+    expect(
+      beneficiaryDisplayNameFromOnrampSource(
+        {
+          currency: 'NGN',
+          user: {
+            businessName: 'BloxFi Test Corp',
+            firstName: 'Ada',
+            lastName: 'Okeke',
+          },
+        },
+        'NGN'
+      )
+    ).toBe('Palremit LTD');
   });
 });
 
@@ -47,7 +98,7 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
       account_number: '7000746820',
       bank_code: '090267',
       bank_name: 'Kuda Microfinance Bank',
-      account_holder_name: 'Palremit-BloxFi Test Corp',
+      account_holder_name: 'Palremit LTD',
     };
 
     const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
@@ -60,7 +111,7 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
 
     expect(depositInfo.wire?.accountNumber).toBe('7000746820');
     expect(depositInfo.bankName).toBe('Kuda Microfinance Bank');
-    expect(depositInfo.beneficiary.name).toBe('Palremit-BloxFi Test Corp');
+    expect(depositInfo.beneficiary.name).toBe('Palremit LTD');
   });
 
   it('prefers orchestrator account_holder_name over KYC/business display (SwipeLux Veem)', () => {
@@ -79,13 +130,13 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
       '2026-04-24T08:27:35.726Z',
       250,
       'USD',
-      'BRIANA PAYMENTS LIMITED'
+      'Palremit LTD'
     );
 
     expect(depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  it('falls back to KYC/business display only when orchestrator holder name is synthetic', () => {
+  it('falls back to preferred name only when orchestrator holder name is synthetic', () => {
     const instr = {
       kind: 'fiat_account' as const,
       account_number: '7000746820',
@@ -100,13 +151,13 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
       '2026-04-24T08:27:35.726Z',
       20000,
       'NGN',
-      'Jane Q. Customer'
+      'Palremit LTD'
     );
 
-    expect(depositInfo.beneficiary.name).toBe('Jane Q. Customer');
+    expect(depositInfo.beneficiary.name).toBe('Palremit LTD');
   });
 
-  it('ignores synthetic Palremit holder name when no KYC override is passed', () => {
+  it('ignores synthetic Palremit holder name when no fallback is passed', () => {
     const instr = {
       kind: 'fiat_account' as const,
       account_number: '7000746820',
@@ -154,7 +205,7 @@ describe('palremitOnramp.mapOrchestratorFiatInstructionsToDepositInfo', () => {
       account_number: '7000746820',
       bank_code: '090267',
       bank_name: 'Kuda Microfinance Bank',
-      account_holder_name: 'Palremit-BloxFi Test Corp',
+      account_holder_name: 'Palremit LTD',
     };
 
     const depositInfo = mapOrchestratorFiatInstructionsToDepositInfo(
