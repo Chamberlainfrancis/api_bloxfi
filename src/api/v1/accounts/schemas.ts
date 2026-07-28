@@ -1,7 +1,7 @@
 /**
  * Zod schemas for Account endpoints. Spec §3.
  * Offramp accounts are created via Palremit corridor discovery: `corridor` + `destination` (snake_case).
- * Onramp accounts are created via Sumsub share-token KYC import (`sumsubShareToken`), plus SOF questionnaire.
+ * Onramp accounts are created via Sumsub share-token KYC import or hosted KYC (omit token), plus SOF questionnaire.
  */
 
 import { z } from 'zod';
@@ -32,7 +32,7 @@ const payoutCorridorSchema = z.object({
 
 /**
  * Create account: offramp is a Palremit corridor tuple + canonical destination (unchanged);
- * onramp is a Sumsub share-token KYC import + SOF questionnaire / accountHolder.taxId / sourceOfFundsDocument.
+ * onramp is Sumsub share-token KYC import OR hosted KYC (omit sumsubShareToken) + SOF questionnaire / accountHolder.taxId / sourceOfFundsDocument.
  */
 export const createAccountBodySchema = z
   .object({
@@ -41,7 +41,8 @@ export const createAccountBodySchema = z
     accountHolder: accountHolderSchema,
     corridor: payoutCorridorSchema.optional(), // was required; now offramp-only
     destination: z.record(z.unknown()).optional(), // was required; now offramp-only
-    sumsubShareToken: z.string().min(1).optional(), // onramp-only
+    /** Onramp: present → share-token import; omit → hosted SwipeLux KYC URL. */
+    sumsubShareToken: z.string().min(1).optional(),
     sofQuestionnaire: sofQuestionnaireAnswersSchema.optional(), // onramp-only
     /** HTTPS URL to PDF/JPEG/PNG; may also live under sofQuestionnaire.sourceOfFundsDocument. */
     sourceOfFundsDocument: z.string().url().optional(),
@@ -80,13 +81,6 @@ export const createAccountBodySchema = z
           code: z.ZodIssueCode.custom,
           path: ['accountHolder', 'taxId'],
           message: 'taxId is required for rail=onramp',
-        });
-      }
-      if (!data.sumsubShareToken) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['sumsubShareToken'],
-          message: 'sumsubShareToken is required for rail=onramp',
         });
       }
       if (!data.sofQuestionnaire) {

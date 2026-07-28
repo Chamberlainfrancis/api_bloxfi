@@ -1,6 +1,6 @@
 /**
  * Core: create fiat account. Offramp: payout bank account via Palremit corridor + destination
- * (Spec §3.1). Onramp: SwipeLux beneficiary via Sumsub share-token KYC import (flag-gated).
+ * (Spec §3.1). Onramp: SwipeLux via Sumsub share-token import or hosted KYC URL (flag-gated).
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
@@ -171,9 +171,10 @@ export async function createAccount(
 
     // firstName/lastName are required by the Task 7 zod schema whenever rail='onramp' — never
     // derived by splitting accountHolder.name (unreliable for compound surnames).
+    const shareToken = data.sumsubShareToken?.trim();
     const imported = await options.importKyc(options.palremitLiquidityRequest, {
       clientReference: created.id,
-      importToken: data.sumsubShareToken!, // never persisted — passed straight through
+      ...(shareToken ? { importToken: shareToken } : {}), // never persisted — passed straight through when present
       kycInput: {
         customer_type: 'individual',
         email: data.accountHolder.email!,
@@ -194,11 +195,28 @@ export async function createAccount(
           : 'PALREMIT_SWIPELUX_KYC_IMPORT_PERMANENT', // controller maps to 422
       );
     }
+
+    // Map liquidity status → account kycImportStatus. Hosted path typically stays pending.
+    const liquidityStatus = imported.value.status.toLowerCase();
+    const kycImportStatus =
+      liquidityStatus === 'approved'
+        ? 'approved'
+        : liquidityStatus === 'rejected'
+          ? 'rejected'
+          : 'pending_import';
+
     await accountRepo.updateKycImport(created.id, {
-      kycImportStatus: imported.value.status,
+      kycImportStatus,
       swipeluxCustomerId: imported.value.channel_customer_id,
     });
-    return { status: 'ACTIVE', message: 'Account created successfully', id: created.id };
+    return {
+      status: 'ACTIVE',
+      message: 'Account created successfully',
+      id: created.id,
+      ...(imported.value.verification_url
+        ? { verificationUrl: imported.value.verification_url }
+        : {}),
+    };
   }
 
   // --- existing offramp logic below, unchanged ---
