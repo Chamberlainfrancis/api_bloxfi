@@ -13,7 +13,7 @@ vi.mock('@/db/repositories/adminAction.repo', () => ({
 
 vi.mock('@/core/ramps/depositExpiry', () => ({
   expireOnrampIfDepositPastDue: vi.fn().mockResolvedValue(null),
-  expireOfframpIfDepositPastDue: vi.fn(),
+  expireOfframpIfDepositPastDue: vi.fn().mockResolvedValue(null),
   expireStaleOnramps: vi.fn(),
   expireStaleOfframps: vi.fn(),
 }));
@@ -45,7 +45,6 @@ vi.mock('@/db/repositories/account.repo', () => ({
 
 import * as onrampRepo from '@/db/repositories/onramp.repo';
 import * as adminActionRepo from '@/db/repositories/adminAction.repo';
-import { expireOnrampIfDepositPastDue } from '@/core/ramps/depositExpiry';
 import { advanceOnrampIfFiatProcessed } from '@/core/onramps/advanceOnrampPayout';
 import { markOnrampFiatReceived } from '@/core/admin/dashboard';
 
@@ -53,12 +52,10 @@ describe('markOnrampFiatReceived', () => {
   const findOnrampById = vi.mocked(onrampRepo.findOnrampById);
   const updateOnrampStatus = vi.mocked(onrampRepo.updateOnrampStatus);
   const createAdminAction = vi.mocked(adminActionRepo.createAdminAction);
-  const expire = vi.mocked(expireOnrampIfDepositPastDue);
   const advance = vi.mocked(advanceOnrampIfFiatProcessed);
 
   beforeEach(() => {
     vi.clearAllMocks();
-    expire.mockResolvedValue(null);
     advance.mockResolvedValue(undefined);
     createAdminAction.mockResolvedValue({
       id: 'aa1',

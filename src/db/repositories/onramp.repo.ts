@@ -147,7 +147,7 @@ export async function findCompletedProfits(): Promise<Array<{ profit: unknown }>
 
 export async function listOnrampsAwaitingDeposit(): Promise<OnrampRow[]> {
   const rows = await prisma.onramp.findMany({
-    where: { status: { in: ['AWAITING_FUNDS', 'FIAT_PENDING'] } },
+    where: { status: 'AWAITING_FUNDS' },
   });
   return rows as OnrampRow[];
 }

@@ -1,5 +1,9 @@
 /**
  * Expire onramps/offramps that are still awaiting deposit after the deposit window.
+ *
+ * Only expire while no inbound funds have been observed. Once funds are in
+ * (onramp: FIAT_PENDING+; offramp: CRYPTO_PENDING+), including awaiting
+ * payout/settlement, the ramp must not transition to EXPIRED.
  */
 
 import type { OnrampStatus } from '@/types/onramp';
@@ -7,8 +11,9 @@ import type { OfframpStatus } from '@/types/offramp';
 
 export const DEPOSIT_EXPIRED_REASON = 'Deposit window expired';
 
-export const ONRAMP_AWAITING_DEPOSIT: readonly OnrampStatus[] = ['AWAITING_FUNDS', 'FIAT_PENDING'];
-export const OFFRAMP_AWAITING_DEPOSIT: readonly OfframpStatus[] = ['AWAITING_CRYPTO', 'CRYPTO_PENDING'];
+/** Statuses where the customer has not yet funded — only these may expire. */
+export const ONRAMP_AWAITING_DEPOSIT: readonly OnrampStatus[] = ['AWAITING_FUNDS'];
+export const OFFRAMP_AWAITING_DEPOSIT: readonly OfframpStatus[] = ['AWAITING_CRYPTO'];
 
 function parseDepositDeadlineFromObject(value: unknown): Date | null {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
