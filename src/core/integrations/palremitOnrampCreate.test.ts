@@ -47,9 +47,45 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(body.business_reference).toBe('user-prisma-id-1');
     expect(body.kyc_input).toBeUndefined();
     expect(body.provider_extras).toEqual({ amount: '250' });
+    expect(body.allow_provider_failover).toBeUndefined();
     expect(result?.depositInfo.reference).toBe('SWX-REF-1');
     // Real orchestrator holder wins over person/business KYC display.
     expect(result?.depositInfo.beneficiary.name).toBe('Pooled Account');
+  });
+
+  it('sends allow_provider_failover=false for Briana USD onramp', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
+      calls.push({ path, body: options?.body });
+      if (path === '/v1/provisioned-accounts') {
+        return {
+          status: 201,
+          data: {
+            id: 'acct_briana',
+            state: 'active',
+            deposit_instructions: {
+              kind: 'fiat_account',
+              account_number: '9988776655',
+              bank_code: '021000021',
+              bank_name: 'Citibank',
+              account_holder_name: 'Veem',
+              reference: 'SWX-BRIANA',
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      businessReference: '9eea8cbd-e545-4d15-85cd-90690ede4b0c',
+    });
+
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.allow_provider_failover).toBe(false);
+    expect(body.provider_extras).toEqual({ amount: '250' });
   });
 
   it('shows liquidity account_holder_name even when businessName is provided', async () => {

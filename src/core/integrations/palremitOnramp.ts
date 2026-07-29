@@ -21,6 +21,9 @@ import {
   dynamicDepositAccountStyle,
 } from '@/core/onramps/depositAccountStyle';
 
+/** Prisma User.id for Briana Payments — no OwlPay failover on USD onramp. */
+export const BRIANA_BUSINESS_REFERENCE = '9eea8cbd-e545-4d15-85cd-90690ede4b0c';
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -281,6 +284,12 @@ export async function createOnrampPalremitFiatDeposit(
     body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
   } else if (asset === 'USD') {
     body.provider_extras = { amount: String(params.amount) };
+    // Briana must not failover to OwlPay house (Lead Bank / OWLTING) when
+    // SwipeLux fails — they expect Citibank. Temporary hardcode until this
+    // lives on the User account. business_reference = Prisma User.id.
+    if (params.businessReference === BRIANA_BUSINESS_REFERENCE) {
+      body.allow_provider_failover = false;
+    }
   }
 
   if (mode === 'FIAT_DEPOSIT_KYC') {
