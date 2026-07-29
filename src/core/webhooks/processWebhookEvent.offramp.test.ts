@@ -157,6 +157,84 @@ describe('processWebhookEvent offramp deposit.credited', () => {
     expect(updateOfframpStatus).toHaveBeenCalledWith('offramp-1', 'CRYPTO_CONFIRMED', expect.any(Object));
     expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
   });
+
+  it('recovers EXPIRED offramp when LP credits deposit after deposit window', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const advanceOfframpAfterCryptoWebhook = vi.fn().mockResolvedValue(undefined);
+    const pastDue = new Date(Date.now() - 60_000).toISOString();
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue({
+      ...baseOfframp({ status: 'EXPIRED' }),
+      failedReason: 'Deposit window expired',
+      source: { currency: 'usdt', amount: 100, chain: 'TRC20' },
+      depositInstructions: {
+        amount: '100',
+        currency: 'USDT',
+        network: 'TRC20',
+        depositBy: pastDue,
+      },
+    });
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          advanceOfframpAfterCryptoWebhook,
+        },
+      },
+      depositCreditedPayload(100)
+    );
+
+    expect(updateOfframpStatus).toHaveBeenCalledWith(
+      'offramp-1',
+      'CRYPTO_CONFIRMED',
+      expect.objectContaining({ failedReason: null })
+    );
+    expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
+  });
+
+  it('credits late deposit without marking EXPIRED when window already passed', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const advanceOfframpAfterCryptoWebhook = vi.fn().mockResolvedValue(undefined);
+    const pastDue = new Date(Date.now() - 60_000).toISOString();
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue({
+      ...baseOfframp({ status: 'AWAITING_CRYPTO' }),
+      source: { currency: 'usdt', amount: 100, chain: 'TRC20' },
+      depositInstructions: {
+        amount: '100',
+        currency: 'USDT',
+        network: 'TRC20',
+        depositBy: pastDue,
+      },
+    });
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          advanceOfframpAfterCryptoWebhook,
+        },
+      },
+      depositCreditedPayload(100)
+    );
+
+    expect(updateOfframpStatus).toHaveBeenCalledWith(
+      'offramp-1',
+      'CRYPTO_CONFIRMED',
+      expect.objectContaining({ failedReason: null })
+    );
+    expect(updateOfframpStatus).not.toHaveBeenCalledWith(
+      'offramp-1',
+      'EXPIRED',
+      expect.anything()
+    );
+    expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
+  });
 });
 
 describe('processWebhookEvent offramp withdrawal.successful (fiat)', () => {
