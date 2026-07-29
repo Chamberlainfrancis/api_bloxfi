@@ -7,6 +7,8 @@ import { applyOfframpPlatformFee } from '@/core/payments';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
+import { logger } from '@/lib/logger';
+import { inferOnrampAccount } from '@/core/onramps/inferOnrampAccount';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -67,7 +69,18 @@ export interface CreateOnrampOptions {
     businessReference: string;
     /** Business legal/trading name when present — preferred for deposit beneficiary. */
     businessName?: string;
+    /** Prisma Account.id → `account_reference`. Omitted when inference is inconclusive. */
+    accountReference?: string;
+    contactEmail?: string;
+    customerType?: 'individual' | 'business';
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
+  /**
+   * Onramp Account rows for the user, used to infer `account_reference`.
+   * Optional — when absent the onramp provisions per-business exactly as before.
+   */
+  listOnrampAccounts?: (userId: string) => Promise<
+    readonly { id: string; accountHolder: unknown; swipeluxCustomerId: string | null }[]
+  >;
   /**
    * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
    * from the receive amount. Returns null on failure → fee treated as
@@ -407,6 +420,29 @@ export async function createOnramp(
 
   const txnRef = generateOnrampTxnRef();
 
+  // The onramp request is user-scoped, so which Account this deposit belongs
+  // to has to be inferred. An inconclusive answer is left unset rather than
+  // guessed — the orchestrator then resolves per business, as it does today.
+  const inferred = options.listOnrampAccounts
+    ? inferOnrampAccount(await options.listOnrampAccounts(userId))
+    : ({ kind: 'none' } as const);
+  if (inferred.kind === 'ambiguous') {
+    logger.warn(
+      { userId, accountIds: inferred.accountIds },
+      'onramp account inference ambiguous — provisioning per business instead'
+    );
+  }
+  const accountFields =
+    inferred.kind === 'resolved'
+      ? {
+          accountReference: inferred.account.accountReference,
+          ...(inferred.account.contactEmail !== undefined && {
+            contactEmail: inferred.account.contactEmail,
+          }),
+          customerType: inferred.account.customerType,
+        }
+      : {};
+
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
     lastName,
@@ -418,6 +454,7 @@ export async function createOnramp(
     txnRef,
     businessReference: userId,
     businessName: userDisplayInfo.businessName,
+    ...accountFields,
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

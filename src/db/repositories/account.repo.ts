@@ -83,6 +83,20 @@ export async function findAccountByIdAndUser(accountId: string, userId: string):
   return account as AccountRow | null;
 }
 
+/**
+ * Onramp rows for a user, oldest first. Used to infer which account a USD
+ * onramp belongs to, since the onramp request itself is user-scoped and
+ * carries no account id. Nothing constrains a user to one onramp account, so
+ * callers must handle zero and many.
+ */
+export async function findOnrampAccountsByUser(userId: string): Promise<AccountRow[]> {
+  const accounts = await prisma.account.findMany({
+    where: { userId, railType: 'onramp' },
+    orderBy: { createdAt: 'asc' },
+  });
+  return accounts as AccountRow[];
+}
+
 export async function updateAccountKycImport(
   accountId: string,
   patch: { kycImportStatus: string; swipeluxCustomerId?: string | null }

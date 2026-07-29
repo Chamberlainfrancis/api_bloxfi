@@ -243,6 +243,17 @@ export async function createOnrampPalremitFiatDeposit(
     businessReference: string;
     /** Business legal/trading name — preferred over person name for beneficiary.label. */
     businessName?: string;
+    /**
+     * Prisma Account.id, sent as `account_reference` so SwipeLux customer
+     * identity resolves per account rather than per business. Omitted when
+     * inference could not settle on one account (see inferOnrampAccount) —
+     * the orchestrator then falls back to its per-business path.
+     */
+    accountReference?: string;
+    /** Account contact email — seeds the orchestrator's one-time SwipeLux lookup. */
+    contactEmail?: string;
+    /** SwipeLux customer type; cannot be derived from User.type. */
+    customerType?: 'individual' | 'business';
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
@@ -283,7 +294,18 @@ export async function createOnrampPalremitFiatDeposit(
   if (asset === 'NGN') {
     body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
   } else if (asset === 'USD') {
-    body.provider_extras = { amount: String(params.amount) };
+    const providerExtras: Record<string, unknown> = { amount: String(params.amount) };
+    // Per-account SwipeLux identity. account_reference switches the
+    // orchestrator from per-business to per-account resolution; contact_email
+    // seeds its one-time lookup and customer_type disambiguates when the
+    // address maps to several SwipeLux customers. All three are omitted
+    // together when inference could not settle on an account.
+    if (params.accountReference) {
+      body.account_reference = params.accountReference;
+      if (params.contactEmail) providerExtras.contact_email = params.contactEmail;
+      if (params.customerType) providerExtras.customer_type = params.customerType;
+    }
+    body.provider_extras = providerExtras;
     // Briana must not failover to OwlPay house (Lead Bank / OWLTING) when
     // SwipeLux fails — they expect Citibank. Temporary hardcode until this
     // lives on the User account. business_reference = Prisma User.id.
