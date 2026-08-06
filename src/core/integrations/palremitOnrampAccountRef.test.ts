@@ -7,6 +7,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createOnrampPalremitFiatDeposit } from '@/core/integrations/palremitOnramp';
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 
+/** Non-Briana business — SwipeLux account_reference path (Briana USD is Graph KYC). */
 const baseParams = {
   firstName: 'Jonathan',
   lastName: 'Marquis',
@@ -15,7 +16,7 @@ const baseParams = {
   bloxRequestId: 'blox-req-1',
   depositByIso: '2026-08-24T08:27:35.726Z',
   txnRef: 'ON1234567890',
-  businessReference: '9eea8cbd-e545-4d15-85cd-90690ede4b0c',
+  businessReference: 'user-swipelux-account-ref-1',
 };
 
 function stubRequest(calls: { path: string; body: unknown }[]): PalremitLiquidityRequestFn {
@@ -48,14 +49,14 @@ describe('USD onramp account_reference', () => {
     await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'USD',
-      accountReference: 'acc_briana_1',
+      accountReference: 'acc_swx_1',
       contactEmail: 'jehinc26@gmail.com',
       customerType: 'individual',
     });
 
     const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.account_reference).toBe('acc_briana_1');
-    expect(body.business_reference).toBe('9eea8cbd-e545-4d15-85cd-90690ede4b0c');
+    expect(body.account_reference).toBe('acc_swx_1');
+    expect(body.business_reference).toBe('user-swipelux-account-ref-1');
     expect(body.provider_extras).toMatchObject({
       amount: '250',
       contact_email: 'jehinc26@gmail.com',
@@ -94,12 +95,12 @@ describe('USD onramp account_reference', () => {
     await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'USD',
-      accountReference: 'acc_briana_1',
+      accountReference: 'acc_swx_1',
       customerType: 'individual',
     });
 
     const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.account_reference).toBe('acc_briana_1');
+    expect(body.account_reference).toBe('acc_swx_1');
     expect(body.provider_extras).not.toHaveProperty('contact_email');
   });
 
@@ -109,7 +110,7 @@ describe('USD onramp account_reference', () => {
     await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'NGN',
-      accountReference: 'acc_briana_1',
+      accountReference: 'acc_swx_1',
       contactEmail: 'jehinc26@gmail.com',
     });
 

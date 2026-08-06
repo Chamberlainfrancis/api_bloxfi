@@ -21,6 +21,7 @@ import {
   fetchPalremitWithdrawalFeeQuote,
   getPalremitConversionAmount,
 } from '@/core/integrations';
+import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 import { buildRampFeePreview } from '@/core/payments';
 import {
   resolvePalremitNetworkOrThrow,
@@ -315,6 +316,14 @@ export async function createOnramp(
           'UNPROCESSABLE_ENTITY',
           422
         )
+      );
+      return;
+    }
+    if (e instanceof GraphOnrampKycError) {
+      next(
+        new AppError(e.message, 'UNPROCESSABLE_ENTITY', 422, {
+          missingFields: e.missingFields,
+        })
       );
       return;
     }

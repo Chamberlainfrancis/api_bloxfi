@@ -22,6 +22,9 @@ import type {
   Receipt,
 } from '@/types/onramp';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
+import type { GraphOnrampKycSource } from '@/core/integrations/graphOnrampKyc';
+import { graphKycExtrasFromUserMetadata } from '@/core/integrations/graphOnrampKyc';
+import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 
 const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
@@ -73,6 +76,8 @@ export interface CreateOnrampOptions {
     accountReference?: string;
     contactEmail?: string;
     customerType?: 'individual' | 'business';
+    /** Briana USD Graph KYC source (User fields + metadata extras). */
+    graphKyc?: GraphOnrampKycSource;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
   /**
    * Onramp Account rows for the user, used to infer `account_reference`.
@@ -133,7 +138,9 @@ export interface UserRepoForOnramp {
   findUserById(id: string): Promise<{
     id: string;
     businessInfo: unknown;
+    registeredAddress?: unknown;
     legalRepresentative: unknown;
+    metadata?: unknown;
   } | null>;
 }
 
@@ -443,6 +450,17 @@ export async function createOnramp(
         }
       : {};
 
+  const isBrianaUsd =
+    userId === BRIANA_BUSINESS_REFERENCE && fromCurrency.trim().toUpperCase() === 'USD';
+  const graphKyc: GraphOnrampKycSource | undefined = isBrianaUsd
+    ? {
+        businessInfo: user.businessInfo,
+        registeredAddress: user.registeredAddress,
+        legalRepresentative: user.legalRepresentative,
+        ...graphKycExtrasFromUserMetadata(user.metadata),
+      }
+    : undefined;
+
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
     lastName,
@@ -455,6 +473,7 @@ export async function createOnramp(
     businessReference: userId,
     businessName: userDisplayInfo.businessName,
     ...accountFields,
+    ...(graphKyc ? { graphKyc } : {}),
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

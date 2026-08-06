@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createOnrampPalremitFiatDeposit } from '@/core/integrations/palremitOnramp';
+import {
+  BRIANA_BUSINESS_REFERENCE,
+  createOnrampPalremitFiatDeposit,
+} from '@/core/integrations/palremitOnramp';
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
+import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 
 const baseParams = {
   firstName: 'Adaeze',
@@ -12,6 +16,87 @@ const baseParams = {
   txnRef: 'ON1234567890',
   businessReference: 'user-prisma-id-1',
 };
+
+/** Fixture user fields + Graph extras that User model does not store today. */
+const brianaGraphKycSource = {
+  businessInfo: {
+    legalName: 'BRIANA PAYMENTS LIMITED',
+    tradingName: 'Briana',
+    registrationNumber: '14827391',
+    entityType: 'LIMITED_COMPANY',
+    dateOfIncorporation: '2023-03-15',
+    taxIdentificationNumber: 'GB123456789',
+    website: 'https://briana.example.test',
+    industry: 'moneyTransferRemittance',
+    email: 'ops@briana.example.test',
+    phone: '+447700900123',
+  },
+  registeredAddress: {
+    addressLine1: '1 Canada Square',
+    city: 'London',
+    stateProvinceRegion: 'ENG',
+    postalCode: 'E14 5AB',
+    country: 'GBR',
+  },
+  legalRepresentative: {
+    firstName: 'Adaeze',
+    lastName: 'Okeke',
+    email: 'adaeze@briana.example.test',
+    phone: '+447700900456',
+    dateOfBirth: '1990-05-12',
+    position: 'Director',
+    address: {
+      addressLine1: '10 Downing Street',
+      city: 'London',
+      stateProvinceRegion: 'ENG',
+      postalCode: 'SW1A 2AA',
+      country: 'GBR',
+    },
+  },
+  documents: [{ type: 'passport', url: 'https://cdn.example.test/briana-ubo-passport.jpg' }],
+  background_information: {
+    employment_status: 'employed' as const,
+    occupation: 'Director',
+    primary_purpose: 'business' as const,
+    source_of_funds: 'business' as const,
+    expected_monthly_inflow: 40_000,
+  },
+  ubo: {
+    id_type: 'passport' as const,
+    id_number: 'P123456',
+    id_country: 'GB',
+  },
+  business_id_type: 'registration_certificate',
+};
+
+function provisionStub(
+  calls: { path: string; body: unknown }[],
+  depositOverrides: Record<string, unknown> = {}
+): PalremitLiquidityRequestFn {
+  return vi.fn(async (path, options) => {
+    calls.push({ path, body: options?.body });
+    if (path === '/v1/provisioned-accounts') {
+      return {
+        status: 201,
+        data: {
+          id: 'acct_briana_graph',
+          state: 'pending',
+          provider_name: 'graph',
+          deposit_instructions: {
+            kind: 'fiat_account',
+            account_number: '9992740191426913',
+            bank_code: '084106768',
+            bank_name: 'Oval Bank',
+            account_holder_name: 'BRIANA PAYMENTS LIMITED',
+            reference: 'GRAPH-BRIANA-1',
+            ...depositOverrides,
+          },
+        },
+      };
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+}
 
 describe('createOnrampPalremitFiatDeposit', () => {
   it('selects FIAT_DEPOSIT_NO_KYC and sends business_reference for USD (SwipeLux) — not kyc_input', async () => {
@@ -53,7 +138,40 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Pooled Account');
   });
 
-  it('sends allow_provider_failover=false for Briana USD onramp', async () => {
+  it('routes Briana USD to Graph FIAT_DEPOSIT_KYC with business kyc_input (no amount extras)', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const request = provisionStub(calls);
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      businessReference: BRIANA_BUSINESS_REFERENCE,
+      businessName: 'BRIANA PAYMENTS LIMITED',
+      graphKyc: brianaGraphKycSource,
+    });
+
+    expect(result).not.toBeNull();
+    expect(calls).toHaveLength(1);
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.mode).toBe('FIAT_DEPOSIT_KYC');
+    expect(body.allow_provider_failover).toBe(false);
+    expect(body.provider_extras).toBeUndefined();
+    expect(body).not.toHaveProperty('account_reference');
+
+    const kyc = body.kyc_input as Record<string, unknown>;
+    expect(kyc.customer_type).toBe('business');
+    expect(kyc.entity_name).toBe('BRIANA PAYMENTS LIMITED');
+    expect(kyc.contact_first_name).toBe('Adaeze');
+    expect(kyc.contact_last_name).toBe('Okeke');
+    expect(kyc.documents).toEqual([
+      { type: 'passport', url: 'https://cdn.example.test/briana-ubo-passport.jpg' },
+    ]);
+    expect(kyc.background_information).toEqual(brianaGraphKycSource.background_information);
+    expect((kyc.ubo as Record<string, unknown>).id_type).toBe('passport');
+    expect(result?.depositInfo.reference).toBe('GRAPH-BRIANA-1');
+  });
+
+  it('keeps non-Briana USD on FIAT_DEPOSIT_NO_KYC (SwipeLux) as today', async () => {
     const calls: { path: string; body: unknown }[] = [];
     const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
       calls.push({ path, body: options?.body });
@@ -61,15 +179,15 @@ describe('createOnrampPalremitFiatDeposit', () => {
         return {
           status: 201,
           data: {
-            id: 'acct_briana',
+            id: 'acct_1',
             state: 'active',
             deposit_instructions: {
               kind: 'fiat_account',
               account_number: '9988776655',
               bank_code: '021000021',
-              bank_name: 'Citibank',
-              account_holder_name: 'Veem',
-              reference: 'SWX-BRIANA',
+              bank_name: 'Pooled Bank',
+              account_holder_name: 'Pooled Account',
+              reference: 'SWX-REF-1',
             },
           },
         };
@@ -77,15 +195,71 @@ describe('createOnrampPalremitFiatDeposit', () => {
       throw new Error(`unexpected path ${path}`);
     });
 
-    await createOnrampPalremitFiatDeposit(request, {
-      ...baseParams,
-      currency: 'USD',
-      businessReference: '9eea8cbd-e545-4d15-85cd-90690ede4b0c',
-    });
+    await createOnrampPalremitFiatDeposit(request, { ...baseParams, currency: 'USD' });
 
     const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.allow_provider_failover).toBe(false);
+    expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
+    expect(body.kyc_input).toBeUndefined();
     expect(body.provider_extras).toEqual({ amount: '250' });
+  });
+
+  it('fails closed for Briana USD when Graph-required KYC fields are missing', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not provision when Graph KYC is incomplete');
+    });
+
+    await expect(
+      createOnrampPalremitFiatDeposit(request, {
+        ...baseParams,
+        currency: 'USD',
+        businessReference: BRIANA_BUSINESS_REFERENCE,
+        graphKyc: {
+          businessInfo: brianaGraphKycSource.businessInfo,
+          registeredAddress: brianaGraphKycSource.registeredAddress,
+          legalRepresentative: brianaGraphKycSource.legalRepresentative,
+          // documents + background intentionally omitted
+        },
+      })
+    ).rejects.toThrow(GraphOnrampKycError);
+
+    try {
+      await createOnrampPalremitFiatDeposit(request, {
+        ...baseParams,
+        currency: 'USD',
+        businessReference: BRIANA_BUSINESS_REFERENCE,
+        graphKyc: {
+          businessInfo: brianaGraphKycSource.businessInfo,
+          registeredAddress: brianaGraphKycSource.registeredAddress,
+          legalRepresentative: brianaGraphKycSource.legalRepresentative,
+        },
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      const err = e as GraphOnrampKycError;
+      expect(err.missingFields).toEqual(
+        expect.arrayContaining(['documents', 'background_information', 'ubo.id_type', 'ubo.id_number'])
+      );
+      expect(err.message).toMatch(/documents/i);
+    }
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('does not static-fallback Briana USD when orchestrator provision fails', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      const err = new Error('HTTP 500') as Error & { status: number };
+      err.status = 500;
+      throw err;
+    });
+
+    await expect(
+      createOnrampPalremitFiatDeposit(request, {
+        ...baseParams,
+        currency: 'USD',
+        businessReference: BRIANA_BUSINESS_REFERENCE,
+        graphKyc: brianaGraphKycSource,
+      })
+    ).rejects.toThrow('PALREMIT_FIAT_DEPOSIT_FAILED');
   });
 
   it('shows liquidity account_holder_name even when businessName is provided', async () => {
