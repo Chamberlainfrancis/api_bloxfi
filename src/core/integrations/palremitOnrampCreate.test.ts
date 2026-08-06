@@ -155,6 +155,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
     const body = calls[0]?.body as Record<string, unknown>;
     expect(body.mode).toBe('FIAT_DEPOSIT_KYC');
     expect(body.allow_provider_failover).toBe(false);
+    expect(body.preferred_provider).toBe('graph');
     expect(body.provider_extras).toBeUndefined();
     expect(body).not.toHaveProperty('account_reference');
 

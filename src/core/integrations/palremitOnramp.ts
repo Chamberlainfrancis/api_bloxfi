@@ -326,7 +326,9 @@ export async function createOnrampPalremitFiatDeposit(
     }
     body.provider_extras = providerExtras;
   } else if (isBrianaUsd) {
+    // Bancara: Graph only — no SwipeLux/OwlPay/static fallthrough.
     body.allow_provider_failover = false;
+    body.preferred_provider = 'graph';
     body.kyc_input = buildGraphBusinessKycInput(params.graphKyc ?? {});
   }
 
