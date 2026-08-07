@@ -294,24 +294,10 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  it('provisions NGN (Kuda) as pooled (LTD. → Palremit-LTD. after merchant prefix)', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
-      calls.push({ path, body: options?.body });
-      return {
-        status: 201,
-        data: {
-          id: 'acct_2',
-          state: 'active',
-          deposit_instructions: {
-            kind: 'fiat_account',
-            account_number: '7000746820',
-            bank_code: '090267',
-            bank_name: 'Kuda Microfinance Bank',
-            account_holder_name: 'Palremit-LTD.',
-          },
-        },
-      };
+  // TEMP: NGN uses preferred PalmPay static — restore Kuda pooled VA tests when removed.
+  it('prefers static NGN PalmPay account without calling provision', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity for preferred NGN static');
     });
 
     const result = await createOnrampPalremitFiatDeposit(request, {
@@ -320,37 +306,21 @@ describe('createOnrampPalremitFiatDeposit', () => {
       businessName: 'BloxFi Test Corp',
     });
 
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
-    expect(body.provider_extras).toEqual({ account_name: 'LTD.' });
-    expect(body.kyc_input).toBeUndefined();
-    // Show the real Kuda holder so UI matches NIP name-enquiry.
-    expect(result?.depositInfo.beneficiary.name).toBe('Palremit-LTD.');
-  });
-
-  it('does not fall back to customer/business name for pooled NGN when holder is synthetic', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
-      status: 201,
-      data: {
-        id: 'acct_ngn_syn',
-        state: 'active',
-        deposit_instructions: {
-          kind: 'fiat_account',
-          account_number: '7000746820',
-          bank_code: '090267',
-          bank_name: 'Kuda Microfinance Bank',
-          account_holder_name: 'Palremit-ON-3cb51f7df3a85a4e71b03b50',
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      depositInfo: {
+        bankName: 'PalmPay',
+        beneficiary: { name: 'PALREMIT TECH LIMITED.', country: 'NG' },
+        wire: { accountNumber: '8881539650', routingNumber: '' },
+        reference: 'ON1234567890',
+      },
+      providerRefs: {
+        palremitOrchestrator: {
+          providerName: 'static_fallback',
+          staticFallbackReason: 'preferred_static',
         },
       },
-    }));
-
-    const result = await createOnrampPalremitFiatDeposit(request, {
-      ...baseParams,
-      currency: 'NGN',
-      businessName: 'BloxFi Test Corp',
     });
-
-    expect(result?.depositInfo.beneficiary.name).toBe('Palremit LTD');
   });
 
   it('accepts deposit instructions on a still-pending account without waiting for active (the polling-gate fix)', async () => {
@@ -458,17 +428,4 @@ describe('createOnrampPalremitFiatDeposit', () => {
     });
   });
 
-  it('does not fall back for NGN when provision fails', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
-      status: 500,
-      data: { error: 'boom' },
-    }));
-
-    const result = await createOnrampPalremitFiatDeposit(request, {
-      ...baseParams,
-      currency: 'NGN',
-    });
-
-    expect(result).toBeNull();
-  });
 });

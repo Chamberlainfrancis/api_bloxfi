@@ -104,18 +104,17 @@ describe('USD onramp account_reference', () => {
     expect(body.provider_extras).not.toHaveProperty('contact_email');
   });
 
-  // NGN routes to Kuda, which has no per-account customer concept.
-  it('leaves the NGN body untouched', async () => {
+  // TEMP: NGN preferred PalmPay static skips provision (no account_reference path).
+  it('skips provision for preferred static NGN', async () => {
     const calls: { path: string; body: unknown }[] = [];
-    await createOnrampPalremitFiatDeposit(stubRequest(calls), {
+    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'NGN',
       accountReference: 'acc_swx_1',
       contactEmail: 'jehinc26@gmail.com',
     });
 
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body).not.toHaveProperty('account_reference');
-    expect(body.provider_extras).not.toHaveProperty('contact_email');
+    expect(calls).toHaveLength(0);
+    expect(result?.depositInfo.wire?.accountNumber).toBe('8881539650');
   });
 });
