@@ -3,7 +3,7 @@
  * Ops marks fiat received manually (no provider deposit webhook).
  *
  * GBP / GHS / NGN: preferred first (skip orchestrator provision for now).
- *   NGN PalmPay is temporary — revert to Kuda pooled VAs when ready.
+ *   NGN Wema is temporary — revert to Kuda pooled VAs when ready.
  * USD: still try orchestrator first; use these only if provision fails.
  *
  * Each deposit gets a unique payment reference (from the onramp txnRef).
@@ -51,11 +51,12 @@ const STATIC: Record<
     routingNumber: 'INCEGHAC',
     country: 'GH',
   },
-  // TEMP: PalmPay pooled RA — remove when Kuda VAs are restored.
+  // TEMP: Wema pooled RA — remove when Kuda VAs are restored.
   NGN: {
-    bankName: 'PalmPay',
-    accountName: 'PALREMIT TECH LIMITED.',
-    accountNumber: '8881539650',
+    bankName: 'wema',
+    accountName: 'Palremit limited',
+    accountNumber: '7943896852',
+    routingNumber: '035',
     country: 'NG',
   },
 };

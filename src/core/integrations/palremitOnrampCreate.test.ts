@@ -294,8 +294,8 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  // TEMP: NGN uses preferred PalmPay static — restore Kuda pooled VA tests when removed.
-  it('prefers static NGN PalmPay account without calling provision', async () => {
+  // TEMP: NGN uses preferred Wema static — restore Kuda pooled VA tests when removed.
+  it('prefers static NGN Wema account without calling provision', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async () => {
       throw new Error('should not call liquidity for preferred NGN static');
     });
@@ -309,9 +309,9 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(request).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       depositInfo: {
-        bankName: 'PalmPay',
-        beneficiary: { name: 'PALREMIT TECH LIMITED.', country: 'NG' },
-        wire: { accountNumber: '8881539650', routingNumber: '' },
+        bankName: 'wema',
+        beneficiary: { name: 'Palremit limited', country: 'NG' },
+        wire: { accountNumber: '7943896852', routingNumber: '035' },
         reference: 'ON1234567890',
       },
       providerRefs: {

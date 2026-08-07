@@ -6,7 +6,7 @@
  * - named: VA / instructions under the user's or business name (KYC path).
  * - static: hardcoded platform receiving accounts (GBP / GHS / NGN preferred;
  *   USD on provision failure) — see staticDepositAccounts.ts.
- *   NGN PalmPay is temporary.
+ *   NGN Wema is temporary.
  */
 
 export type DepositAccountStyle = 'pooled' | 'named' | 'static';

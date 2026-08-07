@@ -104,7 +104,7 @@ describe('USD onramp account_reference', () => {
     expect(body.provider_extras).not.toHaveProperty('contact_email');
   });
 
-  // TEMP: NGN preferred PalmPay static skips provision (no account_reference path).
+  // TEMP: NGN preferred Wema static skips provision (no account_reference path).
   it('skips provision for preferred static NGN', async () => {
     const calls: { path: string; body: unknown }[] = [];
     const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
@@ -115,6 +115,6 @@ describe('USD onramp account_reference', () => {
     });
 
     expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.wire?.accountNumber).toBe('8881539650');
+    expect(result?.depositInfo.wire?.accountNumber).toBe('7943896852');
   });
 });

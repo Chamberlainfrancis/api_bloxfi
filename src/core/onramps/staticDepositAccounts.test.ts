@@ -51,7 +51,7 @@ describe('staticDepositAccounts', () => {
     expect(info?.instruction).toContain('Transfers without this narration cannot be matched');
   });
 
-  it('builds USD Cross River, GHS First Bank, and NGN PalmPay instructions', () => {
+  it('builds USD Cross River, GHS First Bank, and NGN Wema instructions', () => {
     const usd = buildStaticFallbackDepositInfo({
       currency: 'USD',
       amount: 500,
@@ -79,9 +79,9 @@ describe('staticDepositAccounts', () => {
       depositByIso: '2026-07-24T00:00:00.000Z',
     });
     expect(ngn).toMatchObject({
-      bankName: 'PalmPay',
-      beneficiary: { name: 'PALREMIT TECH LIMITED.', country: 'NG' },
-      wire: { accountNumber: '8881539650', routingNumber: '' },
+      bankName: 'wema',
+      beneficiary: { name: 'Palremit limited', country: 'NG' },
+      wire: { accountNumber: '7943896852', routingNumber: '035' },
       reference: 'ON-NGN',
     });
     expect(ngn?.instruction).toContain('transfer narration / description: ON-NGN');

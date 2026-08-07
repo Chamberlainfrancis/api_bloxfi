@@ -284,7 +284,7 @@ export async function createOnrampPalremitFiatDeposit(
   };
 
   // GBP / GHS / NGN: prefer platform receiving accounts for now (ops manual credit).
-  // NGN PalmPay is temporary — remove from preferred static when Kuda VAs return.
+  // NGN Wema is temporary — remove from preferred static when Kuda VAs return.
   // Skip orchestrator provision entirely so we always return bank details.
   if (isPreferredStaticDepositCurrency(asset)) {
     return fallback('preferred_static');
