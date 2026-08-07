@@ -1,8 +1,9 @@
 /**
- * Platform receiving accounts for GBP / USD / GHS onramps.
+ * Platform receiving accounts for GBP / USD / GHS / NGN onramps.
  * Ops marks fiat received manually (no provider deposit webhook).
  *
- * GBP / GHS: preferred first (skip orchestrator provision for now).
+ * GBP / GHS / NGN: preferred first (skip orchestrator provision for now).
+ *   NGN PalmPay is temporary — revert to Kuda pooled VAs when ready.
  * USD: still try orchestrator first; use these only if provision fails.
  *
  * Each deposit gets a unique payment reference (from the onramp txnRef).
@@ -12,7 +13,7 @@
 
 import type { DepositInfo } from '@/types/onramp';
 
-export type StaticDepositCurrency = 'GBP' | 'USD' | 'GHS';
+export type StaticDepositCurrency = 'GBP' | 'USD' | 'GHS' | 'NGN';
 
 const STATIC: Record<
   StaticDepositCurrency,
@@ -50,6 +51,13 @@ const STATIC: Record<
     routingNumber: 'INCEGHAC',
     country: 'GH',
   },
+  // TEMP: PalmPay pooled RA — remove when Kuda VAs are restored.
+  NGN: {
+    bankName: 'PalmPay',
+    accountName: 'PALREMIT TECH LIMITED.',
+    accountNumber: '8881539650',
+    country: 'NG',
+  },
 };
 
 /**
@@ -62,19 +70,19 @@ export function staticDepositNarrationRef(txnRef: string): string {
 
 function narrationLabel(asset: StaticDepositCurrency): string {
   if (asset === 'USD') return 'wire memo / narration';
-  if (asset === 'GHS') return 'transfer narration / description';
+  if (asset === 'GHS' || asset === 'NGN') return 'transfer narration / description';
   return 'payment narration / reference';
 }
 
 export function isStaticDepositCurrency(asset: string): asset is StaticDepositCurrency {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'USD' || a === 'GHS';
+  return a === 'GBP' || a === 'USD' || a === 'GHS' || a === 'NGN';
 }
 
 /** Currencies that should skip orchestrator and use platform accounts immediately. */
 export function isPreferredStaticDepositCurrency(asset: string): boolean {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'GHS';
+  return a === 'GBP' || a === 'GHS' || a === 'NGN';
 }
 
 export function buildStaticFallbackDepositInfo(params: {
