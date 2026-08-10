@@ -216,6 +216,14 @@ model Account {
   sourceOfFundsDocumentPath String?
   /** Onramp extras (e.g. Graph identity `documents`). */
   metadata           Json?
+  /** Graph (etc.) named-VA issuance: pending | active | failed. Onramp only. */
+  providerIssuanceStatus String?
+  /** Orchestrator provisioned-account id when issuance was started. */
+  provisionedAccountId   String?
+  /** Fiat deposit instructions once providerIssuanceStatus=active. */
+  depositDetails         Json?
+  /** Last issuance failure message when providerIssuanceStatus=failed. */
+  providerIssuanceFailureReason String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -224,6 +232,8 @@ model Account {
   @@index([userId, accountType])
   @@index([userId, currency])
   @@index([userId, createdAt])
+  @@index([provisionedAccountId])
+  @@index([providerIssuanceStatus])
 }
 
 // --- Feature 5: Onramp (spec §4) ---

@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/db/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import type { RailType } from "@/types/account";
 
 export interface CreateAccountData {
@@ -20,6 +21,10 @@ export interface CreateAccountData {
   sofQuestionnaire?: object | null;
   sourceOfFundsDocumentPath?: string | null;
   metadata?: object | null;
+  providerIssuanceStatus?: string | null;
+  provisionedAccountId?: string | null;
+  depositDetails?: object | null;
+  providerIssuanceFailureReason?: string | null;
 }
 
 export interface AccountRow {
@@ -37,6 +42,10 @@ export interface AccountRow {
   sofQuestionnaire: unknown;
   sourceOfFundsDocumentPath: string | null;
   metadata: unknown;
+  providerIssuanceStatus: string | null;
+  provisionedAccountId: string | null;
+  depositDetails: unknown;
+  providerIssuanceFailureReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,7 +66,56 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
       sofQuestionnaire: data.sofQuestionnaire != null ? (data.sofQuestionnaire as object) : undefined,
       sourceOfFundsDocumentPath: data.sourceOfFundsDocumentPath ?? undefined,
       metadata: data.metadata != null ? (data.metadata as object) : undefined,
+      providerIssuanceStatus: data.providerIssuanceStatus ?? undefined,
+      provisionedAccountId: data.provisionedAccountId ?? undefined,
+      depositDetails: data.depositDetails != null ? (data.depositDetails as object) : undefined,
+      providerIssuanceFailureReason: data.providerIssuanceFailureReason ?? undefined,
     },
+  });
+  return account as AccountRow;
+}
+
+export async function findAccountById(accountId: string): Promise<AccountRow | null> {
+  const account = await prisma.account.findUnique({ where: { id: accountId } });
+  return account as AccountRow | null;
+}
+
+export async function findAccountByProvisionedAccountId(
+  provisionedAccountId: string
+): Promise<AccountRow | null> {
+  const account = await prisma.account.findFirst({
+    where: { provisionedAccountId },
+  });
+  return account as AccountRow | null;
+}
+
+export async function updateAccountProviderIssuance(
+  accountId: string,
+  patch: {
+    providerIssuanceStatus: string;
+    provisionedAccountId?: string | null;
+    depositDetails?: object | null;
+    providerIssuanceFailureReason?: string | null;
+  }
+): Promise<AccountRow> {
+  const data: Prisma.AccountUpdateInput = {
+    providerIssuanceStatus: patch.providerIssuanceStatus,
+  };
+  if (patch.provisionedAccountId !== undefined) {
+    data.provisionedAccountId = patch.provisionedAccountId;
+  }
+  if (patch.depositDetails !== undefined) {
+    data.depositDetails =
+      patch.depositDetails === null
+        ? Prisma.DbNull
+        : (patch.depositDetails as Prisma.InputJsonValue);
+  }
+  if (patch.providerIssuanceFailureReason !== undefined) {
+    data.providerIssuanceFailureReason = patch.providerIssuanceFailureReason;
+  }
+  const account = await prisma.account.update({
+    where: { id: accountId },
+    data,
   });
   return account as AccountRow;
 }

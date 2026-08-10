@@ -11,6 +11,7 @@ import {
 } from '@/core/integrations/palremitLiquidity';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { DepositInfo } from '@/types/onramp';
+import type { AccountDepositDetails } from '@/types/account';
 import {
   buildStaticFallbackDepositInfo,
   isPreferredStaticDepositCurrency,
@@ -127,6 +128,36 @@ export function beneficiaryDisplayNameFromOnrampSource(
 }
 
 /** Map orchestrator `deposit_instructions` (fiat_account) → BloxFi DepositInfo. */
+/** Map Account.depositDetails (from Graph create-time issuance) onto onramp DepositInfo. */
+export function depositInfoFromAccountDepositDetails(
+  details: AccountDepositDetails,
+  bloxRequestId: string,
+  depositByIso: string,
+  sourceAmount: number,
+  sourceCurrencyUpper: string
+): DepositInfo {
+  const routing = details.routingNumber?.trim() ?? '';
+  const accountNumber = details.accountNumber.trim();
+  const ref =
+    (details.reference && details.reference.trim()) ||
+    [accountNumber, routing].filter(Boolean).join('-') ||
+    bloxRequestId;
+  return {
+    bankName: details.bankName || 'Bank',
+    beneficiary: {
+      name: details.accountHolderName || 'Beneficiary',
+      address: '',
+      ...(details.country ? { country: details.country } : {}),
+    },
+    ach: undefined,
+    wire: { routingNumber: routing, accountNumber },
+    pix: undefined,
+    reference: ref,
+    depositBy: depositByIso,
+    instruction: `Deposit ${sourceAmount} ${sourceCurrencyUpper} to the account above using reference ${ref} before ${depositByIso}. Crypto is sent after your fiat deposit is confirmed.`,
+  };
+}
+
 export function mapOrchestratorFiatInstructionsToDepositInfo(
   instructions: PalremitDepositInstructions,
   bloxRequestId: string,
@@ -271,10 +302,106 @@ export async function createOnrampPalremitFiatDeposit(
     graphKycInput?: Record<string, unknown>;
     /** Pin preferred_provider=graph + FIAT_DEPOSIT_KYC (Briana or metadata opt-in). */
     useGraphUsd?: boolean;
+    /**
+     * When Account already has Graph named-VA issuance from create time,
+     * reuse it instead of provisioning a second VA under the onramp txnRef.
+     */
+    existingGraphIssuance?: {
+      providerIssuanceStatus: string | null;
+      provisionedAccountId: string | null;
+      depositDetails: AccountDepositDetails | null;
+      providerIssuanceFailureReason?: string | null;
+    };
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
   const isGraphUsd = asset === 'USD' && params.useGraphUsd === true;
+
+  if (isGraphUsd && params.existingGraphIssuance) {
+    const issuance = params.existingGraphIssuance;
+    const status = (issuance.providerIssuanceStatus ?? '').toLowerCase();
+    if (status === 'failed') {
+      throw new Error(
+        issuance.providerIssuanceFailureReason?.trim() || 'PALREMIT_FIAT_DEPOSIT_FAILED'
+      );
+    }
+    if (status === 'active' && issuance.depositDetails?.accountNumber) {
+      return {
+        depositInfo: depositInfoFromAccountDepositDetails(
+          issuance.depositDetails,
+          params.bloxRequestId,
+          params.depositByIso,
+          params.amount,
+          asset
+        ),
+        providerRefs: {
+          palremitOrchestrator: {
+            provisionedAccountId: issuance.provisionedAccountId,
+            clientReference: params.accountReference ?? params.txnRef.trim(),
+            asset,
+            mode: 'FIAT_DEPOSIT_KYC',
+            providerName: 'graph',
+            depositAsset: asset,
+            withdrawalAsset: null,
+            network: null,
+            depositStatus: 'active',
+            withdrawalStatus: null,
+            reusedAccountIssuance: true,
+          },
+        },
+      };
+    }
+    if (status === 'pending' && issuance.provisionedAccountId) {
+      const polled = await pollProvisionedUntilInstructionsOrFailed(
+        liquidityRequest,
+        issuance.provisionedAccountId,
+        { maxAttempts: 20, delayMs: 2000 }
+      );
+      if (polled.failed || !polled.account?.deposit_instructions) {
+        throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
+      }
+      const instr = polled.account.deposit_instructions as PalremitDepositInstructions;
+      if (instr.kind !== 'fiat_account') {
+        throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
+      }
+      const preferredBeneficiaryName = preferredDepositBeneficiaryFallback({
+        currency: asset,
+        businessName: params.businessName,
+        firstName: params.firstName,
+        lastName: params.lastName,
+      });
+      return {
+        depositInfo: mapOrchestratorFiatInstructionsToDepositInfo(
+          instr,
+          params.bloxRequestId,
+          params.depositByIso,
+          params.amount,
+          asset,
+          preferredBeneficiaryName
+        ),
+        providerRefs: {
+          palremitOrchestrator: {
+            provisionedAccountId: issuance.provisionedAccountId,
+            clientReference: params.accountReference ?? params.txnRef.trim(),
+            asset,
+            mode: 'FIAT_DEPOSIT_KYC',
+            providerName:
+              typeof polled.account.provider_name === 'string'
+                ? polled.account.provider_name
+                : 'graph',
+            depositAsset: asset,
+            withdrawalAsset: null,
+            network: null,
+            depositStatus: polled.account.state,
+            withdrawalStatus: null,
+            reusedAccountIssuance: true,
+          },
+        },
+      };
+    }
+    // No usable create-time issuance yet — fall through to provision under txnRef
+    // (legacy Graph accounts created before account-create issuance).
+  }
 
   const fallback = (reason: string) => {
     // Graph path: never silent OwlPay/SwipeLux/static house fallback.

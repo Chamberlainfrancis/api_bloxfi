@@ -83,6 +83,18 @@ export interface RegionAccountDetails {
   bankName?: string | null;
 }
 
+export type ProviderIssuanceStatus = 'pending' | 'active' | 'failed';
+
+/** Stored Graph/orchestrator fiat deposit instructions on Account. */
+export interface AccountDepositDetails {
+  bankName: string;
+  accountNumber: string;
+  routingNumber: string;
+  accountHolderName: string;
+  reference: string | null;
+  country?: string;
+}
+
 export interface Account {
   id: string;
   userId: string;
@@ -105,6 +117,13 @@ export interface Account {
   sourceOfFundsDocumentPath?: string | null;
   /** Onramp extras (Graph identity documents, etc.). */
   metadata?: AccountMetadata | null;
+  /** Graph named-VA issuance status. Onramp only. */
+  providerIssuanceStatus?: ProviderIssuanceStatus | null;
+  /** Orchestrator provisioned-account id. */
+  provisionedAccountId?: string | null;
+  /** Fiat deposit instructions once issuance is active. */
+  depositDetails?: AccountDepositDetails | null;
+  providerIssuanceFailureReason?: string | null;
 }
 
 // --- Create Account (POST) ---
@@ -129,6 +148,10 @@ export interface CreateAccountResponse {
   id: string;
   /** Present when SwipeLux hosted KYC was started (no sumsubShareToken). */
   verificationUrl?: string;
+  providerIssuanceStatus?: ProviderIssuanceStatus | null;
+  provisionedAccountId?: string | null;
+  depositDetails?: AccountDepositDetails | null;
+  providerIssuanceFailureReason?: string | null;
 }
 
 // --- List Accounts (GET) ---

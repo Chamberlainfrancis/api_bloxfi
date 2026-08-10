@@ -27,7 +27,7 @@ import {
   GraphOnrampKycError,
 } from '@/core/integrations/graphOnrampKyc';
 import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
-import type { AccountMetadata } from '@/types/account';
+import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
 
 const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
@@ -83,6 +83,13 @@ export interface CreateOnrampOptions {
     graphKycInput?: Record<string, unknown>;
     /** Pin Graph USD named deposit path. */
     useGraphUsd?: boolean;
+    /** Reuse Graph VA issued at Account create time when present. */
+    existingGraphIssuance?: {
+      providerIssuanceStatus: string | null;
+      provisionedAccountId: string | null;
+      depositDetails: AccountDepositDetails | null;
+      providerIssuanceFailureReason?: string | null;
+    };
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
   /**
    * Onramp Account rows for the user, used to infer `account_reference`
@@ -96,6 +103,10 @@ export interface CreateOnrampOptions {
       swipeluxCustomerId: string | null;
       sofQuestionnaire?: unknown;
       metadata?: unknown;
+      providerIssuanceStatus?: string | null;
+      provisionedAccountId?: string | null;
+      depositDetails?: unknown;
+      providerIssuanceFailureReason?: string | null;
     }[]
   >;
   /**
@@ -434,7 +445,7 @@ export async function createOnramp(
 
   // Prefer explicit Prisma Account.id (source.accountId). Otherwise infer —
   // inconclusive inference is left unset for non-Graph (per-business path).
-  // Graph USD requires a resolved Account for individual KYC.
+  // Graph USD requires a resolved Account for named-VA reuse / individual KYC.
   const onrampAccounts = options.listOnrampAccounts
     ? await options.listOnrampAccounts(userId)
     : [];
@@ -487,6 +498,14 @@ export async function createOnramp(
     isGraphUsdBusiness(userId, user.metadata);
 
   let graphKycInput: Record<string, unknown> | undefined;
+  let existingGraphIssuance:
+    | {
+        providerIssuanceStatus: string | null;
+        provisionedAccountId: string | null;
+        depositDetails: AccountDepositDetails | null;
+        providerIssuanceFailureReason?: string | null;
+      }
+    | undefined;
   if (useGraphUsd) {
     if (inferred.kind !== 'resolved') {
       throw new GraphOnrampKycError([
@@ -500,11 +519,30 @@ export async function createOnramp(
       throw new GraphOnrampKycError(['source.accountId']);
     }
     const meta = accountRow.metadata as AccountMetadata | null | undefined;
-    graphKycInput = buildGraphIndividualKycInput({
-      accountHolder: accountRow.accountHolder,
-      sofQuestionnaire: accountRow.sofQuestionnaire,
-      documents: meta?.documents,
-    });
+    const details =
+      accountRow.depositDetails != null &&
+      typeof accountRow.depositDetails === 'object' &&
+      !Array.isArray(accountRow.depositDetails)
+        ? (accountRow.depositDetails as AccountDepositDetails)
+        : null;
+    existingGraphIssuance = {
+      providerIssuanceStatus: accountRow.providerIssuanceStatus ?? null,
+      provisionedAccountId: accountRow.provisionedAccountId ?? null,
+      depositDetails: details,
+      providerIssuanceFailureReason: accountRow.providerIssuanceFailureReason ?? null,
+    };
+    // Only build KYC when we still need a fresh Graph provision (legacy accounts).
+    const issuanceStatus = (existingGraphIssuance.providerIssuanceStatus ?? '').toLowerCase();
+    if (
+      issuanceStatus !== 'active' &&
+      !(issuanceStatus === 'pending' && existingGraphIssuance.provisionedAccountId)
+    ) {
+      graphKycInput = buildGraphIndividualKycInput({
+        accountHolder: accountRow.accountHolder,
+        sofQuestionnaire: accountRow.sofQuestionnaire,
+        documents: meta?.documents,
+      });
+    }
   }
 
   const sourcePayload: OnrampSource = {
@@ -531,7 +569,7 @@ export async function createOnramp(
     businessName: userDisplayInfo.businessName,
     ...accountFields,
     ...(useGraphUsd
-      ? { useGraphUsd: true, graphKycInput }
+      ? { useGraphUsd: true, graphKycInput, existingGraphIssuance }
       : {}),
   });
   if (!fiatResult) {

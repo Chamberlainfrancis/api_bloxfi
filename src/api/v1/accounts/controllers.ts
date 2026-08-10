@@ -13,6 +13,7 @@ import * as userRepo from "@/db/repositories/user.repo";
 import type { CreateAccountRequest } from "@/types/account";
 import { createAccountBodySchema, listAccountsQuerySchema, updateAccountBodySchema } from "@/api/v1/accounts/schemas";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
+import { GraphOnrampKycError } from "@/core/integrations/graphOnrampKyc";
 import { importSwipeluxBeneficiaryKyc } from "@/core/integrations/palremitSwipeluxKycImport";
 
 const REQUEST_ID_HEADER = "requestid";
@@ -28,6 +29,7 @@ const repos = {
     findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser,
     findByCreationRequestId: accountRepo.findAccountByCreationRequestId,
     updateKycImport: accountRepo.updateAccountKycImport,
+    updateProviderIssuance: accountRepo.updateAccountProviderIssuance,
     listAccounts: accountRepo.listAccounts,
     deleteAccount: accountRepo.deleteAccount,
     hasPendingTransactions: accountRepo.hasPendingTransactions,
@@ -105,6 +107,15 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
     }
     if (e instanceof Error && e.message === "PALREMIT_SWIPELUX_KYC_IMPORT_PERMANENT") {
       next(new AppError("Beneficiary KYC import rejected", "UNPROCESSABLE_ENTITY", 422));
+      return;
+    }
+    if (e instanceof GraphOnrampKycError) {
+      next(
+        new AppError(e.message, "UNPROCESSABLE_ENTITY", 422, {
+          missingFields: e.missingFields,
+          code: e.code,
+        })
+      );
       return;
     }
     next(e);

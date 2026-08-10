@@ -1,7 +1,7 @@
 /**
  * Core: create fiat account. Offramp: payout bank account via Palremit corridor + destination
- * (Spec §3.1). Onramp: store account; optionally SwipeLux KYC via Sumsub share-token import
- * or hosted KYC URL when `swipeluxBeneficiaryKycImport` is enabled.
+ * (Spec §3.1). Onramp: store account; Graph named-VA issuance when eligible; optionally
+ * SwipeLux KYC import when `swipeluxBeneficiaryKycImport` is enabled (non-Graph).
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
@@ -9,18 +9,28 @@ import {
   buildValidatedProviderPayout,
   rethrowPalremitCorridorError,
 } from '@/core/accounts/providerPayoutBuild';
+import { issueGraphNamedDepositAccount } from '@/core/accounts/graphAccountIssuance';
 import { isSwipeluxBeneficiaryKycImportEnabled } from '@/core/beneficiaries/flag';
 import {
   copyRemoteDocumentToS3,
   RemoteDocumentError,
 } from '@/core/files/copyRemoteDocument';
+import { buildGraphIndividualKycInput } from '@/core/integrations/graphOnrampKyc';
+import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
-import type { findAccountByCreationRequestId, updateAccountKycImport } from '@/db/repositories/account.repo';
+import type {
+  findAccountByCreationRequestId,
+  updateAccountKycImport,
+  updateAccountProviderIssuance,
+} from '@/db/repositories/account.repo';
 import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 import type {
+  AccountDepositDetails,
+  AccountMetadata,
   CreateAccountRequest,
   CreateAccountResponse,
+  ProviderIssuanceStatus,
   RailType,
 } from '@/types/account';
 
@@ -36,6 +46,29 @@ function resolveSourceOfFundsDocumentUrl(data: CreateAccountRequest): string {
   const nested = data.sofQuestionnaire?.sourceOfFundsDocument;
   if (typeof nested === 'string' && nested.trim()) return nested.trim();
   throw new Error('INVALID_ACCOUNT: sourceOfFundsDocument URL is required');
+}
+
+function issuanceResponseFields(row: {
+  providerIssuanceStatus?: string | null;
+  provisionedAccountId?: string | null;
+  depositDetails?: unknown;
+  providerIssuanceFailureReason?: string | null;
+}): Partial<
+  Pick<
+    CreateAccountResponse,
+    | 'providerIssuanceStatus'
+    | 'provisionedAccountId'
+    | 'depositDetails'
+    | 'providerIssuanceFailureReason'
+  >
+> {
+  if (row.providerIssuanceStatus == null) return {};
+  return {
+    providerIssuanceStatus: row.providerIssuanceStatus as ProviderIssuanceStatus,
+    provisionedAccountId: row.provisionedAccountId ?? null,
+    depositDetails: (row.depositDetails as AccountDepositDetails | null) ?? null,
+    providerIssuanceFailureReason: row.providerIssuanceFailureReason ?? null,
+  };
 }
 
 export interface AccountRepoCreate {
@@ -68,9 +101,14 @@ export interface AccountRepoCreate {
     sofQuestionnaire?: unknown;
     sourceOfFundsDocumentPath?: string | null;
     metadata?: unknown;
+    providerIssuanceStatus?: string | null;
+    provisionedAccountId?: string | null;
+    depositDetails?: unknown;
+    providerIssuanceFailureReason?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
+  updateProviderIssuance: typeof updateAccountProviderIssuance;
 }
 
 export interface UserRepoForAccount {
@@ -110,9 +148,21 @@ export async function createAccount(
     if (data.accountHolder.type !== 'individual') {
       throw new Error('INVALID_ACCOUNT: onramp accounts support customer_type individual only in v1');
     }
-    const kycImportEnabled = isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
+    const useGraph =
+      data.type.trim().toLowerCase() === 'usd' && isGraphUsdBusiness(userId, user.metadata);
+    const kycImportEnabled =
+      !useGraph && isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
     if (kycImportEnabled && !data.accountHolder.taxId?.trim()) {
       throw new Error('INVALID_ACCOUNT: taxId is required when beneficiary KYC import is enabled');
+    }
+
+    // Fail closed before persist when Graph KYC is incomplete.
+    if (useGraph) {
+      buildGraphIndividualKycInput({
+        accountHolder: data.accountHolder,
+        sofQuestionnaire: data.sofQuestionnaire,
+        documents: data.metadata?.documents,
+      });
     }
 
     const existing = await accountRepo.findByCreationRequestId(options.requestId);
@@ -126,7 +176,12 @@ export async function createAccount(
           'requestId was already used to create an onramp account with different data'
         );
       }
-      return { status: 'ACTIVE', message: 'Account already exists', id: existing.id }; // soft replay, no re-import
+      return {
+        status: 'ACTIVE',
+        message: 'Account already exists',
+        id: existing.id,
+        ...issuanceResponseFields(existing),
+      };
     }
 
     const documentUrl = resolveSourceOfFundsDocumentUrl(data);
@@ -171,7 +226,34 @@ export async function createAccount(
           'requestId was already used to create an onramp account with different data'
         );
       }
-      return { status: 'ACTIVE', message: 'Account already exists', id: raced.id };
+      return {
+        status: 'ACTIVE',
+        message: 'Account already exists',
+        id: raced.id,
+        ...issuanceResponseFields(raced),
+      };
+    }
+
+    if (useGraph) {
+      const issued = await issueGraphNamedDepositAccount(options.palremitLiquidityRequest, {
+        id: created.id,
+        userId,
+        accountHolder: data.accountHolder,
+        sofQuestionnaire: data.sofQuestionnaire,
+        metadata: data.metadata as AccountMetadata | undefined,
+      });
+      const updated = await accountRepo.updateProviderIssuance(created.id, {
+        providerIssuanceStatus: issued.providerIssuanceStatus,
+        provisionedAccountId: issued.provisionedAccountId,
+        depositDetails: issued.depositDetails,
+        providerIssuanceFailureReason: issued.providerIssuanceFailureReason,
+      });
+      return {
+        status: 'ACTIVE',
+        message: 'Account created successfully',
+        id: created.id,
+        ...issuanceResponseFields(updated),
+      };
     }
 
     // Flag off: persist account only — no Sumsub share-token / SwipeLux KYC.

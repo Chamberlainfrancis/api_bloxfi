@@ -38,6 +38,10 @@ const webhookRepos = {
     updateUser: userRepo.updateUser,
     updateKybRailStatuses: userRepo.updateKybRailStatuses,
   },
+  account: {
+    findAccountById: accountRepo.findAccountById,
+    updateProviderIssuance: accountRepo.updateAccountProviderIssuance,
+  },
   onramp: {
     findOnrampById: onrampRepo.findOnrampById,
     findOnrampByTxnRef: onrampRepo.findOnrampByTxnRef,

@@ -193,6 +193,62 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it('reuses active Account Graph depositDetails without provisioning again', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity when Account issuance is active');
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      businessReference: BRIANA_BUSINESS_REFERENCE,
+      accountReference: 'acc-uuid-1',
+      useGraphUsd: true,
+      existingGraphIssuance: {
+        providerIssuanceStatus: 'active',
+        provisionedAccountId: 'prov-reuse-1',
+        depositDetails: {
+          bankName: 'Oval Bank',
+          accountNumber: '9992740191426913',
+          routingNumber: '084106768',
+          accountHolderName: 'Gilles Eykelberg',
+          reference: 'GRAPH-REUSE',
+          country: 'US',
+        },
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result?.depositInfo.wire?.accountNumber).toBe('9992740191426913');
+    expect(result?.depositInfo.reference).toBe('GRAPH-REUSE');
+    expect(
+      (result?.providerRefs.palremitOrchestrator as { reusedAccountIssuance?: boolean })
+        ?.reusedAccountIssuance
+    ).toBe(true);
+  });
+
+  it('fails closed when Account Graph issuance already failed', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not provision after failed Account issuance');
+    });
+
+    await expect(
+      createOnrampPalremitFiatDeposit(request, {
+        ...baseParams,
+        currency: 'USD',
+        useGraphUsd: true,
+        existingGraphIssuance: {
+          providerIssuanceStatus: 'failed',
+          provisionedAccountId: 'prov-fail-1',
+          depositDetails: null,
+          providerIssuanceFailureReason: 'GRAPH_PROVISION_STATE_FAILED',
+        },
+      })
+    ).rejects.toThrow('GRAPH_PROVISION_STATE_FAILED');
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('does not static-fallback Briana USD when orchestrator provision fails', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async () => {
       const err = new Error('HTTP 500') as Error & { status: number };

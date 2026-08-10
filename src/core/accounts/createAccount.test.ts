@@ -14,6 +14,9 @@ vi.mock('@/core/files/copyRemoteDocument', () => ({
 
 import { createAccount } from '@/core/accounts/createAccount';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
+import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
+import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
+import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 
 const corridor = {
   asset: 'AED',
@@ -77,6 +80,7 @@ function makeOfframpDeps(overrides: { userMetadata?: unknown } = {}) {
     createAccount: vi.fn().mockResolvedValue(offrampAccountRow),
     findByCreationRequestId: vi.fn().mockResolvedValue(null),
     updateKycImport: vi.fn(),
+    updateProviderIssuance: vi.fn(),
   };
   const userRepo = {
     findUserById: vi.fn().mockResolvedValue({
@@ -145,6 +149,10 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
     createAccount: vi.fn().mockResolvedValue(onrampAccountRow),
     findByCreationRequestId: vi.fn().mockResolvedValue(null),
     updateKycImport: vi.fn().mockResolvedValue(onrampAccountRow),
+    updateProviderIssuance: vi.fn().mockImplementation(async (_id: string, patch: object) => ({
+      ...onrampAccountRow,
+      ...patch,
+    })),
   };
   const userRepo = {
     findUserById: vi.fn().mockResolvedValue({
@@ -523,6 +531,124 @@ describe('createAccount — onramp', () => {
 
     logSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it('provisions Graph named VA for USD Briana accounts and skips SwipeLux import', async () => {
+    const { accountRepo, userRepo, kybRepo, importKyc, copySourceOfFundsDocument } = makeOnrampDeps(null);
+    userRepo.findUserById.mockResolvedValue({
+      id: BRIANA_BUSINESS_REFERENCE,
+      kybStatus: 'approved',
+      metadata: null,
+    });
+    const provisionCalls: { path: string; body?: Record<string, unknown> }[] = [];
+    const liquidityRequest: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
+      provisionCalls.push({ path, body: options?.body as Record<string, unknown> | undefined });
+      if (path === '/v1/provisioned-accounts') {
+        return {
+          status: 201,
+          data: {
+            id: 'prov-graph-1',
+            state: 'active',
+            provider_name: 'graph',
+            deposit_instructions: {
+              kind: 'fiat_account',
+              account_number: '9992740191426913',
+              bank_code: '084106768',
+              bank_name: 'Oval Bank',
+              account_holder_name: 'Gilles Eykelberg',
+              reference: 'GRAPH-1',
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
+    }) as unknown as PalremitLiquidityRequestFn;
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      BRIANA_BUSINESS_REFERENCE,
+      onrampCreateBody({
+        type: 'usd',
+        sumsubShareToken: undefined,
+        accountHolder: {
+          ...onrampAccountHolder,
+          dateOfBirth: '1989-01-16',
+          idType: 'passport',
+          idNumber: 'A12345678',
+          idCountry: 'BE',
+          address: {
+            addressLine1: '1 Main St',
+            city: 'Brussels',
+            stateProvinceRegion: 'BRU',
+            postalCode: '1000',
+            country: 'BE',
+          },
+        },
+        sofQuestionnaire: {
+          ...onrampSofQuestionnaire,
+          mostRecentOccupation: 'Engineer',
+        },
+        metadata: {
+          documents: [{ type: 'passport', url: 'https://cdn.example.com/passport.png' }],
+        },
+      }),
+      {
+        palremitLiquidityRequest: liquidityRequest,
+        requestId: 'req-graph-1',
+        importKyc,
+        copySourceOfFundsDocument,
+      }
+    );
+
+    expect(importKyc).not.toHaveBeenCalled();
+    expect(accountRepo.updateProviderIssuance).toHaveBeenCalledWith(
+      'acc-onramp-1',
+      expect.objectContaining({
+        providerIssuanceStatus: 'active',
+        provisionedAccountId: 'prov-graph-1',
+      })
+    );
+    expect(result.providerIssuanceStatus).toBe('active');
+    expect(result.depositDetails?.accountNumber).toBe('9992740191426913');
+    expect(provisionCalls[0]?.body?.client_reference).toBe('acc-onramp-1');
+    expect(provisionCalls[0]?.body?.preferred_provider).toBe('graph');
+  });
+
+  it('rejects Graph USD create when KYC documents are incomplete before persist', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps({ graphUsdNamedDeposits: true });
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        onrampCreateBody({
+          type: 'usd',
+          sumsubShareToken: undefined,
+          accountHolder: {
+            type: 'individual',
+            name: 'Ada Lovelace',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            email: 'ada@example.com',
+            phone: '+15551234567',
+          },
+        }),
+        {
+          palremitLiquidityRequest: liquidityRequest,
+          requestId: 'req-graph-bad',
+          importKyc,
+          copySourceOfFundsDocument,
+        }
+      )
+    ).rejects.toThrow(GraphOnrampKycError);
+
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(copySourceOfFundsDocument).not.toHaveBeenCalled();
   });
 });
 

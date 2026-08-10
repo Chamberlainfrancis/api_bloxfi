@@ -9,6 +9,7 @@ import type { OnrampStatus } from '@/types/onramp';
 import type { OfframpStatus } from '@/types/offramp';
 import type { KYBStatus } from '@/types/user';
 import type { HighValueRequestStatus } from '@/types/limits';
+import type { AccountDepositDetails, ProviderIssuanceStatus } from '@/types/account';
 import { isOnrampTxnRef, isOfframpTxnRef, parseOfframpFeeClientReference } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
 import {
@@ -17,12 +18,20 @@ import {
 } from '@/core/integrations/palremitOnramp';
 import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/palremitOfframp';
 import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
+import { depositDetailsFromInstructions } from '@/core/accounts/graphAccountIssuance';
 import {
   expectedOfframpCryptoAmount,
   isOfframpCryptoDepositComplete,
   parseDepositWebhookAmount,
   priorCryptoReceivedAmount,
 } from '@/core/offramps/offrampDepositAmount';
+
+const ACCOUNT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isAccountUuidClientRef(ref: string): boolean {
+  return ACCOUNT_UUID_RE.test(ref);
+}
 
 export interface WebhookRepos {
   user: {
@@ -35,6 +44,24 @@ export interface WebhookRepos {
       userId: string,
       updates: { rail: string; status: string; approvedAt?: Date }[]
     ): Promise<void>;
+  };
+  account?: {
+    findAccountById(id: string): Promise<{
+      id: string;
+      userId: string;
+      railType: string;
+      provisionedAccountId: string | null;
+      providerIssuanceStatus: string | null;
+    } | null>;
+    updateProviderIssuance(
+      accountId: string,
+      patch: {
+        providerIssuanceStatus: string;
+        provisionedAccountId?: string | null;
+        depositDetails?: object | null;
+        providerIssuanceFailureReason?: string | null;
+      }
+    ): Promise<unknown>;
   };
   onramp: {
     findOnrampById(id: string): Promise<{ id: string; status?: string } | null>;
@@ -152,6 +179,50 @@ function withdrawalClientReference(
     typeof withdrawal.client_reference === 'string' ? withdrawal.client_reference.trim() : '';
   if (fromWithdrawal) return fromWithdrawal;
   return typeof data.client_reference === 'string' ? data.client_reference.trim() : '';
+}
+
+async function applyFiatDepositAccountIssuanceWebhook(
+  repos: WebhookRepos,
+  params: {
+    clientRef: string;
+    provisionedAccountId: string;
+    mode: string;
+    status: ProviderIssuanceStatus;
+    instructions?: PalremitDepositInstructions | null;
+    failureReason?: string | null;
+  }
+): Promise<boolean> {
+  if (!repos.account) return false;
+  if (!params.mode.startsWith('FIAT_DEPOSIT')) return false;
+  if (!isAccountUuidClientRef(params.clientRef)) return false;
+
+  const row = await repos.account.findAccountById(params.clientRef);
+  if (!row || row.railType !== 'onramp') return false;
+  if (
+    row.provisionedAccountId &&
+    row.provisionedAccountId.trim() !== params.provisionedAccountId
+  ) {
+    return false;
+  }
+
+  let depositDetails: AccountDepositDetails | null = null;
+  if (params.status === 'active' && params.instructions) {
+    depositDetails = depositDetailsFromInstructions(params.instructions);
+    if (!depositDetails) return false;
+  }
+
+  await repos.account.updateProviderIssuance(row.id, {
+    providerIssuanceStatus: params.status,
+    provisionedAccountId: params.provisionedAccountId,
+    ...(params.status === 'active' ? { depositDetails, providerIssuanceFailureReason: null } : {}),
+    ...(params.status === 'failed'
+      ? {
+          providerIssuanceFailureReason: params.failureReason ?? 'PALREMIT_PROVISION_FAILED',
+        }
+      : {}),
+    ...(params.status === 'pending' ? { providerIssuanceFailureReason: null } : {}),
+  });
+  return true;
 }
 
 /**
@@ -603,6 +674,18 @@ export async function processWebhookEvent(
         break;
       }
 
+      if (
+        await applyFiatDepositAccountIssuanceWebhook(repos, {
+          clientRef,
+          provisionedAccountId: accId,
+          mode,
+          status: 'active',
+          instructions,
+        })
+      ) {
+        break;
+      }
+
       if (isOfframpTxnRef(clientRef) && mode === 'CRYPTO_DEPOSIT') {
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
@@ -679,6 +762,17 @@ export async function processWebhookEvent(
         break;
       }
 
+      if (
+        await applyFiatDepositAccountIssuanceWebhook(repos, {
+          clientRef,
+          provisionedAccountId: accId,
+          mode,
+          status: 'pending',
+        })
+      ) {
+        break;
+      }
+
       if (isOfframpTxnRef(clientRef) && mode === 'CRYPTO_DEPOSIT') {
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
@@ -738,6 +832,18 @@ export async function processWebhookEvent(
             },
           },
         });
+        break;
+      }
+
+      if (
+        await applyFiatDepositAccountIssuanceWebhook(repos, {
+          clientRef,
+          provisionedAccountId: accId,
+          mode,
+          status: 'failed',
+          failureReason: msg,
+        })
+      ) {
         break;
       }
 

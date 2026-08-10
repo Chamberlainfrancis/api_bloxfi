@@ -10,8 +10,10 @@ import {
 } from '@/core/accounts/providerPayoutHelpers';
 import type {
   Account,
+  AccountDepositDetails,
   AccountHolder,
   AccountMetadata,
+  ProviderIssuanceStatus,
   ProviderPayout,
   RailType,
 } from '@/types/account';
@@ -32,6 +34,10 @@ export interface AccountRowLike {
   sofQuestionnaire?: unknown;
   sourceOfFundsDocumentPath?: string | null;
   metadata?: unknown;
+  providerIssuanceStatus?: string | null;
+  provisionedAccountId?: string | null;
+  depositDetails?: unknown;
+  providerIssuanceFailureReason?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -59,6 +65,10 @@ export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean
       sofQuestionnaire: (row.sofQuestionnaire as Record<string, unknown> | null) ?? null,
       sourceOfFundsDocumentPath: row.sourceOfFundsDocumentPath ?? null,
       metadata: (row.metadata as AccountMetadata | null) ?? null,
+      providerIssuanceStatus: (row.providerIssuanceStatus as ProviderIssuanceStatus | null) ?? null,
+      provisionedAccountId: row.provisionedAccountId ?? null,
+      depositDetails: (row.depositDetails as AccountDepositDetails | null) ?? null,
+      providerIssuanceFailureReason: row.providerIssuanceFailureReason ?? null,
     };
   }
 
