@@ -1,7 +1,7 @@
 /**
  * Zod schemas for Account endpoints. Spec §3.
  * Offramp accounts are created via Palremit corridor discovery: `corridor` + `destination` (snake_case).
- * Onramp accounts are created via Sumsub share-token KYC import (`sumsubShareToken`), plus SOF questionnaire.
+ * Onramp accounts: SOF questionnaire + optional `sumsubShareToken` (SwipeLux KYC when flag enabled).
  */
 
 import { z } from 'zod';
@@ -82,13 +82,8 @@ export const createAccountBodySchema = z
           message: 'taxId is required for rail=onramp',
         });
       }
-      if (!data.sumsubShareToken) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['sumsubShareToken'],
-          message: 'sumsubShareToken is required for rail=onramp',
-        });
-      }
+      // sumsubShareToken is optional: omit when swipeluxBeneficiaryKycImport is off
+      // (no SwipeLux KYC) or when using hosted KYC (flag on, no share token).
       if (!data.sofQuestionnaire) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

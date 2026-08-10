@@ -103,12 +103,12 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(true);
   });
 
-  it('rejects onramp body missing sumsubShareToken', () => {
+  it('accepts onramp body missing sumsubShareToken', () => {
     const r = createAccountBodySchema.safeParse({
       ...onrampBase,
       sumsubShareToken: undefined,
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
   });
 
   it('rejects onramp body missing sofQuestionnaire', () => {

@@ -159,7 +159,7 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
   const liquidityRequest = vi.fn();
   const importKyc = vi.fn().mockResolvedValue({
     ok: true,
-    value: { channel_customer_id: 'cus_123', status: 'approved' },
+    value: { channel_customer_id: 'cus_123', status: 'approved', verification_url: null },
   });
   const copySourceOfFundsDocument = vi.fn().mockResolvedValue({
     storagePath: 'uploads/DOC-sof.pdf',
@@ -170,21 +170,32 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
 }
 
 describe('createAccount — onramp', () => {
-  it('rejects onramp create when flag is false', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps(null);
+  it('creates onramp account without SwipeLux KYC when flag is false', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps(null);
+    const { sumsubShareToken: _omit, ...bodyWithoutToken } = onrampCreateBody();
 
-    await expect(
-      createAccount(
-        accountRepo,
-        userRepo,
-        kybRepo,
-        'user-1',
-        onrampCreateBody(),
-        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
-      )
-    ).rejects.toThrow('SWIPELUX_BENEFICIARY_KYC_IMPORT_DISABLED');
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      bodyWithoutToken,
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
+    );
 
-    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account created successfully',
+      id: 'acc-onramp-1',
+    });
+    expect(accountRepo.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        railType: 'onramp',
+        kycImportStatus: null,
+        creationRequestId: 'req-1',
+      })
+    );
     expect(importKyc).not.toHaveBeenCalled();
   });
 
@@ -253,6 +264,41 @@ describe('createAccount — onramp', () => {
     expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
       kycImportStatus: 'approved',
       swipeluxCustomerId: 'cus_123',
+    });
+  });
+
+  it('omits sumsubShareToken to start hosted KYC when flag true', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps();
+    importKyc.mockResolvedValue({
+      ok: true,
+      value: {
+        channel_customer_id: 'cus_hosted',
+        status: 'pending',
+        verification_url: 'https://sumsub.example/verify/xyz',
+      },
+    });
+    const { sumsubShareToken: _omit, ...bodyWithoutToken } = onrampCreateBody();
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      bodyWithoutToken,
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-hosted', importKyc, copySourceOfFundsDocument }
+    );
+
+    expect(result).toEqual({
+      status: 'ACTIVE',
+      message: 'Account created successfully',
+      id: 'acc-onramp-1',
+      verificationUrl: 'https://sumsub.example/verify/xyz',
+    });
+    expect(importKyc.mock.calls[0]?.[1]).not.toHaveProperty('importToken');
+    expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
+      kycImportStatus: 'pending_import',
+      swipeluxCustomerId: 'cus_hosted',
     });
   });
 
