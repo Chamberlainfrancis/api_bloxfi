@@ -24,53 +24,12 @@ describe('importSwipeluxBeneficiaryKyc', () => {
     if (result.ok) {
       expect(result.value.channel_customer_id).toBe('cus_1');
       expect(result.value.status).toBe('approved');
-      expect(result.value.verification_url).toBeNull();
     }
     expect(request).toHaveBeenCalledWith('/v1/integrations/swipelux/kyc-import', {
       method: 'POST',
       body: {
         client_reference: 'ben-1',
         import_token: 'tok_secret',
-        kyc_input: {
-          customer_type: 'individual',
-          email: 'a@b.com',
-          first_name: 'Ada',
-          last_name: 'Lovelace',
-          phone: '+15555550100',
-        },
-      },
-    });
-  });
-
-  it('omits import_token when starting hosted KYC and returns verification_url', async () => {
-    const request = vi.fn().mockResolvedValue({
-      status: 200,
-      data: {
-        channel_customer_id: 'cus_1',
-        status: 'pending',
-        verification_url: 'https://sumsub.example/verify/abc',
-      },
-    });
-
-    const result = await importSwipeluxBeneficiaryKyc(request, {
-      clientReference: 'ben-1',
-      kycInput: {
-        customer_type: 'individual',
-        email: 'a@b.com',
-        first_name: 'Ada',
-        last_name: 'Lovelace',
-        phone: '+15555550100',
-      },
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.verification_url).toBe('https://sumsub.example/verify/abc');
-    }
-    expect(request).toHaveBeenCalledWith('/v1/integrations/swipelux/kyc-import', {
-      method: 'POST',
-      body: {
-        client_reference: 'ben-1',
         kyc_input: {
           customer_type: 'individual',
           email: 'a@b.com',

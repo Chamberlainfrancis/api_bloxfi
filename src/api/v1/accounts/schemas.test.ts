@@ -103,12 +103,12 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(true);
   });
 
-  it('accepts onramp body without sumsubShareToken (hosted KYC)', () => {
+  it('rejects onramp body missing sumsubShareToken', () => {
     const r = createAccountBodySchema.safeParse({
       ...onrampBase,
       sumsubShareToken: undefined,
     });
-    expect(r.success).toBe(true);
+    expect(r.success).toBe(false);
   });
 
   it('rejects onramp body missing sofQuestionnaire', () => {

@@ -93,8 +93,6 @@ export interface CreateAccountResponse {
   status: 'ACTIVE';
   message: string;
   id: string;
-  /** Hosted SwipeLux KYC URL when sumsubShareToken was omitted. */
-  verificationUrl?: string | null;
 }
 
 // --- List Accounts (GET) ---

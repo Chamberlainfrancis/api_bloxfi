@@ -159,7 +159,7 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
   const liquidityRequest = vi.fn();
   const importKyc = vi.fn().mockResolvedValue({
     ok: true,
-    value: { channel_customer_id: 'cus_123', status: 'approved', verification_url: null },
+    value: { channel_customer_id: 'cus_123', status: 'approved' },
   });
   const copySourceOfFundsDocument = vi.fn().mockResolvedValue({
     storagePath: 'uploads/DOC-sof.pdf',
@@ -253,48 +253,6 @@ describe('createAccount — onramp', () => {
     expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
       kycImportStatus: 'approved',
       swipeluxCustomerId: 'cus_123',
-    });
-  });
-
-  it('omits sumsubShareToken to start hosted KYC and returns verificationUrl', async () => {
-    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
-      makeOnrampDeps();
-    importKyc.mockResolvedValue({
-      ok: true,
-      value: {
-        channel_customer_id: 'cus_hosted',
-        status: 'pending',
-        verification_url: 'https://sumsub.example/verify/xyz',
-      },
-    });
-
-    const { sumsubShareToken: _omit, ...bodyWithoutToken } = onrampCreateBody();
-    const result = await createAccount(
-      accountRepo,
-      userRepo,
-      kybRepo,
-      'user-1',
-      bodyWithoutToken,
-      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-hosted', importKyc, copySourceOfFundsDocument }
-    );
-
-    expect(result).toEqual({
-      status: 'ACTIVE',
-      message: 'Account created successfully',
-      id: 'acc-onramp-1',
-      verificationUrl: 'https://sumsub.example/verify/xyz',
-    });
-    expect(importKyc).toHaveBeenCalledWith(
-      liquidityRequest,
-      expect.objectContaining({
-        clientReference: 'acc-onramp-1',
-        kycInput: expect.objectContaining({ customer_type: 'individual' }),
-      })
-    );
-    expect(importKyc.mock.calls[0]?.[1]).not.toHaveProperty('importToken');
-    expect(accountRepo.updateKycImport).toHaveBeenCalledWith('acc-onramp-1', {
-      kycImportStatus: 'pending_import',
-      swipeluxCustomerId: 'cus_hosted',
     });
   });
 

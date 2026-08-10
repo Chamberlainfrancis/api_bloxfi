@@ -1,7 +1,6 @@
 /**
  * Palremit Liquidity — POST /v1/integrations/swipelux/kyc-import
- * Share-token import when importToken is set; hosted KYC when omitted.
- * Never logs the import token.
+ * (Sumsub share-token beneficiary KYC). Never logs the import token.
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
@@ -28,7 +27,6 @@ export interface SwipeluxBeneficiaryKycInput {
 export interface SwipeluxKycImportSuccess {
   channel_customer_id: string;
   status: string;
-  verification_url: string | null;
 }
 
 export type SwipeluxKycImportResult =
@@ -39,28 +37,21 @@ export async function importSwipeluxBeneficiaryKyc(
   request: PalremitLiquidityRequestFn,
   body: {
     clientReference: string;
-    /** Omit (or empty) to start hosted KYC. */
-    importToken?: string;
+    importToken: string;
     kycInput: SwipeluxBeneficiaryKycInput;
   }
 ): Promise<SwipeluxKycImportResult> {
-  const payload: Record<string, unknown> = {
-    client_reference: body.clientReference,
-    kyc_input: body.kycInput,
-  };
-  const token = body.importToken?.trim();
-  if (token) {
-    payload.import_token = token;
-  }
-
-  const res = await request<{
-    channel_customer_id?: string;
-    status?: string;
-    verification_url?: string | null;
-  }>('/v1/integrations/swipelux/kyc-import', {
-    method: 'POST',
-    body: payload,
-  });
+  const res = await request<{ channel_customer_id?: string; status?: string }>(
+    '/v1/integrations/swipelux/kyc-import',
+    {
+      method: 'POST',
+      body: {
+        client_reference: body.clientReference,
+        import_token: body.importToken,
+        kyc_input: body.kycInput,
+      },
+    }
+  );
 
   if (res.status !== 200) {
     return {
@@ -84,17 +75,11 @@ export async function importSwipeluxBeneficiaryKyc(
     };
   }
 
-  const verificationUrl =
-    typeof data.verification_url === 'string' && data.verification_url.trim()
-      ? data.verification_url.trim()
-      : null;
-
   return {
     ok: true,
     value: {
       channel_customer_id: data.channel_customer_id,
       status: data.status,
-      verification_url: verificationUrl,
     },
   };
 }
