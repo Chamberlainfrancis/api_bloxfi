@@ -38,7 +38,11 @@ export interface OnrampSource {
   amount: number;
   /** Optional label for fiat rail (e.g. ach); not a BloxFi account id. */
   transferType?: string;
-  /** @deprecated Legacy rows only; onramps no longer link Account records. */
+  /**
+   * Prisma `Account.id` for the onramp Account this transfer belongs to.
+   * Required for Graph USD when the user has multiple onramp accounts.
+   * Not a provider / provisioned-account id.
+   */
   accountId?: string;
   user?: {
     email: string;
@@ -185,6 +189,8 @@ export interface CreateOnrampSourceInput {
   currency: string;
   userId: string;
   transferType?: string;
+  /** Prisma Account.id (onramp rail). Not provisionedAccountId / provider ids. */
+  accountId?: string;
 }
 
 export interface CreateOnrampDestinationInput {

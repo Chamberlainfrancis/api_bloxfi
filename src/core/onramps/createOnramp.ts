@@ -411,13 +411,6 @@ export async function createOnramp(
   }
 
   const userDisplayInfo = userDisplay(user);
-  const sourcePayload: OnrampSource = {
-    userId,
-    currency: fromCurrency,
-    amount: grossFiat,
-    transferType: src.transferType,
-    user: userDisplayInfo,
-  };
   const destinationPayload: OnrampDestination = {
     userId,
     currency: toCurrency,
@@ -439,22 +432,45 @@ export async function createOnramp(
 
   const txnRef = generateOnrampTxnRef();
 
-  // The onramp request is user-scoped, so which Account this deposit belongs
-  // to has to be inferred. An inconclusive answer is left unset rather than
-  // guessed — the orchestrator then resolves per business, as it does today
-  // (non-Graph). Graph USD requires a resolved Account for individual KYC.
+  // Prefer explicit Prisma Account.id (source.accountId). Otherwise infer —
+  // inconclusive inference is left unset for non-Graph (per-business path).
+  // Graph USD requires a resolved Account for individual KYC.
   const onrampAccounts = options.listOnrampAccounts
     ? await options.listOnrampAccounts(userId)
     : [];
-  const inferred = options.listOnrampAccounts
+  const explicitAccountId = src.accountId?.trim() || undefined;
+  let inferred = options.listOnrampAccounts
     ? inferOnrampAccount(onrampAccounts)
     : ({ kind: 'none' } as const);
-  if (inferred.kind === 'ambiguous') {
+
+  if (explicitAccountId) {
+    const explicit = onrampAccounts.find((a) => a.id === explicitAccountId);
+    if (!explicit) {
+      throw new Error('ONRAMP_ACCOUNT_NOT_FOUND');
+    }
+    const holder =
+      explicit.accountHolder != null && typeof explicit.accountHolder === 'object'
+        ? (explicit.accountHolder as { email?: unknown })
+        : null;
+    const contactEmail =
+      typeof holder?.email === 'string' && holder.email.trim()
+        ? holder.email.trim()
+        : undefined;
+    inferred = {
+      kind: 'resolved',
+      account: {
+        accountReference: explicit.id,
+        contactEmail,
+        customerType: 'individual',
+      },
+    };
+  } else if (inferred.kind === 'ambiguous') {
     logger.warn(
       { userId, accountIds: inferred.accountIds },
-      'onramp account inference ambiguous — provisioning per business instead'
+      'onramp account inference ambiguous — pass source.accountId (Prisma Account.id)'
     );
   }
+
   const accountFields =
     inferred.kind === 'resolved'
       ? {
@@ -475,13 +491,13 @@ export async function createOnramp(
     if (inferred.kind !== 'resolved') {
       throw new GraphOnrampKycError([
         inferred.kind === 'ambiguous'
-          ? 'account_reference (ambiguous onramp accounts)'
-          : 'account_reference (no onramp account)',
+          ? 'source.accountId (ambiguous onramp accounts)'
+          : 'source.accountId (no onramp account)',
       ]);
     }
     const accountRow = onrampAccounts.find((a) => a.id === inferred.account.accountReference);
     if (!accountRow) {
-      throw new GraphOnrampKycError(['account_reference']);
+      throw new GraphOnrampKycError(['source.accountId']);
     }
     const meta = accountRow.metadata as AccountMetadata | null | undefined;
     graphKycInput = buildGraphIndividualKycInput({
@@ -490,6 +506,17 @@ export async function createOnramp(
       documents: meta?.documents,
     });
   }
+
+  const sourcePayload: OnrampSource = {
+    userId,
+    currency: fromCurrency,
+    amount: grossFiat,
+    transferType: src.transferType,
+    user: userDisplayInfo,
+    ...(accountFields.accountReference
+      ? { accountId: accountFields.accountReference }
+      : {}),
+  };
 
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,

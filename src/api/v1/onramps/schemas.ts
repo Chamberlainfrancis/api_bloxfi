@@ -18,6 +18,8 @@ const createOnrampSourceSchema = z.object({
   userId: z.string().uuid().optional(),
   userld: z.string().uuid().optional(),
   transferType: z.string().optional(),
+  /** Prisma Account.id — which onramp Account this transfer uses. */
+  accountId: z.string().uuid().optional(),
 });
 
 const createOnrampDestinationSchema = z.object({

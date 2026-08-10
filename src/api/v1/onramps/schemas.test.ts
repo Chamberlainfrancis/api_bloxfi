@@ -23,6 +23,26 @@ const baseBody = {
 };
 
 describe('createOnrampBodySchema', () => {
+  it('accepts optional source.accountId as a UUID (Prisma Account.id)', () => {
+    const accountId = '44444444-4444-4444-8444-444444444444';
+    const r = createOnrampBodySchema.safeParse({
+      ...baseBody,
+      source: { ...baseBody.source, accountId },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.source.accountId).toBe(accountId);
+    }
+  });
+
+  it('rejects non-uuid source.accountId', () => {
+    const r = createOnrampBodySchema.safeParse({
+      ...baseBody,
+      source: { ...baseBody.source, accountId: 'prov-not-an-account-id' },
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('accepts platformFee without currency or network', () => {
     const r = createOnrampBodySchema.safeParse(baseBody);
     expect(r.success).toBe(true);

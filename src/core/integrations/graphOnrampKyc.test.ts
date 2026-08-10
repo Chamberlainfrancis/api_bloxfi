@@ -91,6 +91,9 @@ describe('buildGraphBusinessKycInput', () => {
       expect(err.missingFields).toEqual(
         expect.arrayContaining(['documents', 'background_information', 'ubo.id_type', 'ubo.id_number'])
       );
+      expect(err.message.toLowerCase()).not.toContain('graph');
+      expect(err.message).toContain('missing required fields for USD KYC');
+      expect(err.code).toBe('USD_ONRAMP_KYC_INCOMPLETE');
     }
   });
 });

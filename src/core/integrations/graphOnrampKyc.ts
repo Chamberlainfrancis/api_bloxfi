@@ -9,12 +9,13 @@ import type { AccountMetadataDocument } from '@/types/account';
 
 export class GraphOnrampKycError extends Error {
   readonly missingFields: string[];
+  /** Stable machine code for logs / support; not shown in the default message. */
+  readonly code = 'USD_ONRAMP_KYC_INCOMPLETE' as const;
 
   constructor(missingFields: string[]) {
     const unique = [...new Set(missingFields)].sort();
-    super(
-      `GRAPH_ONRAMP_KYC_INCOMPLETE: missing required fields for Graph USD KYC: ${unique.join(', ')}`
-    );
+    // Client-facing: no provider name. Internal code stays on `code` / `name`.
+    super(`missing required fields for USD KYC: ${unique.join(', ')}`);
     this.name = 'GraphOnrampKycError';
     this.missingFields = unique;
   }

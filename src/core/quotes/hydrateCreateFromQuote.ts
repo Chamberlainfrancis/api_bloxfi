@@ -64,7 +64,7 @@ export function hydrateOfframpCreateFromQuote(
 export function hydrateOnrampCreateFromQuote(
   snapshot: OnrampQuoteSnapshot,
   execution: {
-    source: Pick<CreateOnrampSourceInput, 'userId' | 'transferType'>;
+    source: Pick<CreateOnrampSourceInput, 'userId' | 'transferType' | 'accountId'>;
     destination: Pick<CreateOnrampDestinationInput, 'userId' | 'externalWalletId'>;
     purposeOfPayment?: string;
   }
@@ -75,6 +75,7 @@ export function hydrateOnrampCreateFromQuote(
       currency: snapshot.fromCurrency,
       amount: snapshot.sendAmount,
       transferType: execution.source.transferType,
+      ...(execution.source.accountId ? { accountId: execution.source.accountId } : {}),
     },
     destination: {
       userId: execution.destination.userId,

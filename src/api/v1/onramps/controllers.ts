@@ -237,6 +237,9 @@ export async function createOnramp(
         source: {
           userId: parsed.data.source.userId!,
           transferType: parsed.data.source.transferType,
+          ...(parsed.data.source.accountId
+            ? { accountId: parsed.data.source.accountId }
+            : {}),
         },
         destination: {
           userId: parsed.data.destination.userId!,
@@ -319,10 +322,22 @@ export async function createOnramp(
       );
       return;
     }
+    if (e instanceof Error && e.message === 'ONRAMP_ACCOUNT_NOT_FOUND') {
+      next(
+        new AppError(
+          'source.accountId must be an onramp Account id for this user',
+          'UNPROCESSABLE_ENTITY',
+          422,
+          { field: 'source.accountId' }
+        )
+      );
+      return;
+    }
     if (e instanceof GraphOnrampKycError) {
       next(
         new AppError(e.message, 'UNPROCESSABLE_ENTITY', 422, {
           missingFields: e.missingFields,
+          code: e.code,
         })
       );
       return;
