@@ -111,6 +111,20 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(true);
   });
 
+  it('accepts free-text mostRecentOccupation (Graph)', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      sofQuestionnaire: {
+        ...onrampSof,
+        mostRecentOccupation: 'test-occupation',
+      },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sofQuestionnaire?.mostRecentOccupation).toBe('test-occupation');
+    }
+  });
+
   it('rejects onramp body missing sofQuestionnaire', () => {
     const r = createAccountBodySchema.safeParse({
       ...onrampBase,

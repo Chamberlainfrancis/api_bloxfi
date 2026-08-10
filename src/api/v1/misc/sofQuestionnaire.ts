@@ -115,9 +115,12 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
     {
       name: 'mostRecentOccupation',
       label: 'Most Recent Occupation',
-      type: 'select',
+      // Free text for Graph (`background_information.occupation`); SOC codes
+      // in OCCUPATION_CODES remain available as client-side suggestions only.
+      type: 'text',
       required: false,
-      options: [...OCCUPATION_CODES],
+      placeholder: 'e.g. Software Developer',
+      hint: 'Free-text occupation title (Graph). Optional SOC codes in OCCUPATION_CODES may be used as suggestions.',
     },
     {
       name: 'sourceOfFundsDocument',
