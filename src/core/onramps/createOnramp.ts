@@ -7,6 +7,8 @@ import { applyOfframpPlatformFee } from '@/core/payments';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
+import { logger } from '@/lib/logger';
+import { inferOnrampAccount } from '@/core/onramps/inferOnrampAccount';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -20,6 +22,9 @@ import type {
   Receipt,
 } from '@/types/onramp';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
+import type { GraphOnrampKycSource } from '@/core/integrations/graphOnrampKyc';
+import { graphKycExtrasFromUserMetadata } from '@/core/integrations/graphOnrampKyc';
+import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 
 const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
@@ -67,7 +72,20 @@ export interface CreateOnrampOptions {
     businessReference: string;
     /** Business legal/trading name when present — preferred for deposit beneficiary. */
     businessName?: string;
+    /** Prisma Account.id → `account_reference`. Omitted when inference is inconclusive. */
+    accountReference?: string;
+    contactEmail?: string;
+    customerType?: 'individual' | 'business';
+    /** Briana USD Graph KYC source (User fields + metadata extras). */
+    graphKyc?: GraphOnrampKycSource;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
+  /**
+   * Onramp Account rows for the user, used to infer `account_reference`.
+   * Optional — when absent the onramp provisions per-business exactly as before.
+   */
+  listOnrampAccounts?: (userId: string) => Promise<
+    readonly { id: string; accountHolder: unknown; swipeluxCustomerId: string | null }[]
+  >;
   /**
    * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
    * from the receive amount. Returns null on failure → fee treated as
@@ -120,7 +138,9 @@ export interface UserRepoForOnramp {
   findUserById(id: string): Promise<{
     id: string;
     businessInfo: unknown;
+    registeredAddress?: unknown;
     legalRepresentative: unknown;
+    metadata?: unknown;
   } | null>;
 }
 
@@ -407,6 +427,40 @@ export async function createOnramp(
 
   const txnRef = generateOnrampTxnRef();
 
+  // The onramp request is user-scoped, so which Account this deposit belongs
+  // to has to be inferred. An inconclusive answer is left unset rather than
+  // guessed — the orchestrator then resolves per business, as it does today.
+  const inferred = options.listOnrampAccounts
+    ? inferOnrampAccount(await options.listOnrampAccounts(userId))
+    : ({ kind: 'none' } as const);
+  if (inferred.kind === 'ambiguous') {
+    logger.warn(
+      { userId, accountIds: inferred.accountIds },
+      'onramp account inference ambiguous — provisioning per business instead'
+    );
+  }
+  const accountFields =
+    inferred.kind === 'resolved'
+      ? {
+          accountReference: inferred.account.accountReference,
+          ...(inferred.account.contactEmail !== undefined && {
+            contactEmail: inferred.account.contactEmail,
+          }),
+          customerType: inferred.account.customerType,
+        }
+      : {};
+
+  const isBrianaUsd =
+    userId === BRIANA_BUSINESS_REFERENCE && fromCurrency.trim().toUpperCase() === 'USD';
+  const graphKyc: GraphOnrampKycSource | undefined = isBrianaUsd
+    ? {
+        businessInfo: user.businessInfo,
+        registeredAddress: user.registeredAddress,
+        legalRepresentative: user.legalRepresentative,
+        ...graphKycExtrasFromUserMetadata(user.metadata),
+      }
+    : undefined;
+
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
     lastName,
@@ -418,6 +472,8 @@ export async function createOnramp(
     txnRef,
     businessReference: userId,
     businessName: userDisplayInfo.businessName,
+    ...accountFields,
+    ...(graphKyc ? { graphKyc } : {}),
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

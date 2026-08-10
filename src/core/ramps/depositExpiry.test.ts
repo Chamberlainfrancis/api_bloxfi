@@ -31,12 +31,15 @@ describe('deposit expiry helpers', () => {
     ).toBe('2026-06-20T12:00:00.000Z');
   });
 
-  it('identifies awaiting deposit statuses', () => {
+  it('identifies awaiting deposit statuses (funds-in statuses never expire)', () => {
     expect(shouldExpireOnrampStatus('AWAITING_FUNDS')).toBe(true);
-    expect(shouldExpireOnrampStatus('FIAT_PENDING')).toBe(true);
+    expect(shouldExpireOnrampStatus('FIAT_PENDING')).toBe(false);
+    expect(shouldExpireOnrampStatus('FIAT_PROCESSED')).toBe(false);
+    expect(shouldExpireOnrampStatus('CRYPTO_PENDING')).toBe(false);
     expect(shouldExpireOnrampStatus('COMPLETED')).toBe(false);
     expect(shouldExpireOfframpStatus('AWAITING_CRYPTO')).toBe(true);
-    expect(shouldExpireOfframpStatus('CRYPTO_PENDING')).toBe(true);
+    expect(shouldExpireOfframpStatus('CRYPTO_PENDING')).toBe(false);
+    expect(shouldExpireOfframpStatus('CRYPTO_RECEIVED')).toBe(false);
     expect(shouldExpireOfframpStatus('FIAT_PENDING')).toBe(false);
   });
 
@@ -83,6 +86,22 @@ describe('expireOnrampIfDepositPastDue', () => {
     expect(result).toBeNull();
     expect(updateOnrampStatus).not.toHaveBeenCalled();
   });
+
+  it('does not expire when funds have already come in (FIAT_PENDING)', async () => {
+    const updateOnrampStatus = vi.fn();
+    const now = new Date('2026-06-21T00:00:00.000Z');
+    const result = await expireOnrampIfDepositPastDue(
+      {
+        id: 'on-1',
+        status: 'FIAT_PENDING',
+        depositInfo: { depositBy: '2026-06-20T12:00:00.000Z' },
+      },
+      { updateOnrampStatus },
+      now
+    );
+    expect(result).toBeNull();
+    expect(updateOnrampStatus).not.toHaveBeenCalled();
+  });
 });
 
 describe('expireOfframpIfDepositPastDue', () => {
@@ -102,5 +121,21 @@ describe('expireOfframpIfDepositPastDue', () => {
     expect(updateOfframpStatus).toHaveBeenCalledWith('off-1', 'EXPIRED', {
       failedReason: DEPOSIT_EXPIRED_REASON,
     });
+  });
+
+  it('does not expire when funds have already come in (CRYPTO_PENDING)', async () => {
+    const updateOfframpStatus = vi.fn();
+    const now = new Date('2026-06-21T00:00:00.000Z');
+    const result = await expireOfframpIfDepositPastDue(
+      {
+        id: 'off-1',
+        status: 'CRYPTO_PENDING',
+        depositInstructions: { depositBy: '2026-06-20T12:00:00.000Z' },
+      },
+      { updateOfframpStatus },
+      now
+    );
+    expect(result).toBeNull();
+    expect(updateOfframpStatus).not.toHaveBeenCalled();
   });
 });

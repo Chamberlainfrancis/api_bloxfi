@@ -21,6 +21,7 @@ import {
   fetchPalremitWithdrawalFeeQuote,
   getPalremitConversionAmount,
 } from '@/core/integrations';
+import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 import { buildRampFeePreview } from '@/core/payments';
 import {
   resolvePalremitNetworkOrThrow,
@@ -30,6 +31,7 @@ import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSou
 import { createOnrampQuote } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import { findOnrampAccountsByUser } from '@/db/repositories/account.repo';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
 import {
   createOnrampBodySchema,
@@ -263,6 +265,7 @@ export async function createOnramp(
         resolvePalremitNetwork: (coinCode, chainFromClient, field) =>
           resolvePalremitNetworkOrThrow(palremitLiquidity, coinCode, chainFromClient, field),
         createPalremitFiatDeposit: (p) => createOnrampPalremitFiatDeposit(palremitLiquidity, p),
+        listOnrampAccounts: (userId) => findOnrampAccountsByUser(userId),
         getProviderWithdrawalFeeQuote: (input) =>
           fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
         convertToUsdc: (from, amount) =>
@@ -313,6 +316,14 @@ export async function createOnramp(
           'UNPROCESSABLE_ENTITY',
           422
         )
+      );
+      return;
+    }
+    if (e instanceof GraphOnrampKycError) {
+      next(
+        new AppError(e.message, 'UNPROCESSABLE_ENTITY', 422, {
+          missingFields: e.missingFields,
+        })
       );
       return;
     }

@@ -7,16 +7,18 @@ import {
 } from '@/core/onramps/staticDepositAccounts';
 
 describe('staticDepositAccounts', () => {
-  it('recognizes GBP / USD / GHS only', () => {
+  it('recognizes GBP / USD / GHS / NGN', () => {
     expect(isStaticDepositCurrency('GBP')).toBe(true);
     expect(isStaticDepositCurrency('usd')).toBe(true);
     expect(isStaticDepositCurrency('GHS')).toBe(true);
-    expect(isStaticDepositCurrency('NGN')).toBe(false);
+    expect(isStaticDepositCurrency('NGN')).toBe(true);
+    expect(isStaticDepositCurrency('EUR')).toBe(false);
   });
 
-  it('marks GBP and GHS as preferred static (not USD)', () => {
+  it('marks GBP, GHS and NGN as preferred static (not USD)', () => {
     expect(isPreferredStaticDepositCurrency('GBP')).toBe(true);
     expect(isPreferredStaticDepositCurrency('ghs')).toBe(true);
+    expect(isPreferredStaticDepositCurrency('NGN')).toBe(true);
     expect(isPreferredStaticDepositCurrency('USD')).toBe(false);
   });
 
@@ -49,7 +51,7 @@ describe('staticDepositAccounts', () => {
     expect(info?.instruction).toContain('Transfers without this narration cannot be matched');
   });
 
-  it('builds USD Cross River and GHS First Bank instructions', () => {
+  it('builds USD Cross River, GHS First Bank, and NGN Wema instructions', () => {
     const usd = buildStaticFallbackDepositInfo({
       currency: 'USD',
       amount: 500,
@@ -69,12 +71,26 @@ describe('staticDepositAccounts', () => {
     expect(ghs?.bankName).toBe('FIRST BANK');
     expect(ghs?.wire).toEqual({ accountNumber: '9990000103912', routingNumber: 'INCEGHAC' });
     expect(ghs?.instruction).toContain('transfer narration / description: ON-GHS');
+
+    const ngn = buildStaticFallbackDepositInfo({
+      currency: 'NGN',
+      amount: 50_000,
+      txnRef: 'ON-NGN',
+      depositByIso: '2026-07-24T00:00:00.000Z',
+    });
+    expect(ngn).toMatchObject({
+      bankName: 'wema',
+      beneficiary: { name: 'Palremit limited', country: 'NG' },
+      wire: { accountNumber: '7943896852', routingNumber: '035' },
+      reference: 'ON-NGN',
+    });
+    expect(ngn?.instruction).toContain('transfer narration / description: ON-NGN');
   });
 
   it('returns null for unsupported currencies', () => {
     expect(
       buildStaticFallbackDepositInfo({
-        currency: 'NGN',
+        currency: 'EUR',
         amount: 1,
         txnRef: 'ON1',
         depositByIso: '2026-07-24T00:00:00.000Z',

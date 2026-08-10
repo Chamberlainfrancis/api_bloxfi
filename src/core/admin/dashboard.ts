@@ -549,10 +549,7 @@ export async function markOnrampFiatReceived(
     );
   }
 
-  const expired = await expireOnrampIfDepositPastDue(existing, onrampRepo);
-  if (expired === 'EXPIRED') {
-    throw new AppError('Onramp deposit window has expired', 'EXPIRED', 409);
-  }
+  // Ops is confirming funds arrived — do not expire even if depositBy has passed.
 
   const prevRefs =
     existing.providerRefs &&

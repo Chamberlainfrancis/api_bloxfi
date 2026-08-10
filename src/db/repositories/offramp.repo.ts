@@ -175,7 +175,7 @@ export interface ListOfframpsParams {
 
 export async function listOfframpsAwaitingDeposit(): Promise<OfframpRow[]> {
   const rows = await prisma.offramp.findMany({
-    where: { status: { in: ['AWAITING_CRYPTO', 'CRYPTO_PENDING'] } },
+    where: { status: 'AWAITING_CRYPTO' },
   });
   return rows as OfframpRow[];
 }
