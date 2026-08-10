@@ -33,7 +33,7 @@ export async function listCoins(_req: Request, res: Response, next: NextFunction
   try {
     const rows = await listPalremitAllCoins(palremitLiquidity);
     if (rows == null) {
-      next(new AppError('Palremit coin catalogue unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Coin catalogue unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     sendSuccess(res, {

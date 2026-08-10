@@ -49,11 +49,11 @@ export async function listBanks(req: Request, res: Response, next: NextFunction)
         next(validationError(palremitClientErrorMessage(e.data)));
         return;
       }
-      next(new AppError('Palremit banks unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Banks unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_BANKS_INVALID_RESPONSE') {
-      next(new AppError('Palremit banks response invalid', 'BAD_GATEWAY', 502));
+      next(new AppError('Banks response invalid', 'BAD_GATEWAY', 502));
       return;
     }
     next(e);
@@ -99,12 +99,12 @@ export async function resolveBankAccount(
         dataKeys,
         errorMessage: e.message,
       }, 'api/v1/banks/resolve Palremit HTTP error');
-      next(new AppError('Palremit bank resolve unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Bank resolve unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_BANK_RESOLVE_INVALID_RESPONSE') {
       logger.error({ message: e.message }, 'api/v1/banks/resolve upstream body invalid');
-      next(new AppError('Palremit bank resolve response invalid', 'BAD_GATEWAY', 502));
+      next(new AppError('Bank resolve response invalid', 'BAD_GATEWAY', 502));
       return;
     }
     logger.error({ err: e }, 'api/v1/banks/resolve unexpected error');

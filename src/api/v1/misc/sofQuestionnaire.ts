@@ -79,7 +79,7 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
       label: 'Expected Monthly Payments (USD)',
       type: 'select',
       required: true,
-      hint: 'For Graph KYC, the integer after `_` is sent as expected_monthly_inflow (e.g. 0_4999 → 4999).',
+      hint: 'The integer after `_` is used as expected monthly inflow (e.g. 0_4999 → 4999).',
       options: [
         { value: '0_4999', label: '$0 - $4,999' },
         { value: '5000_9999', label: '$5,000 - $9,999' },
@@ -116,12 +116,11 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
     {
       name: 'mostRecentOccupation',
       label: 'Most Recent Occupation',
-      // Free text for Graph (`background_information.occupation`); SOC codes
-      // in OCCUPATION_CODES remain available as client-side suggestions only.
+      // Free text occupation; SOC codes in OCCUPATION_CODES are client-side suggestions only.
       type: 'text',
       required: false,
       placeholder: 'e.g. Software Developer',
-      hint: 'Free-text occupation title (Graph). Optional SOC codes in OCCUPATION_CODES may be used as suggestions.',
+      hint: 'Free-text occupation title. Optional SOC codes in OCCUPATION_CODES may be used as suggestions.',
     },
     {
       name: 'sourceOfFundsDocument',

@@ -89,7 +89,7 @@ export const createAccountBodySchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['destination'],
-          message: 'destination is required (Palremit snake_case fields from corridor requirements)',
+          message: 'destination is required (snake_case fields from corridor requirements)',
         });
       }
     } else {

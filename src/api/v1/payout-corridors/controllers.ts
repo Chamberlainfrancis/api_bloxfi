@@ -46,7 +46,7 @@ function handlePalremitCorridorError(e: unknown, next: NextFunction): void {
       e.message === 'PALREMIT_CORRIDORS_UNAVAILABLE' ||
       e.message === 'PALREMIT_CORRIDOR_INVALID_RESPONSE'
     ) {
-      next(new AppError('Palremit payout corridors unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Payout corridors unavailable', 'BAD_GATEWAY', 502));
       return;
     }
   }
@@ -59,7 +59,7 @@ function handlePalremitCorridorError(e: unknown, next: NextFunction): void {
       next(new AppError('Payout corridor not supported', 'NOT_FOUND', 404));
       return;
     }
-    next(new AppError('Palremit payout corridors unavailable', 'BAD_GATEWAY', 502));
+    next(new AppError('Payout corridors unavailable', 'BAD_GATEWAY', 502));
     return;
   }
   next(e);

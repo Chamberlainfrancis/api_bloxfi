@@ -112,7 +112,7 @@ export async function createAccount(
     }
     const kycImportEnabled = isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
     if (kycImportEnabled && !data.accountHolder.taxId?.trim()) {
-      throw new Error('INVALID_ACCOUNT: taxId is required when SwipeLux beneficiary KYC import is enabled');
+      throw new Error('INVALID_ACCOUNT: taxId is required when beneficiary KYC import is enabled');
     }
 
     const existing = await accountRepo.findByCreationRequestId(options.requestId);

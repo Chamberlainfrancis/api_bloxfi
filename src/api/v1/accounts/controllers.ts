@@ -92,7 +92,7 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
       return;
     }
     if (e instanceof Error && e.message === "PALREMIT_CORRIDORS_UNAVAILABLE") {
-      next(new AppError("Palremit payout corridors unavailable", "BAD_GATEWAY", 502));
+      next(new AppError("Payout corridors unavailable", "BAD_GATEWAY", 502));
       return;
     }
     if (e instanceof Error && e.message === "SWIPELUX_BENEFICIARY_KYC_IMPORT_DISABLED") {
@@ -100,11 +100,11 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
       return;
     }
     if (e instanceof Error && e.message === "PALREMIT_SWIPELUX_KYC_IMPORT_TRANSIENT") {
-      next(new AppError("SwipeLux KYC import temporarily unavailable, retry later", "BAD_GATEWAY", 502));
+      next(new AppError("Beneficiary KYC import temporarily unavailable, retry later", "BAD_GATEWAY", 502));
       return;
     }
     if (e instanceof Error && e.message === "PALREMIT_SWIPELUX_KYC_IMPORT_PERMANENT") {
-      next(new AppError("SwipeLux KYC import rejected", "UNPROCESSABLE_ENTITY", 422));
+      next(new AppError("Beneficiary KYC import rejected", "UNPROCESSABLE_ENTITY", 422));
       return;
     }
     next(e);
@@ -214,7 +214,7 @@ export async function updateAccount(
       return;
     }
     if (e instanceof Error && e.message === "PALREMIT_CORRIDORS_UNAVAILABLE") {
-      next(new AppError("Palremit payout corridors unavailable", "BAD_GATEWAY", 502));
+      next(new AppError("Payout corridors unavailable", "BAD_GATEWAY", 502));
       return;
     }
     next(e);

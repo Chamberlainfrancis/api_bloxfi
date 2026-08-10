@@ -31,7 +31,7 @@ export async function listNetworks(
     const coinUpper = coin.toUpperCase();
     const networks = await fetchPalremitNetworksForCoin(palremitLiquidity, coinUpper);
     if (networks == null) {
-      next(new AppError('Palremit coin metadata unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Coin metadata unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     sendSuccess(res, {

@@ -16,7 +16,7 @@ export class UnsupportedPalremitNetworkError extends Error {
     public readonly validNetworkCodes: string[]
   ) {
     super(
-      `${field} must match a Palremit network_code for ${coinCode}. Use GET /api/v1/networks?coin=${encodeURIComponent(coinCode)}.`
+      `${field} must match a supported network_code for ${coinCode}. Use GET /api/v1/networks?coin=${encodeURIComponent(coinCode)}.`
     );
     this.name = 'UnsupportedPalremitNetworkError';
   }

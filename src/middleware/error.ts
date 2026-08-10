@@ -1,7 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AppError, type ErrorResponseBody, type ErrorDetails } from '@/types/errors';
+import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 const REQUEST_ID_HEADER = 'requestid';
+
+/** Partner API only — admin/ops keep real provider names in errors. */
+function isPartnerFacingPath(path: string): boolean {
+  return path === '/api/v1' || path.startsWith('/api/v1/');
+}
 
 /**
  * Normalize all errors to spec format: { error: { code, message, details?, requestId?, timestamp } }.
@@ -58,6 +64,10 @@ export function errorMiddleware(
         if (upstreamMsg) message = upstreamMsg;
       }
     }
+  }
+
+  if (isPartnerFacingPath(req.path) || isPartnerFacingPath(req.originalUrl.split('?')[0] ?? '')) {
+    message = redactProviderNamesFromClientMessage(message);
   }
 
   const requestId = req.headers[REQUEST_ID_HEADER];

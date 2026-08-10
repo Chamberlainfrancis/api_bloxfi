@@ -138,7 +138,7 @@ export async function getOfframpRates(
     sendSuccess(res, result);
   } catch (e) {
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
-      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Rates unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     next(e);
@@ -182,13 +182,13 @@ export async function createOfframpQuoteHandler(
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
-      next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Rates unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof Error && e.message === 'AMOUNT_TOO_LOW_AFTER_FEES') {
       next(
         new AppError(
-          'Amount too low: the Palremit payout fee meets or exceeds the send amount',
+          'Amount too low: the payout fee meets or exceeds the send amount',
           'UNPROCESSABLE_ENTITY',
           422
         )
@@ -309,7 +309,7 @@ export async function createOfframp(
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_DEPOSIT_ADDRESS_FAILED') {
-      next(new AppError('Palremit deposit address creation failed', 'BAD_GATEWAY', 502));
+      next(new AppError('Deposit address creation failed', 'BAD_GATEWAY', 502));
       return;
     }
     if (e instanceof UnsupportedPalremitNetworkError) {
@@ -354,7 +354,7 @@ export async function createOfframp(
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_COIN_UNAVAILABLE') {
-      next(new AppError('Palremit coin metadata unavailable', 'BAD_GATEWAY', 502));
+      next(new AppError('Coin metadata unavailable', 'BAD_GATEWAY', 502));
       return;
     }
     next(e);
