@@ -195,8 +195,9 @@ export async function processWebhookEvent(
       if (isOnrampTxnRef(clientRef)) {
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
-        // Funds are arriving — never expire on credit, even past depositBy.
-        if (!['AWAITING_FUNDS', 'FIAT_PENDING'].includes(onramp.status)) break;
+        // Credit wins over deposit-window expiry: LP confirmed funds, so recover EXPIRED
+        // (lazy GET/LIST or a prior late webhook may have marked the row expired).
+        if (!['AWAITING_FUNDS', 'FIAT_PENDING', 'EXPIRED'].includes(onramp.status)) break;
         const orch = getPalremitOrchestrator(onramp.providerRefs);
         const expectedProv =
           typeof orch?.provisionedAccountId === 'string' ? orch.provisionedAccountId.trim() : '';
@@ -208,6 +209,7 @@ export async function processWebhookEvent(
 
         const depId = typeof dep.id === 'string' ? dep.id.trim() : '';
         await repos.onramp.updateOnrampStatus(onramp.id, 'FIAT_PROCESSED', {
+          failedReason: null,
           receipt: { provider: 'palremit', eventType, deposit: dep, client_reference: clientRef },
           providerRefs: {
             palremitOrchestrator: {
@@ -231,8 +233,9 @@ export async function processWebhookEvent(
       if (isOfframpTxnRef(clientRef)) {
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
-        // Funds are arriving — never expire on credit, even past depositBy.
-        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED'].includes(offramp.status)) break;
+        // Credit wins over deposit-window expiry: LP confirmed funds, so recover EXPIRED
+        // (lazy GET/LIST or a prior late webhook may have marked the row expired).
+        if (!['AWAITING_CRYPTO', 'CRYPTO_PENDING', 'CRYPTO_RECEIVED', 'EXPIRED'].includes(offramp.status)) break;
         if (depMode !== 'CRYPTO_DEPOSIT') break;
         const orch = getPalremitOrchestrator(offramp.providerRefs);
         const expectedProv =
@@ -276,6 +279,7 @@ export async function processWebhookEvent(
         };
 
         await repos.offramp.updateOfframpStatus(offramp.id, nextStatus, {
+          failedReason: null,
           receipt: { provider: 'palremit', eventType, deposit: dep, client_reference: clientRef },
           timeline: nextTimeline,
           providerRefs: {

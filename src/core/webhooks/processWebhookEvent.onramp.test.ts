@@ -1,6 +1,127 @@
 import { describe, it, expect, vi } from 'vitest';
 import { processWebhookEvent } from '@/core/webhooks/processWebhookEvent';
 
+const ON_TXN = 'ON-aaaaaaaaaaaaaaaaaaaaaaaa';
+const ON_PROV = 'prov-on-1';
+
+function emptyOnrampRepos(onramp: {
+  findOnrampByTxnRef: ReturnType<typeof vi.fn>;
+  updateOnrampStatus: ReturnType<typeof vi.fn>;
+  advanceOnrampAfterFiatWebhook?: ReturnType<typeof vi.fn>;
+}) {
+  return {
+    user: {
+      findUserById: vi.fn(),
+      updateUser: vi.fn(),
+      updateKybRailStatuses: vi.fn(),
+    },
+    onramp: {
+      findOnrampById: vi.fn(),
+      findOnrampByTxnRef: onramp.findOnrampByTxnRef,
+      updateOnrampStatus: onramp.updateOnrampStatus,
+      advanceOnrampAfterFiatWebhook: onramp.advanceOnrampAfterFiatWebhook,
+    },
+    offramp: {
+      findOfframpById: vi.fn(),
+      findOfframpByTxnRef: vi.fn(),
+      updateOfframpStatus: vi.fn(),
+    },
+    highValueRequest: {
+      findHighValueRequestById: vi.fn(),
+      findHighValueRequestByRequestId: vi.fn(),
+      updateHighValueRequestStatus: vi.fn(),
+    },
+  };
+}
+
+describe('processWebhookEvent onramp deposit.credited', () => {
+  it('recovers EXPIRED onramp when LP credits fiat deposit after deposit window', async () => {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const advanceOnrampAfterFiatWebhook = vi.fn().mockResolvedValue(undefined);
+    const pastDue = new Date(Date.now() - 60_000).toISOString();
+    const findOnrampByTxnRef = vi.fn().mockResolvedValue({
+      id: 'onramp-expired',
+      requestId: 'req-expired',
+      status: 'EXPIRED',
+      txnRef: ON_TXN,
+      failedReason: 'Deposit window expired',
+      providerRefs: { palremitOrchestrator: { provisionedAccountId: ON_PROV } },
+      source: { currency: 'usd' },
+      quoteInformation: { expiresAt: pastDue },
+      depositInfo: { depositBy: pastDue },
+    });
+
+    await processWebhookEvent(
+      emptyOnrampRepos({ findOnrampByTxnRef, updateOnrampStatus, advanceOnrampAfterFiatWebhook }),
+      {
+        eventId: 'evt-dep-expired',
+        eventType: 'deposit.credited',
+        timestamp: new Date().toISOString(),
+        data: {
+          client_reference: ON_TXN,
+          deposit: {
+            id: 'dep-fiat-1',
+            mode: 'FIAT_DEPOSIT',
+            asset: { code: 'USD' },
+            credited_at: new Date().toISOString(),
+            provisioned_account_id: ON_PROV,
+          },
+        },
+      }
+    );
+
+    expect(updateOnrampStatus).toHaveBeenCalledWith(
+      'onramp-expired',
+      'FIAT_PROCESSED',
+      expect.objectContaining({ failedReason: null })
+    );
+    expect(advanceOnrampAfterFiatWebhook).toHaveBeenCalledWith('onramp-expired');
+  });
+
+  it('credits late fiat deposit without marking EXPIRED when window already passed', async () => {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const advanceOnrampAfterFiatWebhook = vi.fn().mockResolvedValue(undefined);
+    const pastDue = new Date(Date.now() - 60_000).toISOString();
+    const findOnrampByTxnRef = vi.fn().mockResolvedValue({
+      id: 'onramp-late',
+      requestId: 'req-late',
+      status: 'AWAITING_FUNDS',
+      txnRef: ON_TXN,
+      providerRefs: { palremitOrchestrator: { provisionedAccountId: ON_PROV } },
+      source: { currency: 'usd' },
+      quoteInformation: { expiresAt: pastDue },
+      depositInfo: { depositBy: pastDue },
+    });
+
+    await processWebhookEvent(
+      emptyOnrampRepos({ findOnrampByTxnRef, updateOnrampStatus, advanceOnrampAfterFiatWebhook }),
+      {
+        eventId: 'evt-dep-late',
+        eventType: 'deposit.credited',
+        timestamp: new Date().toISOString(),
+        data: {
+          client_reference: ON_TXN,
+          deposit: {
+            id: 'dep-fiat-2',
+            mode: 'FIAT_DEPOSIT',
+            asset: { code: 'USD' },
+            credited_at: new Date().toISOString(),
+            provisioned_account_id: ON_PROV,
+          },
+        },
+      }
+    );
+
+    expect(updateOnrampStatus).toHaveBeenCalledWith(
+      'onramp-late',
+      'FIAT_PROCESSED',
+      expect.objectContaining({ failedReason: null })
+    );
+    expect(updateOnrampStatus).not.toHaveBeenCalledWith('onramp-late', 'EXPIRED', expect.anything());
+    expect(advanceOnrampAfterFiatWebhook).toHaveBeenCalledWith('onramp-late');
+  });
+});
+
 describe('processWebhookEvent onramp withdrawal.successful', () => {
   it('completes onramp from CRYPTO_FAILED when LP confirms crypto payout', async () => {
     const updateOnrampStatus = vi.fn().mockResolvedValue({});
