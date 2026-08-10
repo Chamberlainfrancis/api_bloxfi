@@ -6,7 +6,9 @@ uploads/
 *.log
 .DS_Store
 generated
-.cursor
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 docs/
 CURSOR_RULES.md
 # git worktrees (superpowers)

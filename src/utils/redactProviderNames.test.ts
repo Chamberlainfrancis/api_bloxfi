@@ -1,8 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
+  PARTNER_FORBIDDEN_PROVIDER_NAMES,
   containsProviderName,
   redactProviderNamesFromClientMessage,
 } from '@/utils/redactProviderNames';
+
+describe('PARTNER_FORBIDDEN_PROVIDER_NAMES', () => {
+  it('lists the brands middleware and the leak scan share', () => {
+    expect(PARTNER_FORBIDDEN_PROVIDER_NAMES).toEqual(
+      expect.arrayContaining(['Palremit', 'Graph', 'SwipeLux', 'OwlPay', 'Yativo'])
+    );
+  });
+});
 
 describe('redactProviderNamesFromClientMessage', () => {
   it('leaves clean messages unchanged', () => {

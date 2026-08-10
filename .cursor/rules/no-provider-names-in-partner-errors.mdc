@@ -1,0 +1,42 @@
+---
+description: Never put liquidity/KYC provider brand names in partner-facing API errors
+globs: src/api/v1/**/*.ts,src/middleware/**/*.ts,src/core/**/*.ts,src/utils/redactProviderNames.ts
+alwaysApply: true
+---
+
+# No provider names in partner-facing errors
+
+Partners call `/api/v1`. They must never see liquidity or KYC provider brands in error `message` (or Zod / questionnaire copy that returns to them).
+
+## Forbidden in client-facing strings
+
+Do not put these whole words in `AppError`, `Error` messages forwarded to clients, Zod `message`, or public questionnaire hints:
+
+`Palremit`, `SwipeLux`, `OwlPay`, `Yativo`, `Bancara`, `Graph`, `Sumsub`, `Kuda`
+
+Use neutral wording instead: "Rates unavailable", "Fiat deposit instructions failed", "Beneficiary KYC import rejected", "missing required fields for USD KYC".
+
+## Allowed
+
+- Internal code identifiers, imports, log lines, comments
+- Admin dashboard (`src/api/admin/**`) — ops need real provider names
+- The allow-list / redaction util: `src/utils/redactProviderNames.ts`
+
+## Required pattern
+
+1. Construct partner errors with neutral copy at the source.
+2. Keep `/api/v1` behind `errorMiddleware` redaction (`redactProviderNamesFromClientMessage`) as a backstop — do not rely on it alone.
+3. If you add a new provider brand, add it to `PARTNER_FORBIDDEN_PROVIDER_NAMES` in `redactProviderNames.ts` and use a neutral client message.
+4. CI enforces this via `partnerErrorProviderLeak.scan.test.ts` — that test must stay green.
+
+## Anti-patterns
+
+```ts
+// BAD
+next(new AppError('Palremit rates unavailable', 'BAD_GATEWAY', 502));
+throw new GraphOnrampKycError(...); // message must not say "Graph"
+
+// GOOD
+next(new AppError('Rates unavailable', 'BAD_GATEWAY', 502));
+// GraphOnrampKycError message: "missing required fields for USD KYC: …"
+```
