@@ -365,6 +365,24 @@ export function isGraphUsdNamedDepositsEnabled(metadata: unknown): boolean {
 
 const IDENTITY_DOC_TYPES = new Set(['passport', 'drivers_license', 'national_id', 'voters_card']);
 
+/** Graph person document types (Create/Update Person). Non-Graph types are dropped. */
+const GRAPH_PERSON_DOC_TYPES = new Set([
+  'passport',
+  'national_id',
+  'drivers_license',
+  'voters_card',
+  'utility_bill',
+]);
+
+/** Map BloxFi / portal doc types onto Graph’s allowed set. */
+function toGraphPersonDocType(raw: string): string | null {
+  const t = raw.trim().toLowerCase();
+  if (GRAPH_PERSON_DOC_TYPES.has(t)) return t;
+  if (t === 'proof_of_address' || t === 'poa') return 'utility_bill';
+  // Portal SOF evidence is not a Graph person document type.
+  return null;
+}
+
 const EMPLOYMENT = new Set(['employed', 'self_employed', 'unemployed', 'student', 'retired']);
 const PURPOSE = new Set(['business', 'personal', 'salary', 'freelance']);
 const SOURCE = new Set([
@@ -452,13 +470,15 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   const validDocs: GraphOnrampKycDocument[] = [];
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i]!;
-    const type = str(d.type);
+    const mappedType = toGraphPersonDocType(str(d.type));
     const url = str(d.url);
-    if (!type || !url || !/^https?:\/\//i.test(url)) {
+    // Skip unknown/unsupported types (e.g. source_of_funds) without failing closed.
+    if (!mappedType) continue;
+    if (!url || !/^https?:\/\//i.test(url)) {
       missing.push(`documents[${i}]`);
       continue;
     }
-    const out: GraphOnrampKycDocument = { type, url };
+    const out: GraphOnrampKycDocument = { type: mappedType, url };
     if ('issue_date' in d && typeof d.issue_date === 'string') out.issue_date = d.issue_date;
     if ('expiry_date' in d && typeof d.expiry_date === 'string') out.expiry_date = d.expiry_date;
     validDocs.push(out);

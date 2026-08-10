@@ -198,6 +198,21 @@ describe('buildGraphIndividualKycInput', () => {
     expect(kyc.tax_id).toBeUndefined();
   });
 
+  it('drops non-Graph document types and maps proof_of_address → utility_bill', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      documents: [
+        { type: 'passport', url: 'https://cdn.example.com/passport.png' },
+        { type: 'source_of_funds', url: 'https://cdn.example.com/sof.pdf' },
+        { type: 'proof_of_address', url: 'https://cdn.example.com/poa.pdf' },
+      ],
+    });
+    expect(kyc.documents).toEqual([
+      { type: 'passport', url: 'https://cdn.example.com/passport.png' },
+      { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+    ]);
+  });
+
   it('fails closed when identity docs / DOB / address missing', () => {
     try {
       buildGraphIndividualKycInput({
