@@ -13,6 +13,7 @@ vi.mock('@/core/files/copyRemoteDocument', () => ({
 }));
 
 import { createAccount } from '@/core/accounts/createAccount';
+import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 
 const corridor = {
@@ -296,6 +297,40 @@ describe('createAccount — onramp', () => {
       kycImportStatus: 'pending_import',
       swipeluxCustomerId: 'cus_hosted',
     });
+  });
+
+  it('ignores sumsubShareToken for Briana and uses hosted KYC', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps();
+    userRepo.findUserById.mockResolvedValue({
+      id: BRIANA_BUSINESS_REFERENCE,
+      metadata: { swipeluxBeneficiaryKycImport: true },
+    });
+    importKyc.mockResolvedValue({
+      ok: true,
+      value: {
+        channel_customer_id: 'cus_briana_hosted',
+        status: 'pending',
+        verification_url: 'https://sumsub.example/verify/briana',
+      },
+    });
+
+    const result = await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      BRIANA_BUSINESS_REFERENCE,
+      onrampCreateBody({ sumsubShareToken: 'should-be-ignored' }),
+      {
+        palremitLiquidityRequest: liquidityRequest,
+        requestId: 'req-briana-hosted',
+        importKyc,
+        copySourceOfFundsDocument,
+      }
+    );
+
+    expect(result.verificationUrl).toBe('https://sumsub.example/verify/briana');
+    expect(importKyc.mock.calls[0]?.[1]).not.toHaveProperty('importToken');
   });
 
   it('replays same creationRequestId without calling importKyc again', async () => {

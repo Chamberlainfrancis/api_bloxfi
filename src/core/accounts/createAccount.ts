@@ -14,6 +14,7 @@ import {
   RemoteDocumentError,
 } from '@/core/files/copyRemoteDocument';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
+import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 import type { findAccountByCreationRequestId, updateAccountKycImport } from '@/db/repositories/account.repo';
 import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
@@ -171,7 +172,9 @@ export async function createAccount(
 
     // firstName/lastName are required by the Task 7 zod schema whenever rail='onramp' — never
     // derived by splitting accountHolder.name (unreliable for compound surnames).
-    const shareToken = data.sumsubShareToken?.trim();
+    // Briana: never use Sumsub share-token import — always hosted KYC URL.
+    const shareToken =
+      userId === BRIANA_BUSINESS_REFERENCE ? undefined : data.sumsubShareToken?.trim();
     const imported = await options.importKyc(options.palremitLiquidityRequest, {
       clientReference: created.id,
       ...(shareToken ? { importToken: shareToken } : {}), // never persisted — passed straight through when present
