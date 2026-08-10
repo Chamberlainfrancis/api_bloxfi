@@ -199,6 +199,51 @@ describe('createAccount — onramp', () => {
     expect(importKyc).not.toHaveBeenCalled();
   });
 
+  it('persists metadata.documents and allows missing taxId when SwipeLux import is off', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps(null);
+    const docs = [{ type: 'passport', url: 'https://cdn.example.com/passport.png' }];
+    const { taxId: _t, ...holderWithoutTax } = onrampAccountHolder;
+
+    await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      onrampCreateBody({
+        sumsubShareToken: undefined,
+        accountHolder: holderWithoutTax,
+        metadata: { documents: docs },
+      }),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-meta', importKyc, copySourceOfFundsDocument }
+    );
+
+    expect(accountRepo.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { documents: docs },
+        accountHolder: holderWithoutTax,
+      })
+    );
+  });
+
+  it('requires taxId when SwipeLux beneficiary KYC import is enabled', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps();
+    const { taxId: _t, ...holderWithoutTax } = onrampAccountHolder;
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        onrampCreateBody({ accountHolder: holderWithoutTax }),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-1', importKyc, copySourceOfFundsDocument }
+      )
+    ).rejects.toThrow(/taxId is required/);
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+  });
+
   it('rejects onramp create when accountHolder.type is business', async () => {
     const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
 

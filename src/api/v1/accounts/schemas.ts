@@ -1,20 +1,51 @@
 /**
  * Zod schemas for Account endpoints. Spec §3.
  * Offramp accounts are created via Palremit corridor discovery: `corridor` + `destination` (snake_case).
- * Onramp accounts: SOF questionnaire + optional `sumsubShareToken` (SwipeLux KYC when flag enabled).
+ * Onramp accounts: SOF questionnaire + optional Graph identity fields + optional `sumsubShareToken`.
  */
 
 import { z } from 'zod';
 import { sofQuestionnaireAnswersSchema } from '@/api/v1/accounts/sofAnswersSchema';
+
+const emptyToUndefined = (v: unknown) =>
+  typeof v === 'string' && v.trim() === '' ? undefined : v;
+
+const accountHolderAddressSchema = z.object({
+  addressLine1: z.string().min(1),
+  addressLine2: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  city: z.string().min(1),
+  stateProvinceRegion: z.string().min(1),
+  postalCode: z.string().min(1),
+  country: z.string().min(2).max(3),
+});
 
 const accountHolderSchema = z.object({
   type: z.enum(['business', 'individual']),
   name: z.string().min(1),
   firstName: z.string().min(1).optional(), // required for rail='onramp', enforced below
   lastName: z.string().min(1).optional(),
+  middleName: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   email: z.string().email().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  taxId: z.string().min(1).optional(), // required for rail='onramp', enforced below
+  phone: z.preprocess(emptyToUndefined, z.string().min(1).optional().nullable()),
+  dateOfBirth: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  idType: z.enum(['passport', 'drivers_license', 'national_id', 'voters_card']).optional(),
+  idNumber: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  idCountry: z.preprocess(emptyToUndefined, z.string().min(2).max(3).optional()),
+  bvn: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  address: accountHolderAddressSchema.optional(),
+  // Optional for onramp unless SwipeLux KYC import is enabled (enforced in createAccount core).
+  taxId: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+});
+
+const accountMetadataDocumentSchema = z.object({
+  type: z.string().min(1),
+  url: z.string().url(),
+  issue_date: z.string().optional(),
+  expiry_date: z.string().optional(),
+});
+
+const accountMetadataSchema = z.object({
+  documents: z.array(accountMetadataDocumentSchema).optional(),
 });
 
 const payoutCorridorSchema = z.object({
@@ -32,7 +63,7 @@ const payoutCorridorSchema = z.object({
 
 /**
  * Create account: offramp is a Palremit corridor tuple + canonical destination (unchanged);
- * onramp is a Sumsub share-token KYC import + SOF questionnaire / accountHolder.taxId / sourceOfFundsDocument.
+ * onramp is SOF questionnaire / Graph identity fields / optional Sumsub share-token KYC import.
  */
 export const createAccountBodySchema = z
   .object({
@@ -45,6 +76,8 @@ export const createAccountBodySchema = z
     sofQuestionnaire: sofQuestionnaireAnswersSchema.optional(), // onramp-only
     /** HTTPS URL to PDF/JPEG/PNG; may also live under sofQuestionnaire.sourceOfFundsDocument. */
     sourceOfFundsDocument: z.string().url().optional(),
+    /** Onramp extras (Graph identity documents). */
+    metadata: accountMetadataSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.rail === 'offramp') {
@@ -75,15 +108,9 @@ export const createAccountBodySchema = z
           message: 'firstName and lastName are required for rail=onramp',
         });
       }
-      if (!data.accountHolder.taxId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['accountHolder', 'taxId'],
-          message: 'taxId is required for rail=onramp',
-        });
-      }
       // sumsubShareToken is optional: omit when swipeluxBeneficiaryKycImport is off
       // (no SwipeLux KYC) or when using hosted KYC (flag on, no share token).
+      // taxId is optional at the schema layer; createAccount requires it when SwipeLux import is on.
       if (!data.sofQuestionnaire) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

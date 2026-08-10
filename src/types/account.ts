@@ -5,15 +5,45 @@
 
 export type RailType = 'onramp' | 'offramp';
 
+export type AccountHolderIdType = 'passport' | 'drivers_license' | 'national_id' | 'voters_card';
+
+/** Same shape as User.registeredAddress / legalRepresentative.address. */
+export interface AccountHolderAddress {
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  stateProvinceRegion: string;
+  postalCode: string;
+  country: string;
+}
+
 export interface AccountHolder {
   type: 'business' | 'individual';
   name: string;
   firstName?: string; // required when rail='onramp', enforced by the Task 7 zod schema, not by this type
   lastName?: string;
+  middleName?: string;
   email?: string | null;
   phone?: string | null;
-  /** Onramp only — tax identifier (SSN/ITIN/etc.). */
+  dateOfBirth?: string;
+  idType?: AccountHolderIdType;
+  idNumber?: string;
+  idCountry?: string;
+  bvn?: string;
+  address?: AccountHolderAddress;
+  /** Onramp only — tax identifier (SSN/ITIN/etc.). Optional unless SwipeLux KYC import is enabled. */
   taxId?: string;
+}
+
+export interface AccountMetadataDocument {
+  type: string;
+  url: string;
+  issue_date?: string;
+  expiry_date?: string;
+}
+
+export interface AccountMetadata {
+  documents?: AccountMetadataDocument[];
 }
 
 export interface RailInfo {
@@ -73,6 +103,8 @@ export interface Account {
   sofQuestionnaire?: Record<string, unknown> | null;
   /** S3 object key for copied source-of-funds document (onramp). */
   sourceOfFundsDocumentPath?: string | null;
+  /** Onramp extras (Graph identity documents, etc.). */
+  metadata?: AccountMetadata | null;
 }
 
 // --- Create Account (POST) ---
@@ -87,6 +119,8 @@ export interface CreateAccountRequest {
   sofQuestionnaire?: Record<string, unknown>; // onramp-only
   /** HTTPS URL; may also appear inside sofQuestionnaire.sourceOfFundsDocument. */
   sourceOfFundsDocument?: string;
+  /** Onramp extras — persisted on Account.metadata. */
+  metadata?: AccountMetadata;
 }
 
 export interface CreateAccountResponse {

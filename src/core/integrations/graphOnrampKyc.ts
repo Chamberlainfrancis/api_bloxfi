@@ -1,7 +1,11 @@
 /**
- * Build Graph-capable USD FIAT_DEPOSIT_KYC input for Briana (business) named deposits.
+ * Build Graph-capable USD FIAT_DEPOSIT_KYC input.
+ * Individual: from onramp Account (accountHolder + sofQuestionnaire + metadata.documents).
+ * Business: from User fields + metadata extras (legacy / unused once Briana uses individual).
  * Fail closed: never invent document URLs or background answers.
  */
+
+import type { AccountMetadataDocument } from '@/types/account';
 
 export class GraphOnrampKycError extends Error {
   readonly missingFields: string[];
@@ -350,4 +354,148 @@ export function graphKycExtrasFromUserMetadata(metadata: unknown): Partial<Graph
   if (typeof g.business_industry === 'string') out.business_industry = g.business_industry;
   if (typeof g.business_type === 'string') out.business_type = g.business_type;
   return out;
+}
+
+/** User.metadata.graphUsdNamedDeposits === true opts a business into Graph USD named deposits. */
+export function isGraphUsdNamedDepositsEnabled(metadata: unknown): boolean {
+  const meta = asRecord(metadata);
+  return meta?.graphUsdNamedDeposits === true;
+}
+
+const IDENTITY_DOC_TYPES = new Set(['passport', 'drivers_license', 'national_id', 'voters_card']);
+
+const EMPLOYMENT = new Set(['employed', 'self_employed', 'unemployed', 'student', 'retired']);
+const PURPOSE = new Set(['business', 'personal', 'salary', 'freelance']);
+const SOURCE = new Set([
+  'salary',
+  'savings',
+  'business',
+  'freelance',
+  'investment',
+  'government_benefits',
+  'pension',
+]);
+
+/**
+ * SOF questionnaire `expectedMonthlyPayments` bucket `A_B` → Graph integer after `_`.
+ * e.g. `0_4999` → 4999. Returns null when unparseable.
+ */
+export function expectedMonthlyInflowFromSofBucket(bucket: string): number | null {
+  const idx = bucket.lastIndexOf('_');
+  if (idx < 0 || idx === bucket.length - 1) return null;
+  const suffix = bucket.slice(idx + 1);
+  if (!/^\d+$/.test(suffix)) return null;
+  return Number.parseInt(suffix, 10);
+}
+
+function normalizePhoneE164(raw: string): string {
+  return raw.replace(/[\s()-]/g, '');
+}
+
+export type GraphIndividualKycSource = {
+  accountHolder: unknown;
+  sofQuestionnaire: unknown;
+  documents?: AccountMetadataDocument[] | GraphOnrampKycDocument[];
+};
+
+/**
+ * Build Graph individual `kyc_input` from an onramp Account.
+ * Throws {@link GraphOnrampKycError} listing missing/invalid fields.
+ */
+export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): Record<string, unknown> {
+  const missing: string[] = [];
+  const holder = asRecord(source.accountHolder) ?? {};
+  const sof = asRecord(source.sofQuestionnaire) ?? {};
+  const addr = mapAddress(asRecord(holder.address));
+
+  const firstName = str(holder.firstName);
+  const lastName = str(holder.lastName);
+  const middleName = str(holder.middleName);
+  const email = str(holder.email);
+  const phoneRaw = str(holder.phone);
+  const phone = phoneRaw ? normalizePhoneE164(phoneRaw) : '';
+  const dob = toDateOnly(str(holder.dateOfBirth));
+  const idType = str(holder.idType);
+  const idNumber = str(holder.idNumber);
+  const idCountry = str(holder.idCountry) ? toAlpha2(str(holder.idCountry)) : null;
+  const bvn = str(holder.bvn);
+  const taxId = str(holder.taxId);
+
+  if (!firstName) missing.push('first_name');
+  if (!lastName) missing.push('last_name');
+  if (!email) missing.push('email');
+  if (!phone || !isE164(phone)) missing.push('phone');
+  if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) missing.push('date_of_birth');
+  if (!IDENTITY_DOC_TYPES.has(idType)) missing.push('id_type');
+  if (!idNumber) missing.push('id_number');
+  if (!idCountry) missing.push('id_country');
+  if (!addr.line1) missing.push('address_line1');
+  if (!addr.city) missing.push('address_city');
+  if (!addr.state) missing.push('address_state');
+  if (!addr.postal) missing.push('address_postal_code');
+  if (!addr.countryAlpha3) missing.push('address_country');
+
+  const employmentStatus = str(sof.employmentStatus);
+  const primaryPurpose = str(sof.primaryPurpose);
+  const sourceOfFunds = str(sof.sourceOfFunds);
+  const occupation = str(sof.mostRecentOccupation);
+  const bucket = str(sof.expectedMonthlyPayments);
+  const inflow = bucket ? expectedMonthlyInflowFromSofBucket(bucket) : null;
+
+  if (!EMPLOYMENT.has(employmentStatus)) missing.push('background_information.employment_status');
+  if (!PURPOSE.has(primaryPurpose)) missing.push('background_information.primary_purpose');
+  if (!SOURCE.has(sourceOfFunds)) missing.push('background_information.source_of_funds');
+  if (inflow == null) missing.push('background_information.expected_monthly_inflow');
+
+  const docs = Array.isArray(source.documents) ? source.documents : [];
+  const validDocs: GraphOnrampKycDocument[] = [];
+  for (let i = 0; i < docs.length; i++) {
+    const d = docs[i]!;
+    const type = str(d.type);
+    const url = str(d.url);
+    if (!type || !url || !/^https?:\/\//i.test(url)) {
+      missing.push(`documents[${i}]`);
+      continue;
+    }
+    const out: GraphOnrampKycDocument = { type, url };
+    if ('issue_date' in d && typeof d.issue_date === 'string') out.issue_date = d.issue_date;
+    if ('expiry_date' in d && typeof d.expiry_date === 'string') out.expiry_date = d.expiry_date;
+    validDocs.push(out);
+  }
+  if (!validDocs.some((d) => IDENTITY_DOC_TYPES.has(d.type))) {
+    missing.push('documents');
+  }
+
+  if (missing.length > 0) {
+    throw new GraphOnrampKycError(missing);
+  }
+
+  return {
+    customer_type: 'individual',
+    email,
+    first_name: firstName,
+    last_name: lastName,
+    ...(middleName ? { middle_name: middleName, name_other: middleName } : {}),
+    phone,
+    date_of_birth: dob,
+    id_type: idType,
+    id_number: idNumber,
+    id_country: idCountry,
+    ...(bvn ? { bank_id_number: bvn } : {}),
+    ...(taxId ? { tax_id: taxId } : {}),
+    address_line1: addr.line1,
+    ...(addr.line2 ? { address_line2: addr.line2 } : {}),
+    address_city: addr.city,
+    address_state: addr.state,
+    address_postal_code: addr.postal,
+    address_country: addr.countryAlpha3,
+    background_information: {
+      employment_status: employmentStatus,
+      ...(occupation ? { occupation } : {}),
+      primary_purpose: primaryPurpose,
+      source_of_funds: sourceOfFunds,
+      expected_monthly_inflow: inflow,
+    },
+    documents: validDocs,
+  };
 }

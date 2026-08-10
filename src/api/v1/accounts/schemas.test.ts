@@ -133,7 +133,7 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('rejects onramp body missing accountHolder.taxId', () => {
+  it('accepts onramp body missing accountHolder.taxId (optional unless SwipeLux import)', () => {
     const r = createAccountBodySchema.safeParse({
       ...onrampBase,
       accountHolder: {
@@ -142,6 +142,60 @@ describe('createAccountBodySchema', () => {
         firstName: 'Matisse',
         lastName: 'Eykelberg',
         email: 'matisse@example.com',
+        taxId: '',
+      },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.accountHolder.taxId).toBeUndefined();
+    }
+  });
+
+  it('accepts Graph individual identity fields + metadata.documents', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      accountHolder: {
+        type: 'individual',
+        name: 'Takeshi Kovacs',
+        firstName: 'Takeshi',
+        lastName: 'Kovacs',
+        middleName: 'Koo',
+        email: 'test@example.com',
+        phone: '+2348024056288',
+        dateOfBirth: '1989-01-16',
+        idType: 'passport',
+        idNumber: 'A12345678',
+        idCountry: 'NG',
+        taxId: '',
+        address: {
+          addressLine1: 'Juncal 2091',
+          city: 'Lagos',
+          stateProvinceRegion: 'LA',
+          postalCode: '100001',
+          country: 'NG',
+        },
+      },
+      metadata: {
+        documents: [
+          { type: 'passport', url: 'https://cdn.example.com/passport.png' },
+          { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+        ],
+      },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.accountHolder.dateOfBirth).toBe('1989-01-16');
+      expect(r.data.accountHolder.idType).toBe('passport');
+      expect(r.data.metadata?.documents).toHaveLength(2);
+    }
+  });
+
+  it('rejects invalid accountHolder.idType', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      accountHolder: {
+        ...onrampBase.accountHolder,
+        idType: 'drivers_licence',
       },
     });
     expect(r.success).toBe(false);

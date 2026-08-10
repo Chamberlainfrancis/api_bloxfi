@@ -214,6 +214,8 @@ model Account {
   sofQuestionnaire   Json?
   /** S3 object key for copied source-of-funds document (onramp). */
   sourceOfFundsDocumentPath String?
+  /** Onramp extras (e.g. Graph identity `documents`). */
+  metadata           Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

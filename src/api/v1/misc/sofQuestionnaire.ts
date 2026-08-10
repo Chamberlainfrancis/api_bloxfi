@@ -79,6 +79,7 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
       label: 'Expected Monthly Payments (USD)',
       type: 'select',
       required: true,
+      hint: 'For Graph KYC, the integer after `_` is sent as expected_monthly_inflow (e.g. 0_4999 → 4999).',
       options: [
         { value: '0_4999', label: '$0 - $4,999' },
         { value: '5000_9999', label: '$5,000 - $9,999' },

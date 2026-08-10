@@ -8,7 +8,13 @@ import {
   maskProviderPayoutDestination,
   parseProviderPayout,
 } from '@/core/accounts/providerPayoutHelpers';
-import type { Account, AccountHolder, ProviderPayout, RailType } from '@/types/account';
+import type {
+  Account,
+  AccountHolder,
+  AccountMetadata,
+  ProviderPayout,
+  RailType,
+} from '@/types/account';
 
 export interface AccountRowLike {
   id: string;
@@ -25,6 +31,7 @@ export interface AccountRowLike {
   kycImportStatus?: string | null;
   sofQuestionnaire?: unknown;
   sourceOfFundsDocumentPath?: string | null;
+  metadata?: unknown;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,6 +58,7 @@ export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean
       kycImportStatus: row.kycImportStatus ?? null,
       sofQuestionnaire: (row.sofQuestionnaire as Record<string, unknown> | null) ?? null,
       sourceOfFundsDocumentPath: row.sourceOfFundsDocumentPath ?? null,
+      metadata: (row.metadata as AccountMetadata | null) ?? null,
     };
   }
 

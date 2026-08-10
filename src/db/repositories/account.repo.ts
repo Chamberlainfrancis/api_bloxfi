@@ -19,6 +19,7 @@ export interface CreateAccountData {
   creationRequestId?: string | null;
   sofQuestionnaire?: object | null;
   sourceOfFundsDocumentPath?: string | null;
+  metadata?: object | null;
 }
 
 export interface AccountRow {
@@ -35,6 +36,7 @@ export interface AccountRow {
   creationRequestId: string | null;
   sofQuestionnaire: unknown;
   sourceOfFundsDocumentPath: string | null;
+  metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,6 +56,7 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRow
       creationRequestId: data.creationRequestId ?? undefined,
       sofQuestionnaire: data.sofQuestionnaire != null ? (data.sofQuestionnaire as object) : undefined,
       sourceOfFundsDocumentPath: data.sourceOfFundsDocumentPath ?? undefined,
+      metadata: data.metadata != null ? (data.metadata as object) : undefined,
     },
   });
   return account as AccountRow;

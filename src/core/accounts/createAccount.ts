@@ -52,6 +52,7 @@ export interface AccountRepoCreate {
     creationRequestId?: string | null;
     sofQuestionnaire?: object | null;
     sourceOfFundsDocumentPath?: string | null;
+    metadata?: object | null;
   }): Promise<{
     id: string;
     userId: string;
@@ -66,6 +67,7 @@ export interface AccountRepoCreate {
     creationRequestId: string | null;
     sofQuestionnaire?: unknown;
     sourceOfFundsDocumentPath?: string | null;
+    metadata?: unknown;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -109,6 +111,9 @@ export async function createAccount(
       throw new Error('INVALID_ACCOUNT: onramp accounts support customer_type individual only in v1');
     }
     const kycImportEnabled = isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
+    if (kycImportEnabled && !data.accountHolder.taxId?.trim()) {
+      throw new Error('INVALID_ACCOUNT: taxId is required when SwipeLux beneficiary KYC import is enabled');
+    }
 
     const existing = await accountRepo.findByCreationRequestId(options.requestId);
     if (existing) {
@@ -151,6 +156,7 @@ export async function createAccount(
         creationRequestId: options.requestId,
         sofQuestionnaire: (data.sofQuestionnaire ?? null) as object | null,
         sourceOfFundsDocumentPath: stored.storagePath,
+        metadata: (data.metadata ?? null) as object | null,
       });
     } catch (e) {
       if (!isPrismaUniqueError(e)) throw e;

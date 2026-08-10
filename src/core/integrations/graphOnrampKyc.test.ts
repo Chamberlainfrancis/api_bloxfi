@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildGraphBusinessKycInput,
+  buildGraphIndividualKycInput,
+  expectedMonthlyInflowFromSofBucket,
   graphKycExtrasFromUserMetadata,
   GraphOnrampKycError,
+  isGraphUsdNamedDepositsEnabled,
 } from '@/core/integrations/graphOnrampKyc';
 
 const completeSource = {
@@ -110,5 +113,115 @@ describe('graphKycExtrasFromUserMetadata', () => {
   it('returns empty when metadata has no graphOnrampKyc', () => {
     expect(graphKycExtrasFromUserMetadata({ foo: 1 })).toEqual({});
     expect(graphKycExtrasFromUserMetadata(null)).toEqual({});
+  });
+});
+
+const individualSource = {
+  accountHolder: {
+    type: 'individual',
+    name: 'Takeshi Kovacs',
+    firstName: 'Takeshi',
+    lastName: 'Kovacs',
+    middleName: 'Koo',
+    email: 'test@example.com',
+    phone: '+234 802 405 6288',
+    dateOfBirth: '1989-01-16',
+    idType: 'passport',
+    idNumber: 'A12345678',
+    idCountry: 'NG',
+    taxId: '',
+    address: {
+      addressLine1: 'Juncal 2091',
+      addressLine2: '',
+      city: 'Lagos',
+      stateProvinceRegion: 'LA',
+      postalCode: '100001',
+      country: 'NG',
+    },
+  },
+  sofQuestionnaire: {
+    employmentStatus: 'employed',
+    expectedMonthlyPayments: '0_4999',
+    primaryPurpose: 'personal',
+    sourceOfFunds: 'salary',
+    mostRecentOccupation: '151251',
+  },
+  documents: [
+    { type: 'passport', url: 'https://cdn.example.com/passport.png' },
+    { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+  ],
+};
+
+describe('expectedMonthlyInflowFromSofBucket', () => {
+  it('takes the integer after _', () => {
+    expect(expectedMonthlyInflowFromSofBucket('0_4999')).toBe(4999);
+    expect(expectedMonthlyInflowFromSofBucket('5000_9999')).toBe(9999);
+    expect(expectedMonthlyInflowFromSofBucket('10000_49999')).toBe(49999);
+  });
+
+  it('returns null for invalid buckets', () => {
+    expect(expectedMonthlyInflowFromSofBucket('4999')).toBeNull();
+    expect(expectedMonthlyInflowFromSofBucket('0_')).toBeNull();
+  });
+});
+
+describe('isGraphUsdNamedDepositsEnabled', () => {
+  it('reads User.metadata.graphUsdNamedDeposits', () => {
+    expect(isGraphUsdNamedDepositsEnabled({ graphUsdNamedDeposits: true })).toBe(true);
+    expect(isGraphUsdNamedDepositsEnabled({ graphUsdNamedDeposits: false })).toBe(false);
+    expect(isGraphUsdNamedDepositsEnabled({})).toBe(false);
+  });
+});
+
+describe('buildGraphIndividualKycInput', () => {
+  it('builds Graph individual kyc_input from onramp Account fields', () => {
+    const kyc = buildGraphIndividualKycInput(individualSource);
+    expect(kyc.customer_type).toBe('individual');
+    expect(kyc.first_name).toBe('Takeshi');
+    expect(kyc.last_name).toBe('Kovacs');
+    expect(kyc.middle_name).toBe('Koo');
+    expect(kyc.phone).toBe('+2348024056288');
+    expect(kyc.id_country).toBe('NG');
+    expect(kyc.address_country).toBe('NGA');
+    expect(kyc.address_line1).toBe('Juncal 2091');
+    expect(kyc.background_information).toEqual({
+      employment_status: 'employed',
+      occupation: '151251',
+      primary_purpose: 'personal',
+      source_of_funds: 'salary',
+      expected_monthly_inflow: 4999,
+    });
+    expect(kyc.documents).toEqual(individualSource.documents);
+    expect(kyc.tax_id).toBeUndefined();
+  });
+
+  it('fails closed when identity docs / DOB / address missing', () => {
+    try {
+      buildGraphIndividualKycInput({
+        accountHolder: {
+          type: 'individual',
+          name: 'Takeshi Kovacs',
+          firstName: 'Takeshi',
+          lastName: 'Kovacs',
+          email: 'test@example.com',
+          phone: '+2348024056288',
+        },
+        sofQuestionnaire: individualSource.sofQuestionnaire,
+        documents: [],
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      const err = e as GraphOnrampKycError;
+      expect(err.missingFields).toEqual(
+        expect.arrayContaining([
+          'date_of_birth',
+          'id_type',
+          'id_number',
+          'address_line1',
+          'documents',
+        ])
+      );
+    }
   });
 });

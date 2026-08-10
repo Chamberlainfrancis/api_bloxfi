@@ -20,13 +20,19 @@ import {
   POOLED_PLATFORM_ACCOUNT_NAME,
   dynamicDepositAccountStyle,
 } from '@/core/onramps/depositAccountStyle';
-import {
-  buildGraphBusinessKycInput,
-  type GraphOnrampKycSource,
-} from '@/core/integrations/graphOnrampKyc';
+import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 
 /** Prisma User.id for Briana Payments — Graph named USD VA; no OwlPay failover. */
 export const BRIANA_BUSINESS_REFERENCE = '9eea8cbd-e545-4d15-85cd-90690ede4b0c';
+
+/** True when this business should use Graph USD named deposits (Briana pin or metadata opt-in). */
+export function isGraphUsdBusiness(userId: string, metadata: unknown): boolean {
+  if (userId === BRIANA_BUSINESS_REFERENCE) return true;
+  if (metadata != null && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    return (metadata as Record<string, unknown>).graphUsdNamedDeposits === true;
+  }
+  return false;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -259,19 +265,20 @@ export async function createOnrampPalremitFiatDeposit(
     /** SwipeLux customer type; cannot be derived from User.type. */
     customerType?: 'individual' | 'business';
     /**
-     * Briana USD → Graph: User fields + Graph extras (documents / background / UBO id).
-     * Required for Briana USD; builder fails closed if Graph-required fields are missing.
+     * Graph USD named VA: pre-built individual (or business) kyc_input from api_bloxfi.
+     * Required when useGraphUsd is true.
      */
-    graphKyc?: GraphOnrampKycSource;
+    graphKycInput?: Record<string, unknown>;
+    /** Pin preferred_provider=graph + FIAT_DEPOSIT_KYC (Briana or metadata opt-in). */
+    useGraphUsd?: boolean;
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
-  const isBrianaUsd =
-    asset === 'USD' && params.businessReference === BRIANA_BUSINESS_REFERENCE;
+  const isGraphUsd = asset === 'USD' && params.useGraphUsd === true;
 
   const fallback = (reason: string) => {
-    // Briana Graph path: never silent OwlPay/SwipeLux/static house fallback.
-    if (isBrianaUsd) {
+    // Graph path: never silent OwlPay/SwipeLux/static house fallback.
+    if (isGraphUsd) {
       throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
     }
     return staticFallbackDepositResult({
@@ -290,10 +297,10 @@ export async function createOnrampPalremitFiatDeposit(
     return fallback('preferred_static');
   }
 
-  // NGN (Kuda) and non-Briana USD (SwipeLux) onboard identity out of band.
-  // Briana USD uses Graph named VA via FIAT_DEPOSIT_KYC. Other currencies
-  // still use the orchestrator-driven KYC path.
-  const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' = isBrianaUsd
+  // NGN (Kuda) and non-Graph USD (SwipeLux) onboard identity out of band.
+  // Graph USD uses named VA via FIAT_DEPOSIT_KYC. Other currencies still use
+  // the orchestrator-driven KYC path.
+  const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' = isGraphUsd
     ? 'FIAT_DEPOSIT_KYC'
     : asset === 'NGN' || asset === 'USD'
       ? 'FIAT_DEPOSIT_NO_KYC'
@@ -309,11 +316,11 @@ export async function createOnrampPalremitFiatDeposit(
   // Deposit naming: pooled vs named (static is handled above / on fallback).
   // - NGN (Kuda): account_name "LTD." → issued holder "Palremit-LTD."
   //   (Kuda merchant-prefixes "Palremit-"; do not send "Palremit LTD").
-  // - Non-Briana USD (SwipeLux): amount-scoped pooled pay-ins.
-  // - Briana USD (Graph): named VA — no amount extras; full kyc_input below.
+  // - Non-Graph USD (SwipeLux): amount-scoped pooled pay-ins.
+  // - Graph USD: named VA — no amount extras; full kyc_input below.
   if (asset === 'NGN') {
     body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
-  } else if (asset === 'USD' && !isBrianaUsd) {
+  } else if (asset === 'USD' && !isGraphUsd) {
     const providerExtras: Record<string, unknown> = { amount: String(params.amount) };
     // Per-account SwipeLux identity. account_reference switches the
     // orchestrator from per-business to per-account resolution; contact_email
@@ -326,14 +333,20 @@ export async function createOnrampPalremitFiatDeposit(
       if (params.customerType) providerExtras.customer_type = params.customerType;
     }
     body.provider_extras = providerExtras;
-  } else if (isBrianaUsd) {
-    // Bancara: Graph only — no SwipeLux/OwlPay/static fallthrough.
+  } else if (isGraphUsd) {
+    if (!params.graphKycInput) {
+      throw new GraphOnrampKycError(['kyc_input']);
+    }
+    // Graph only — no SwipeLux/OwlPay/static fallthrough.
     body.allow_provider_failover = false;
     body.preferred_provider = 'graph';
-    body.kyc_input = buildGraphBusinessKycInput(params.graphKyc ?? {});
+    body.kyc_input = params.graphKycInput;
+    if (params.accountReference) {
+      body.account_reference = params.accountReference;
+    }
   }
 
-  if (mode === 'FIAT_DEPOSIT_KYC' && !isBrianaUsd) {
+  if (mode === 'FIAT_DEPOSIT_KYC' && !isGraphUsd) {
     body.kyc_input = {
       first_name: params.firstName,
       last_name: params.lastName,
@@ -347,10 +360,10 @@ export async function createOnrampPalremitFiatDeposit(
   try {
     prov = await provisionPalremitDepositAccount(liquidityRequest, body, idempotencyKey);
   } catch (e) {
-    // Briana Graph: fail closed (no static/OwlPay house). Non-Briana rethrows
-    // so existing HTTP-adapter → null → static-fallback behavior is unchanged
-    // when provisionPalremitDepositAccount surfaces a non-HTTP error.
-    if (isBrianaUsd) throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
+    // Graph: fail closed (no static/OwlPay house). Non-Graph rethrows so existing
+    // HTTP-adapter → null → static-fallback behavior is unchanged when
+    // provisionPalremitDepositAccount surfaces a non-HTTP error.
+    if (isGraphUsd) throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
     throw e;
   }
   if (!prov) return fallback('provision_failed');

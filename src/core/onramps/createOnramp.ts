@@ -22,9 +22,12 @@ import type {
   Receipt,
 } from '@/types/onramp';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
-import type { GraphOnrampKycSource } from '@/core/integrations/graphOnrampKyc';
-import { graphKycExtrasFromUserMetadata } from '@/core/integrations/graphOnrampKyc';
-import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
+import {
+  buildGraphIndividualKycInput,
+  GraphOnrampKycError,
+} from '@/core/integrations/graphOnrampKyc';
+import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
+import type { AccountMetadata } from '@/types/account';
 
 const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
@@ -76,15 +79,24 @@ export interface CreateOnrampOptions {
     accountReference?: string;
     contactEmail?: string;
     customerType?: 'individual' | 'business';
-    /** Briana USD Graph KYC source (User fields + metadata extras). */
-    graphKyc?: GraphOnrampKycSource;
+    /** Pre-built Graph kyc_input (individual from onramp Account). */
+    graphKycInput?: Record<string, unknown>;
+    /** Pin Graph USD named deposit path. */
+    useGraphUsd?: boolean;
   }) => Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null>;
   /**
-   * Onramp Account rows for the user, used to infer `account_reference`.
-   * Optional — when absent the onramp provisions per-business exactly as before.
+   * Onramp Account rows for the user, used to infer `account_reference`
+   * and (for Graph) build individual kyc_input. Optional — when absent the
+   * onramp provisions per-business exactly as before (non-Graph only).
    */
   listOnrampAccounts?: (userId: string) => Promise<
-    readonly { id: string; accountHolder: unknown; swipeluxCustomerId: string | null }[]
+    readonly {
+      id: string;
+      accountHolder: unknown;
+      swipeluxCustomerId: string | null;
+      sofQuestionnaire?: unknown;
+      metadata?: unknown;
+    }[]
   >;
   /**
    * Fetch Palremit's crypto payout fee (POST /v1/withdrawals/quote). Deducted
@@ -429,9 +441,13 @@ export async function createOnramp(
 
   // The onramp request is user-scoped, so which Account this deposit belongs
   // to has to be inferred. An inconclusive answer is left unset rather than
-  // guessed — the orchestrator then resolves per business, as it does today.
+  // guessed — the orchestrator then resolves per business, as it does today
+  // (non-Graph). Graph USD requires a resolved Account for individual KYC.
+  const onrampAccounts = options.listOnrampAccounts
+    ? await options.listOnrampAccounts(userId)
+    : [];
   const inferred = options.listOnrampAccounts
-    ? inferOnrampAccount(await options.listOnrampAccounts(userId))
+    ? inferOnrampAccount(onrampAccounts)
     : ({ kind: 'none' } as const);
   if (inferred.kind === 'ambiguous') {
     logger.warn(
@@ -450,16 +466,30 @@ export async function createOnramp(
         }
       : {};
 
-  const isBrianaUsd =
-    userId === BRIANA_BUSINESS_REFERENCE && fromCurrency.trim().toUpperCase() === 'USD';
-  const graphKyc: GraphOnrampKycSource | undefined = isBrianaUsd
-    ? {
-        businessInfo: user.businessInfo,
-        registeredAddress: user.registeredAddress,
-        legalRepresentative: user.legalRepresentative,
-        ...graphKycExtrasFromUserMetadata(user.metadata),
-      }
-    : undefined;
+  const useGraphUsd =
+    fromCurrency.trim().toUpperCase() === 'USD' &&
+    isGraphUsdBusiness(userId, user.metadata);
+
+  let graphKycInput: Record<string, unknown> | undefined;
+  if (useGraphUsd) {
+    if (inferred.kind !== 'resolved') {
+      throw new GraphOnrampKycError([
+        inferred.kind === 'ambiguous'
+          ? 'account_reference (ambiguous onramp accounts)'
+          : 'account_reference (no onramp account)',
+      ]);
+    }
+    const accountRow = onrampAccounts.find((a) => a.id === inferred.account.accountReference);
+    if (!accountRow) {
+      throw new GraphOnrampKycError(['account_reference']);
+    }
+    const meta = accountRow.metadata as AccountMetadata | null | undefined;
+    graphKycInput = buildGraphIndividualKycInput({
+      accountHolder: accountRow.accountHolder,
+      sofQuestionnaire: accountRow.sofQuestionnaire,
+      documents: meta?.documents,
+    });
+  }
 
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
@@ -473,7 +503,9 @@ export async function createOnramp(
     businessReference: userId,
     businessName: userDisplayInfo.businessName,
     ...accountFields,
-    ...(graphKyc ? { graphKyc } : {}),
+    ...(useGraphUsd
+      ? { useGraphUsd: true, graphKycInput }
+      : {}),
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
