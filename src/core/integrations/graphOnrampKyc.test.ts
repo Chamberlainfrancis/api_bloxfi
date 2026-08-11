@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  assertGraphUsdAccountCreatePayload,
   buildGraphBusinessKycInput,
   buildGraphIndividualKycInput,
   expectedMonthlyInflowFromSofBucket,
@@ -213,6 +214,21 @@ describe('buildGraphIndividualKycInput', () => {
     ]);
   });
 
+  it('dedupes Graph document types (keeps first)', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      documents: [
+        { type: 'national_id', url: 'https://cdn.example.com/id-front.png' },
+        { type: 'national_id', url: 'https://cdn.example.com/id-back.png' },
+        { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+      ],
+    });
+    expect(kyc.documents).toEqual([
+      { type: 'national_id', url: 'https://cdn.example.com/id-front.png' },
+      { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+    ]);
+  });
+
   it('fails closed when identity docs / DOB / address missing', () => {
     try {
       buildGraphIndividualKycInput({
@@ -240,6 +256,50 @@ describe('buildGraphIndividualKycInput', () => {
           'documents',
         ])
       );
+    }
+  });
+});
+
+describe('assertGraphUsdAccountCreatePayload', () => {
+  it('accepts subdivision codes and allowlisted docs', () => {
+    const kyc = assertGraphUsdAccountCreatePayload(individualSource);
+    expect(kyc.address_state).toBe('LA');
+  });
+
+  it('rejects full state names', () => {
+    try {
+      assertGraphUsdAccountCreatePayload({
+        ...individualSource,
+        accountHolder: {
+          ...individualSource.accountHolder,
+          address: {
+            ...(individualSource.accountHolder as { address: object }).address,
+            stateProvinceRegion: 'Stockholm',
+          },
+        },
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      expect((e as GraphOnrampKycError).missingFields).toContain('address_state');
+    }
+  });
+
+  it('rejects source_of_funds document type and duplicate identity docs', () => {
+    try {
+      assertGraphUsdAccountCreatePayload({
+        ...individualSource,
+        documents: [
+          { type: 'national_id', url: 'https://cdn.example.com/id-front.png' },
+          { type: 'national_id', url: 'https://cdn.example.com/id-back.png' },
+          { type: 'source_of_funds', url: 'https://cdn.example.com/sof.pdf' },
+        ],
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      const fields = (e as GraphOnrampKycError).missingFields;
+      expect(fields).toEqual(expect.arrayContaining(['documents[1].type', 'documents[2].type']));
     }
   });
 });

@@ -15,7 +15,7 @@ import {
   copyRemoteDocumentToS3,
   RemoteDocumentError,
 } from '@/core/files/copyRemoteDocument';
-import { buildGraphIndividualKycInput } from '@/core/integrations/graphOnrampKyc';
+import { assertGraphUsdAccountCreatePayload } from '@/core/integrations/graphOnrampKyc';
 import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
 import type {
@@ -156,9 +156,9 @@ export async function createAccount(
       throw new Error('INVALID_ACCOUNT: taxId is required when beneficiary KYC import is enabled');
     }
 
-    // Fail closed before persist when Graph KYC is incomplete.
+    // Fail closed before persist when Graph KYC is incomplete / payload invalid.
     if (useGraph) {
-      buildGraphIndividualKycInput({
+      assertGraphUsdAccountCreatePayload({
         accountHolder: data.accountHolder,
         sofQuestionnaire: data.sofQuestionnaire,
         documents: data.metadata?.documents,

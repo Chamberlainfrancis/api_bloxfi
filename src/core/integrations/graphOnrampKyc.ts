@@ -113,6 +113,7 @@ const ALPHA_2_TO_3: Readonly<Record<string, string>> = {
   NG: 'NGA',
   NL: 'NLD',
   NZ: 'NZL',
+  SE: 'SWE',
   SG: 'SGP',
   US: 'USA',
   ZA: 'ZAF',
@@ -374,6 +375,20 @@ const GRAPH_PERSON_DOC_TYPES = new Set([
   'utility_bill',
 ]);
 
+/** ISO 3166-2 subdivision code (local part): `SH`, `AB`, `NY`, `LA` — not full names. */
+const SUBDIVISION_CODE = /^[A-Za-z0-9]{1,3}$/;
+
+/** Client-facing allowlist for Graph USD `metadata.documents[].type` (before mapping). */
+const GRAPH_USD_CREATE_DOC_TYPES = new Set([
+  'passport',
+  'national_id',
+  'drivers_license',
+  'voters_card',
+  'utility_bill',
+  'proof_of_address',
+  'poa',
+]);
+
 /** Map BloxFi / portal doc types onto Graph’s allowed set. */
 function toGraphPersonDocType(raw: string): string | null {
   const t = raw.trim().toLowerCase();
@@ -381,6 +396,52 @@ function toGraphPersonDocType(raw: string): string | null {
   if (t === 'proof_of_address' || t === 'poa') return 'utility_bill';
   // Portal SOF evidence is not a Graph person document type.
   return null;
+}
+
+/**
+ * Strict Graph USD create-Account checks (before persist).
+ * Throws {@link GraphOnrampKycError} with field paths; then builds kyc_input.
+ */
+export function assertGraphUsdAccountCreatePayload(
+  source: GraphIndividualKycSource
+): Record<string, unknown> {
+  const invalid: string[] = [];
+  const holder = asRecord(source.accountHolder) ?? {};
+  const addr = asRecord(holder.address) ?? {};
+  const state = str(addr.stateProvinceRegion ?? addr.state ?? addr.address_state);
+  if (state && !SUBDIVISION_CODE.test(state)) {
+    invalid.push('address_state');
+  }
+
+  const docs = Array.isArray(source.documents) ? source.documents : [];
+  const seenMapped = new Set<string>();
+  for (let i = 0; i < docs.length; i++) {
+    const d = docs[i]!;
+    const rawType = str(d.type).toLowerCase();
+    if (!rawType) {
+      invalid.push(`documents[${i}].type`);
+      continue;
+    }
+    if (!GRAPH_USD_CREATE_DOC_TYPES.has(rawType)) {
+      invalid.push(`documents[${i}].type`);
+      continue;
+    }
+    const mapped = toGraphPersonDocType(rawType);
+    if (!mapped) {
+      invalid.push(`documents[${i}].type`);
+      continue;
+    }
+    if (seenMapped.has(mapped)) {
+      invalid.push(`documents[${i}].type`);
+      continue;
+    }
+    seenMapped.add(mapped);
+  }
+
+  if (invalid.length > 0) {
+    throw new GraphOnrampKycError(invalid);
+  }
+  return buildGraphIndividualKycInput(source);
 }
 
 const EMPLOYMENT = new Set(['employed', 'self_employed', 'unemployed', 'student', 'retired']);
@@ -468,6 +529,7 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
   const validDocs: GraphOnrampKycDocument[] = [];
+  const seenDocTypes = new Set<string>();
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i]!;
     const mappedType = toGraphPersonDocType(str(d.type));
@@ -478,6 +540,9 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
       missing.push(`documents[${i}]`);
       continue;
     }
+    // Graph rejects duplicate document types on person upload — keep first of each.
+    if (seenDocTypes.has(mappedType)) continue;
+    seenDocTypes.add(mappedType);
     const out: GraphOnrampKycDocument = { type: mappedType, url };
     if ('issue_date' in d && typeof d.issue_date === 'string') out.issue_date = d.issue_date;
     if ('expiry_date' in d && typeof d.expiry_date === 'string') out.expiry_date = d.expiry_date;
