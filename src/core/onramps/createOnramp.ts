@@ -482,7 +482,11 @@ export async function createOnramp(
     );
   }
 
-  const accountFields =
+  const accountFields: {
+    accountReference?: string;
+    contactEmail?: string;
+    customerType?: 'individual' | 'business';
+  } =
     inferred.kind === 'resolved'
       ? {
           accountReference: inferred.account.accountReference,
