@@ -26,7 +26,8 @@ export interface AccountRepoList {
 export async function listAccounts(
   repo: AccountRepoList,
   userId: string,
-  query: ListAccountsQuery
+  query: ListAccountsQuery,
+  options?: { graphUsdEligible?: boolean }
 ): Promise<ListAccountsResponse> {
   const limit = Math.min(Math.max(1, query.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
   const createdBefore = query.createdBefore ? new Date(query.createdBefore) : undefined;
@@ -48,9 +49,12 @@ export async function listAccounts(
     currency: query.currency,
   });
 
+  const graphUsdEligible = options?.graphUsdEligible === true;
   return {
     count: accounts.length,
-    banks: accounts.map((row) => mapAccountRowToApi(row, { mask: true })),
+    banks: accounts.map((row) =>
+      mapAccountRowToApi(row, { mask: true, graphUsdEligible })
+    ),
     nextCursor: nextCursor ? nextCursor.toISOString() : null,
   };
 }

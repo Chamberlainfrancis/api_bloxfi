@@ -9,6 +9,7 @@ import {
   buildValidatedProviderPayout,
   rethrowPalremitCorridorError,
 } from '@/core/accounts/providerPayoutBuild';
+import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
 import { issueGraphNamedDepositAccount } from '@/core/accounts/graphAccountIssuance';
 import { isSwipeluxBeneficiaryKycImportEnabled } from '@/core/beneficiaries/flag';
 import {
@@ -60,14 +61,26 @@ function issuanceResponseFields(row: {
     | 'provisionedAccountId'
     | 'depositDetails'
     | 'providerIssuanceFailureReason'
+    | 'capabilities'
   >
 > {
-  if (row.providerIssuanceStatus == null) return {};
+  const depositDetails = (row.depositDetails as AccountDepositDetails | null) ?? null;
+  const capabilities = buildAccountCapabilities({
+    graphUsdEligible: true,
+    railType: 'onramp',
+    providerIssuanceStatus: row.providerIssuanceStatus,
+    depositDetails,
+    providerIssuanceFailureReason: row.providerIssuanceFailureReason,
+  });
+  if (row.providerIssuanceStatus == null) {
+    return { ...(capabilities ? { capabilities } : {}) };
+  }
   return {
     providerIssuanceStatus: row.providerIssuanceStatus as ProviderIssuanceStatus,
     provisionedAccountId: row.provisionedAccountId ?? null,
-    depositDetails: (row.depositDetails as AccountDepositDetails | null) ?? null,
+    depositDetails,
     providerIssuanceFailureReason: row.providerIssuanceFailureReason ?? null,
+    ...(capabilities ? { capabilities } : {}),
   };
 }
 
@@ -180,7 +193,7 @@ export async function createAccount(
         status: 'ACTIVE',
         message: 'Account already exists',
         id: existing.id,
-        ...issuanceResponseFields(existing),
+        ...(useGraph ? issuanceResponseFields(existing) : {}),
       };
     }
 
@@ -230,7 +243,7 @@ export async function createAccount(
         status: 'ACTIVE',
         message: 'Account already exists',
         id: raced.id,
-        ...issuanceResponseFields(raced),
+        ...(useGraph ? issuanceResponseFields(raced) : {}),
       };
     }
 

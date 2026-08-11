@@ -95,4 +95,52 @@ describe('mapAccountRowToApi', () => {
     expect(result.swipeluxCustomerId).toBeNull();
     expect(result.kycImportStatus).toBe('pending_import');
   });
+
+  it('omits capabilities when graphUsdEligible is false', () => {
+    const result = mapAccountRowToApi(
+      {
+        ...onrampRow,
+        providerIssuanceStatus: 'pending',
+      },
+      { mask: false, graphUsdEligible: false }
+    );
+    expect(result.capabilities).toBeUndefined();
+  });
+
+  it('exposes capabilities.usdNamedDeposit for Graph-eligible onramp', () => {
+    const ready = mapAccountRowToApi(
+      {
+        ...onrampRow,
+        providerIssuanceStatus: 'active',
+        depositDetails: {
+          bankName: 'LEAD BANK',
+          accountNumber: '213604397161',
+          routingNumber: '101019644',
+          accountHolderName: 'VIKING PLOOM',
+          reference: null,
+        },
+      },
+      { mask: false, graphUsdEligible: true }
+    );
+    expect(ready.capabilities?.usdNamedDeposit.status).toBe('ready');
+
+    const failed = mapAccountRowToApi(
+      {
+        ...onrampRow,
+        providerIssuanceStatus: 'failed',
+        providerIssuanceFailureReason: 'GRAPH_PROVISION_STATE_FAILED',
+      },
+      { mask: false, graphUsdEligible: true }
+    );
+    expect(failed.capabilities?.usdNamedDeposit).toEqual({
+      status: 'failed',
+      failureReason: 'PROVISION_STATE_FAILED',
+    });
+
+    const notStarted = mapAccountRowToApi(onrampRow, {
+      mask: false,
+      graphUsdEligible: true,
+    });
+    expect(notStarted.capabilities?.usdNamedDeposit.status).toBe('not_started');
+  });
 });

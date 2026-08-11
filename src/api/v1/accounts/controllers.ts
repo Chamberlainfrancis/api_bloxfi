@@ -14,6 +14,7 @@ import type { CreateAccountRequest } from "@/types/account";
 import { createAccountBodySchema, listAccountsQuerySchema, updateAccountBodySchema } from "@/api/v1/accounts/schemas";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import { GraphOnrampKycError } from "@/core/integrations/graphOnrampKyc";
+import { isGraphUsdBusiness } from "@/core/integrations/palremitOnramp";
 import { importSwipeluxBeneficiaryKyc } from "@/core/integrations/palremitSwipeluxKycImport";
 
 const REQUEST_ID_HEADER = "requestid";
@@ -136,7 +137,9 @@ export async function listAccounts(req: Request<{ userId: string }>, res: Respon
       next(new AppError("User not found", "NOT_FOUND", 404));
       return;
     }
-    const result = await accountCore.listAccounts(repos.account, userId, queryParsed.data);
+    const result = await accountCore.listAccounts(repos.account, userId, queryParsed.data, {
+      graphUsdEligible: isGraphUsdBusiness(userId, user.metadata),
+    });
     sendSuccess(res, result);
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("INVALID_CURSOR:")) {
@@ -155,7 +158,9 @@ export async function getAccount(req: Request<{ userId: string; accountId: strin
       next(new AppError("User not found", "NOT_FOUND", 404));
       return;
     }
-    const result = await accountCore.getAccount(repos.account, userId, accountId);
+    const result = await accountCore.getAccount(repos.account, userId, accountId, {
+      graphUsdEligible: isGraphUsdBusiness(userId, user.metadata),
+    });
     if (!result) {
       next(new AppError("Account not found", "NOT_FOUND", 404));
       return;

@@ -85,6 +85,24 @@ export interface RegionAccountDetails {
 
 export type ProviderIssuanceStatus = 'pending' | 'active' | 'failed';
 
+/** Partner-facing readiness for USD named deposit / onramp reuse. */
+export type UsdNamedDepositCapabilityStatus =
+  | 'not_started'
+  | 'pending'
+  | 'ready'
+  | 'failed';
+
+export interface UsdNamedDepositCapability {
+  status: UsdNamedDepositCapabilityStatus;
+  /** Present when status is failed; brands stripped. */
+  failureReason?: string | null;
+}
+
+/** Extensible partner capability map (onramp Graph USD today). */
+export interface AccountCapabilities {
+  usdNamedDeposit: UsdNamedDepositCapability;
+}
+
 /** Stored Graph/orchestrator fiat deposit instructions on Account. */
 export interface AccountDepositDetails {
   bankName: string;
@@ -117,13 +135,15 @@ export interface Account {
   sourceOfFundsDocumentPath?: string | null;
   /** Onramp extras (Graph identity documents, etc.). */
   metadata?: AccountMetadata | null;
-  /** Graph named-VA issuance status. Onramp only. */
+  /** Graph named-VA issuance status. Onramp only. Prefer capabilities.usdNamedDeposit. */
   providerIssuanceStatus?: ProviderIssuanceStatus | null;
   /** Orchestrator provisioned-account id. */
   provisionedAccountId?: string | null;
   /** Fiat deposit instructions once issuance is active. */
   depositDetails?: AccountDepositDetails | null;
   providerIssuanceFailureReason?: string | null;
+  /** Partner readiness signals (Graph USD named deposit when eligible). */
+  capabilities?: AccountCapabilities;
 }
 
 // --- Create Account (POST) ---
@@ -152,6 +172,7 @@ export interface CreateAccountResponse {
   provisionedAccountId?: string | null;
   depositDetails?: AccountDepositDetails | null;
   providerIssuanceFailureReason?: string | null;
+  capabilities?: AccountCapabilities;
 }
 
 // --- List Accounts (GET) ---

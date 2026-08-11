@@ -612,6 +612,7 @@ describe('createAccount — onramp', () => {
     );
     expect(result.providerIssuanceStatus).toBe('active');
     expect(result.depositDetails?.accountNumber).toBe('9992740191426913');
+    expect(result.capabilities?.usdNamedDeposit.status).toBe('ready');
     expect(provisionCalls[0]?.body?.client_reference).toBe('acc-onramp-1');
     expect(provisionCalls[0]?.body?.preferred_provider).toBe('graph');
   });

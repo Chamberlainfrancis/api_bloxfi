@@ -2,6 +2,7 @@
  * Map DB account row → API Account shape.
  */
 
+import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
 import {
   accountDetailsFromDestination,
   maskAccountDetails,
@@ -42,10 +43,26 @@ export interface AccountRowLike {
   updatedAt: Date;
 }
 
-export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean }): Account {
+export function mapAccountRowToApi(
+  row: AccountRowLike,
+  options: { mask: boolean; graphUsdEligible?: boolean }
+): Account {
   if (row.railType === 'onramp') {
     // Onramp rows are Sumsub share-token KYC imports (Task 6/7) — no Palremit payout corridor,
     // so there is no providerPayout to parse and no bank `details` to derive.
+    const depositDetails =
+      row.depositDetails != null &&
+      typeof row.depositDetails === 'object' &&
+      !Array.isArray(row.depositDetails)
+        ? (row.depositDetails as AccountDepositDetails)
+        : null;
+    const capabilities = buildAccountCapabilities({
+      graphUsdEligible: options.graphUsdEligible === true,
+      railType: row.railType,
+      providerIssuanceStatus: row.providerIssuanceStatus,
+      depositDetails,
+      providerIssuanceFailureReason: row.providerIssuanceFailureReason,
+    });
     return {
       id: row.id,
       userId: row.userId,
@@ -67,8 +84,9 @@ export function mapAccountRowToApi(row: AccountRowLike, options: { mask: boolean
       metadata: (row.metadata as AccountMetadata | null) ?? null,
       providerIssuanceStatus: (row.providerIssuanceStatus as ProviderIssuanceStatus | null) ?? null,
       provisionedAccountId: row.provisionedAccountId ?? null,
-      depositDetails: (row.depositDetails as AccountDepositDetails | null) ?? null,
+      depositDetails,
       providerIssuanceFailureReason: row.providerIssuanceFailureReason ?? null,
+      ...(capabilities ? { capabilities } : {}),
     };
   }
 

@@ -15,9 +15,13 @@ export interface AccountRepoGet {
 export async function getAccount(
   repo: AccountRepoGet,
   userId: string,
-  accountId: string
+  accountId: string,
+  options?: { graphUsdEligible?: boolean }
 ): Promise<GetAccountResponse | null> {
   const account = await repo.findAccountByIdAndUser(accountId, userId);
   if (!account) return null;
-  return mapAccountRowToApi(account, { mask: false });
+  return mapAccountRowToApi(account, {
+    mask: false,
+    graphUsdEligible: options?.graphUsdEligible === true,
+  });
 }
