@@ -555,6 +555,7 @@ export async function createOnramp(
       ? { accountId: accountFields.accountReference }
       : {}),
   };
+  logger.info({ sourcePayload }, 'onramp source payload (accountId passthrough)');
 
   const fiatResult = await options.createPalremitFiatDeposit({
     firstName,
