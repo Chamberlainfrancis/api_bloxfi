@@ -508,6 +508,8 @@ describe('createAccount — onramp', () => {
 
   it('never passes sumsubShareToken into the persisted accountHolder or any log call', async () => {
     const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } = makeOnrampDeps();
+    const { logger } = await import('@/lib/logger');
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => logger);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -523,12 +525,14 @@ describe('createAccount — onramp', () => {
     const createAccountCallArg = accountRepo.createAccount.mock.calls[0][0];
     expect(JSON.stringify(createAccountCallArg)).not.toContain('super-secret-share-token');
 
-    const allLoggedText = [...logSpy.mock.calls, ...errorSpy.mock.calls]
+    const allLoggedText = [...infoSpy.mock.calls, ...logSpy.mock.calls, ...errorSpy.mock.calls]
       .flat()
       .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)))
       .join(' ');
     expect(allLoggedText).not.toContain('super-secret-share-token');
+    expect(allLoggedText).toContain('[redacted]');
 
+    infoSpy.mockRestore();
     logSpy.mockRestore();
     errorSpy.mockRestore();
   });

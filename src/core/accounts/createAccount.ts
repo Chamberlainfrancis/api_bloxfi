@@ -25,6 +25,7 @@ import type {
   updateAccountProviderIssuance,
 } from '@/db/repositories/account.repo';
 import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
+import { logger } from '@/lib/logger';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 import type {
   AccountDepositDetails,
@@ -34,6 +35,15 @@ import type {
   ProviderIssuanceStatus,
   RailType,
 } from '@/types/account';
+
+/** Loggable create-account body: never include sumsubShareToken. */
+function redactCreateAccountPayload(data: CreateAccountRequest): Record<string, unknown> {
+  const { sumsubShareToken: _omit, ...rest } = data;
+  return {
+    ...rest,
+    ...(data.sumsubShareToken != null ? { sumsubShareToken: '[redacted]' } : {}),
+  };
+}
 
 // Mirrors user.repo.ts's isPrismaUniqueError — kept local (not imported) since account.repo.ts's
 // createAccount is called here through an injected interface, not raw Prisma.
@@ -154,6 +164,15 @@ export async function createAccount(
   data: CreateAccountRequest,
   options: CreateAccountOptions & { requestId: string; importKyc: typeof importSwipeluxBeneficiaryKyc }
 ): Promise<CreateAccountResponse> {
+  logger.info(
+    {
+      userId,
+      requestId: options.requestId,
+      payload: redactCreateAccountPayload(data),
+    },
+    'createAccount request payload'
+  );
+
   const user = await userRepo.findUserById(userId);
   if (!user) throw new Error('USER_NOT_FOUND');
 
