@@ -398,11 +398,12 @@ function toGraphPersonDocType(raw: string): string | null {
   return null;
 }
 
-type DocSideBuckets = { front: number[]; back: number[]; unsided: number[] };
+type DocSideBuckets = { front: number[]; back: number[] };
 
-function documentSide(raw: unknown): 'front' | 'back' | '' | null {
+/** Parse document side; omit/empty defaults to `front`. Invalid values → null. */
+function resolveDocumentSide(raw: unknown): 'front' | 'back' | null {
   const s = str(raw).toLowerCase();
-  if (!s) return '';
+  if (!s) return 'front';
   if (s === 'front' || s === 'back') return s;
   return null;
 }
@@ -411,8 +412,8 @@ function documentSide(raw: unknown): 'front' | 'back' | '' | null {
  * Strict Graph USD create-Account checks (before persist).
  * Throws {@link GraphOnrampKycError} with field paths; then builds kyc_input.
  *
- * Same mapped document type may appear twice only as complementary
- * `side: "front"` + `side: "back"`. Graph still receives one URL (prefer front).
+ * `side` is optional (defaults to front). Same mapped type may appear twice only
+ * as complementary front + back. Graph still receives one URL (prefer front).
  */
 export function assertGraphUsdAccountCreatePayload(
   source: GraphIndividualKycSource
@@ -443,23 +444,22 @@ export function assertGraphUsdAccountCreatePayload(
       invalid.push(`documents[${i}].type`);
       continue;
     }
-    const side = documentSide('side' in d ? d.side : undefined);
+    const side = resolveDocumentSide('side' in d ? d.side : undefined);
     if (side === null) {
       invalid.push(`documents[${i}].side`);
       continue;
     }
-    const bucket = byMapped.get(mapped) ?? { front: [], back: [], unsided: [] };
+    const bucket = byMapped.get(mapped) ?? { front: [], back: [] };
     if (side === 'front') bucket.front.push(i);
-    else if (side === 'back') bucket.back.push(i);
-    else bucket.unsided.push(i);
+    else bucket.back.push(i);
     byMapped.set(mapped, bucket);
   }
 
   for (const bucket of byMapped.values()) {
-    const total = bucket.front.length + bucket.back.length + bucket.unsided.length;
+    const total = bucket.front.length + bucket.back.length;
     if (total <= 1) continue;
     if (total === 2 && bucket.front.length === 1 && bucket.back.length === 1) continue;
-    const extras = [...bucket.front, ...bucket.back, ...bucket.unsided].sort((a, b) => a - b).slice(1);
+    const extras = [...bucket.front, ...bucket.back].sort((a, b) => a - b).slice(1);
     for (const i of extras) {
       invalid.push(`documents[${i}].side`);
     }
@@ -558,7 +558,7 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   type DocCandidate = {
     index: number;
     url: string;
-    side: 'front' | 'back' | '';
+    side: 'front' | 'back';
     issue_date?: string;
     expiry_date?: string;
   };
@@ -573,9 +573,8 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
       missing.push(`documents[${i}]`);
       continue;
     }
-    const parsedSide = documentSide('side' in d ? d.side : undefined);
-    const side: 'front' | 'back' | '' =
-      parsedSide === 'front' || parsedSide === 'back' ? parsedSide : '';
+    // Invalid side is ignored here (assert catches it on create); default omit → front.
+    const side = resolveDocumentSide('side' in d ? d.side : undefined) ?? 'front';
     const candidate: DocCandidate = { index: i, url, side };
     if ('issue_date' in d && typeof d.issue_date === 'string') candidate.issue_date = d.issue_date;
     if ('expiry_date' in d && typeof d.expiry_date === 'string') candidate.expiry_date = d.expiry_date;

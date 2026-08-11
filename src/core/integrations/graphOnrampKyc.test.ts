@@ -333,6 +333,21 @@ describe('assertGraphUsdAccountCreatePayload', () => {
     ]);
   });
 
+  it('defaults omitted side to front so only back needs to be marked', () => {
+    const kyc = assertGraphUsdAccountCreatePayload({
+      ...individualSource,
+      documents: [
+        { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+        { type: 'drivers_license', side: 'back', url: 'https://cdn.example.com/dl-back.jpg' },
+        { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+      ],
+    });
+    expect(kyc.documents).toEqual([
+      { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+      { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+    ]);
+  });
+
   it('rejects two fronts of the same type', () => {
     try {
       assertGraphUsdAccountCreatePayload({
