@@ -38,6 +38,8 @@ export interface AccountHolder {
 export interface AccountMetadataDocument {
   type: string;
   url: string;
+  /** Identity card face; front+back of the same type are allowed. Graph receives front when both are present. */
+  side?: 'front' | 'back';
   issue_date?: string;
   expiry_date?: string;
 }

@@ -40,6 +40,7 @@ const accountHolderSchema = z.object({
 const accountMetadataDocumentSchema = z.object({
   type: z.string().min(1),
   url: z.string().url(),
+  side: z.enum(['front', 'back']).optional(),
   issue_date: z.string().optional(),
   expiry_date: z.string().optional(),
 });

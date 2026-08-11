@@ -214,7 +214,7 @@ describe('buildGraphIndividualKycInput', () => {
     ]);
   });
 
-  it('dedupes Graph document types (keeps first)', () => {
+  it('dedupes Graph document types (keeps first when unsided)', () => {
     const kyc = buildGraphIndividualKycInput({
       ...individualSource,
       documents: [
@@ -225,6 +225,21 @@ describe('buildGraphIndividualKycInput', () => {
     });
     expect(kyc.documents).toEqual([
       { type: 'national_id', url: 'https://cdn.example.com/id-front.png' },
+      { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+    ]);
+  });
+
+  it('prefers side=front when front and back are both present', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      documents: [
+        { type: 'drivers_license', side: 'back', url: 'https://cdn.example.com/dl-back.jpg' },
+        { type: 'drivers_license', side: 'front', url: 'https://cdn.example.com/dl-front.jpg' },
+        { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+      ],
+    });
+    expect(kyc.documents).toEqual([
+      { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
       { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
     ]);
   });
@@ -285,7 +300,7 @@ describe('assertGraphUsdAccountCreatePayload', () => {
     }
   });
 
-  it('rejects source_of_funds document type and duplicate identity docs', () => {
+  it('rejects source_of_funds document type and unsided duplicate identity docs', () => {
     try {
       assertGraphUsdAccountCreatePayload({
         ...individualSource,
@@ -299,7 +314,38 @@ describe('assertGraphUsdAccountCreatePayload', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(GraphOnrampKycError);
       const fields = (e as GraphOnrampKycError).missingFields;
-      expect(fields).toEqual(expect.arrayContaining(['documents[1].type', 'documents[2].type']));
+      expect(fields).toEqual(expect.arrayContaining(['documents[1].side', 'documents[2].type']));
+    }
+  });
+
+  it('accepts complementary front+back of the same identity type', () => {
+    const kyc = assertGraphUsdAccountCreatePayload({
+      ...individualSource,
+      documents: [
+        { type: 'drivers_license', side: 'back', url: 'https://cdn.example.com/dl-back.jpg' },
+        { type: 'drivers_license', side: 'front', url: 'https://cdn.example.com/dl-front.jpg' },
+        { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+      ],
+    });
+    expect(kyc.documents).toEqual([
+      { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+      { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
+    ]);
+  });
+
+  it('rejects two fronts of the same type', () => {
+    try {
+      assertGraphUsdAccountCreatePayload({
+        ...individualSource,
+        documents: [
+          { type: 'drivers_license', side: 'front', url: 'https://cdn.example.com/dl-a.jpg' },
+          { type: 'drivers_license', side: 'front', url: 'https://cdn.example.com/dl-b.jpg' },
+        ],
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      expect((e as GraphOnrampKycError).missingFields).toContain('documents[1].side');
     }
   });
 });

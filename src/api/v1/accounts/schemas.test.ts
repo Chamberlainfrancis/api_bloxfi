@@ -177,7 +177,8 @@ describe('createAccountBodySchema', () => {
       },
       metadata: {
         documents: [
-          { type: 'passport', url: 'https://cdn.example.com/passport.png' },
+          { type: 'drivers_license', side: 'front', url: 'https://cdn.example.com/dl-front.jpg' },
+          { type: 'drivers_license', side: 'back', url: 'https://cdn.example.com/dl-back.jpg' },
           { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
         ],
       },
@@ -186,7 +187,8 @@ describe('createAccountBodySchema', () => {
     if (r.success) {
       expect(r.data.accountHolder.dateOfBirth).toBe('1989-01-16');
       expect(r.data.accountHolder.idType).toBe('passport');
-      expect(r.data.metadata?.documents).toHaveLength(2);
+      expect(r.data.metadata?.documents).toHaveLength(3);
+      expect(r.data.metadata?.documents?.[0]?.side).toBe('front');
     }
   });
 

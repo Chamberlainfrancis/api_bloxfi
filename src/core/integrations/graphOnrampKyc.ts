@@ -398,9 +398,21 @@ function toGraphPersonDocType(raw: string): string | null {
   return null;
 }
 
+type DocSideBuckets = { front: number[]; back: number[]; unsided: number[] };
+
+function documentSide(raw: unknown): 'front' | 'back' | '' | null {
+  const s = str(raw).toLowerCase();
+  if (!s) return '';
+  if (s === 'front' || s === 'back') return s;
+  return null;
+}
+
 /**
  * Strict Graph USD create-Account checks (before persist).
  * Throws {@link GraphOnrampKycError} with field paths; then builds kyc_input.
+ *
+ * Same mapped document type may appear twice only as complementary
+ * `side: "front"` + `side: "back"`. Graph still receives one URL (prefer front).
  */
 export function assertGraphUsdAccountCreatePayload(
   source: GraphIndividualKycSource
@@ -414,7 +426,7 @@ export function assertGraphUsdAccountCreatePayload(
   }
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
-  const seenMapped = new Set<string>();
+  const byMapped = new Map<string, DocSideBuckets>();
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i]!;
     const rawType = str(d.type).toLowerCase();
@@ -431,11 +443,26 @@ export function assertGraphUsdAccountCreatePayload(
       invalid.push(`documents[${i}].type`);
       continue;
     }
-    if (seenMapped.has(mapped)) {
-      invalid.push(`documents[${i}].type`);
+    const side = documentSide('side' in d ? d.side : undefined);
+    if (side === null) {
+      invalid.push(`documents[${i}].side`);
       continue;
     }
-    seenMapped.add(mapped);
+    const bucket = byMapped.get(mapped) ?? { front: [], back: [], unsided: [] };
+    if (side === 'front') bucket.front.push(i);
+    else if (side === 'back') bucket.back.push(i);
+    else bucket.unsided.push(i);
+    byMapped.set(mapped, bucket);
+  }
+
+  for (const bucket of byMapped.values()) {
+    const total = bucket.front.length + bucket.back.length + bucket.unsided.length;
+    if (total <= 1) continue;
+    if (total === 2 && bucket.front.length === 1 && bucket.back.length === 1) continue;
+    const extras = [...bucket.front, ...bucket.back, ...bucket.unsided].sort((a, b) => a - b).slice(1);
+    for (const i of extras) {
+      invalid.push(`documents[${i}].side`);
+    }
   }
 
   if (invalid.length > 0) {
@@ -528,8 +555,14 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   if (inflow == null) missing.push('background_information.expected_monthly_inflow');
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
-  const validDocs: GraphOnrampKycDocument[] = [];
-  const seenDocTypes = new Set<string>();
+  type DocCandidate = {
+    index: number;
+    url: string;
+    side: 'front' | 'back' | '';
+    issue_date?: string;
+    expiry_date?: string;
+  };
+  const candidatesByType = new Map<string, DocCandidate[]>();
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i]!;
     const mappedType = toGraphPersonDocType(str(d.type));
@@ -540,12 +573,24 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
       missing.push(`documents[${i}]`);
       continue;
     }
-    // Graph rejects duplicate document types on person upload — keep first of each.
-    if (seenDocTypes.has(mappedType)) continue;
-    seenDocTypes.add(mappedType);
-    const out: GraphOnrampKycDocument = { type: mappedType, url };
-    if ('issue_date' in d && typeof d.issue_date === 'string') out.issue_date = d.issue_date;
-    if ('expiry_date' in d && typeof d.expiry_date === 'string') out.expiry_date = d.expiry_date;
+    const parsedSide = documentSide('side' in d ? d.side : undefined);
+    const side: 'front' | 'back' | '' =
+      parsedSide === 'front' || parsedSide === 'back' ? parsedSide : '';
+    const candidate: DocCandidate = { index: i, url, side };
+    if ('issue_date' in d && typeof d.issue_date === 'string') candidate.issue_date = d.issue_date;
+    if ('expiry_date' in d && typeof d.expiry_date === 'string') candidate.expiry_date = d.expiry_date;
+    const list = candidatesByType.get(mappedType) ?? [];
+    list.push(candidate);
+    candidatesByType.set(mappedType, list);
+  }
+
+  const validDocs: GraphOnrampKycDocument[] = [];
+  for (const [mappedType, candidates] of candidatesByType) {
+    // Graph rejects duplicate document types — one URL per type; prefer front.
+    const preferred = candidates.find((c) => c.side === 'front') ?? candidates[0]!;
+    const out: GraphOnrampKycDocument = { type: mappedType, url: preferred.url };
+    if (preferred.issue_date) out.issue_date = preferred.issue_date;
+    if (preferred.expiry_date) out.expiry_date = preferred.expiry_date;
     validDocs.push(out);
   }
   if (!validDocs.some((d) => IDENTITY_DOC_TYPES.has(d.type))) {
