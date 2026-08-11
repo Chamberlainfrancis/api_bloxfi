@@ -84,6 +84,7 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
         { value: '0_4999', label: '$0 - $4,999' },
         { value: '5000_9999', label: '$5,000 - $9,999' },
         { value: '10000_49999', label: '$10,000 - $49,999' },
+        { value: '50000_200000', label: '$50,000 - $200,000' },
       ],
     },
     {

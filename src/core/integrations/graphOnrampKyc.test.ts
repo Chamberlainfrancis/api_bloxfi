@@ -161,6 +161,7 @@ describe('expectedMonthlyInflowFromSofBucket', () => {
     expect(expectedMonthlyInflowFromSofBucket('0_4999')).toBe(4999);
     expect(expectedMonthlyInflowFromSofBucket('5000_9999')).toBe(9999);
     expect(expectedMonthlyInflowFromSofBucket('10000_49999')).toBe(49999);
+    expect(expectedMonthlyInflowFromSofBucket('50000_200000')).toBe(200000);
   });
 
   it('returns null for invalid buckets', () => {
