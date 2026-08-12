@@ -200,6 +200,24 @@ describe('buildGraphIndividualKycInput', () => {
     expect(kyc.tax_id).toBeUndefined();
   });
 
+  it('maps any ISO alpha-2 address country (e.g. CY → CYP)', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      accountHolder: {
+        ...individualSource.accountHolder,
+        phone: '+35799123456',
+        idCountry: 'BE',
+        address: {
+          ...(individualSource.accountHolder as { address: object }).address,
+          country: 'CY',
+          stateProvinceRegion: '04',
+        },
+      },
+    });
+    expect(kyc.address_country).toBe('CYP');
+    expect(kyc.id_country).toBe('BE');
+  });
+
   it('drops non-Graph document types and maps proof_of_address → utility_bill', () => {
     const kyc = buildGraphIndividualKycInput({
       ...individualSource,

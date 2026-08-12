@@ -6,6 +6,11 @@
  */
 
 import type { AccountMetadataDocument } from '@/types/account';
+import {
+  alpha2ToAlpha3,
+  alpha3ToAlpha2,
+  isValid as isValidCountryCode,
+} from 'i18n-iso-countries';
 
 export class GraphOnrampKycError extends Error {
   readonly missingFields: string[];
@@ -94,46 +99,19 @@ function toDateOnly(raw: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : raw;
 }
 
-const ALPHA_2_TO_3: Readonly<Record<string, string>> = {
-  AE: 'ARE',
-  AU: 'AUS',
-  BE: 'BEL',
-  CA: 'CAN',
-  CN: 'CHN',
-  DE: 'DEU',
-  ES: 'ESP',
-  FR: 'FRA',
-  GB: 'GBR',
-  GH: 'GHA',
-  IN: 'IND',
-  IE: 'IRL',
-  IT: 'ITA',
-  JP: 'JPN',
-  KE: 'KEN',
-  NG: 'NGA',
-  NL: 'NLD',
-  NZ: 'NZL',
-  SE: 'SWE',
-  SG: 'SGP',
-  US: 'USA',
-  ZA: 'ZAF',
-};
-
-const ALPHA_3_TO_2: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(ALPHA_2_TO_3).map(([a2, a3]) => [a3, a2])
-);
-
 function toAlpha3(country: string): string | null {
   const n = country.trim().toUpperCase();
+  if (!n || !isValidCountryCode(n)) return null;
   if (/^[A-Z]{3}$/.test(n)) return n;
-  if (/^[A-Z]{2}$/.test(n)) return ALPHA_2_TO_3[n] ?? null;
+  if (/^[A-Z]{2}$/.test(n)) return alpha2ToAlpha3(n) ?? null;
   return null;
 }
 
 function toAlpha2(country: string): string | null {
   const n = country.trim().toUpperCase();
+  if (!n || !isValidCountryCode(n)) return null;
   if (/^[A-Z]{2}$/.test(n)) return n;
-  if (/^[A-Z]{3}$/.test(n)) return ALPHA_3_TO_2[n] ?? null;
+  if (/^[A-Z]{3}$/.test(n)) return alpha3ToAlpha2(n) ?? null;
   return null;
 }
 
