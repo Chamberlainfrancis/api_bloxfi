@@ -133,7 +133,7 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('accepts onramp body missing accountHolder.taxId (optional unless SwipeLux import)', () => {
+  it('accepts onramp body missing accountHolder.taxId when address is not US', () => {
     const r = createAccountBodySchema.safeParse({
       ...onrampBase,
       accountHolder: {
@@ -148,6 +148,30 @@ describe('createAccountBodySchema', () => {
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.accountHolder.taxId).toBeUndefined();
+    }
+  });
+
+  it('requires accountHolder.taxId when address.country is US', () => {
+    const r = createAccountBodySchema.safeParse({
+      ...onrampBase,
+      accountHolder: {
+        type: 'individual',
+        name: 'Jane Doe',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        email: 'jane@example.com',
+        address: {
+          addressLine1: '1 Main St',
+          city: 'Austin',
+          stateProvinceRegion: 'TX',
+          postalCode: '78701',
+          country: 'US',
+        },
+      },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path.join('.') === 'accountHolder.taxId')).toBe(true);
     }
   });
 

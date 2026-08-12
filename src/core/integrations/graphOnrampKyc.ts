@@ -134,6 +134,23 @@ function str(x: unknown): string {
   return typeof x === 'string' ? x.trim() : '';
 }
 
+/**
+ * Graph person names: alphanumeric, spaces, and hyphens only.
+ * Strips punctuation (e.g. trailing `.` in `INDIANA CHRISTINA R.`) that Graph 400s on.
+ */
+export function sanitizeGraphPersonName(raw: string): string {
+  return raw
+    .replace(/[^A-Za-z0-9 -]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** True when address country is United States (ISO alpha-2 or alpha-3). */
+export function isUsAddressCountry(country: unknown): boolean {
+  const n = str(country).toUpperCase();
+  return n === 'US' || n === 'USA';
+}
+
 /** YYYY-MM-DD from ISO datetime or already-date string. */
 function toDateOnly(raw: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -219,8 +236,10 @@ export function buildGraphBusinessKycInput(source: GraphOnrampKycSource): Record
   const entityName = str(biz.legalName ?? biz.tradingName);
   const email = str(biz.email) || str(lr.email);
   const phoneNumber = str(biz.phone);
-  const contactFirst = str(lr.firstName) || str(uboExtra.first_name);
-  const contactLast = str(lr.lastName) || str(uboExtra.last_name);
+  const contactFirst =
+    sanitizeGraphPersonName(str(lr.firstName) || str(uboExtra.first_name));
+  const contactLast =
+    sanitizeGraphPersonName(str(lr.lastName) || str(uboExtra.last_name));
   const website = str(biz.website);
   const entityType = str(biz.entityType);
   const registrationNumber = str(biz.registrationNumber);
@@ -268,8 +287,9 @@ export function buildGraphBusinessKycInput(source: GraphOnrampKycSource): Record
     issues.push(issueInvalid('address_country', 'must be a valid ISO 3166 country code'));
   }
 
-  const uboFirst = str(uboExtra.first_name) || contactFirst;
-  const uboLast = str(uboExtra.last_name) || contactLast;
+  const uboFirst =
+    sanitizeGraphPersonName(str(uboExtra.first_name)) || contactFirst;
+  const uboLast = sanitizeGraphPersonName(str(uboExtra.last_name)) || contactLast;
   const uboPhone = str(uboExtra.phone) || str(lr.phone) || phoneNumber;
   const uboEmail = str(uboExtra.email) || str(lr.email) || email;
   const uboDob = toDateOnly(str(uboExtra.date_of_birth) || str(lr.dateOfBirth));
@@ -476,6 +496,9 @@ export function assertGraphUsdAccountCreatePayload(
       issueInvalid('address_state', 'must be an ISO 3166-2 subdivision code (e.g. TX, AB), not a full name')
     );
   }
+  if (isUsAddressCountry(addr.country ?? addr.address_country) && !str(holder.taxId)) {
+    issues.push(issueRequired('tax_id'));
+  }
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
   const byMapped = new Map<string, DocSideBuckets>();
@@ -569,9 +592,9 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   const addr = mapAddress(holderAddr);
   const countryRaw = str(holderAddr?.country ?? holderAddr?.address_country);
 
-  const firstName = str(holder.firstName);
-  const lastName = str(holder.lastName);
-  const middleName = str(holder.middleName);
+  const firstName = sanitizeGraphPersonName(str(holder.firstName));
+  const lastName = sanitizeGraphPersonName(str(holder.lastName));
+  const middleName = sanitizeGraphPersonName(str(holder.middleName));
   const email = str(holder.email);
   const phoneRaw = str(holder.phone);
   const phone = phoneRaw ? normalizePhoneE164(phoneRaw) : '';
@@ -611,6 +634,9 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   if (!countryRaw) issues.push(issueRequired('address_country'));
   else if (!addr.countryAlpha3) {
     issues.push(issueInvalid('address_country', 'must be a valid ISO 3166 country code'));
+  }
+  if (isUsAddressCountry(countryRaw) && !taxId) {
+    issues.push(issueRequired('tax_id'));
   }
 
   const employmentStatus = str(sof.employmentStatus);

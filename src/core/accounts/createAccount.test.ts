@@ -234,6 +234,68 @@ describe('createAccount — onramp', () => {
     );
   });
 
+  it('requires taxId for US address even when SwipeLux import is off', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps(null);
+    const { taxId: _t, ...holderWithoutTax } = onrampAccountHolder;
+
+    await expect(
+      createAccount(
+        accountRepo,
+        userRepo,
+        kybRepo,
+        'user-1',
+        onrampCreateBody({
+          sumsubShareToken: undefined,
+          accountHolder: {
+            ...holderWithoutTax,
+            address: {
+              addressLine1: '1 Main St',
+              city: 'Austin',
+              stateProvinceRegion: 'TX',
+              postalCode: '78701',
+              country: 'US',
+            },
+          },
+        }),
+        { palremitLiquidityRequest: liquidityRequest, requestId: 'req-us-tax', importKyc, copySourceOfFundsDocument }
+      )
+    ).rejects.toThrow(/taxId is required for US address/);
+    expect(accountRepo.createAccount).not.toHaveBeenCalled();
+  });
+
+  it('strips invalid punctuation from person names before persist', async () => {
+    const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
+      makeOnrampDeps(null);
+
+    await createAccount(
+      accountRepo,
+      userRepo,
+      kybRepo,
+      'user-1',
+      onrampCreateBody({
+        sumsubShareToken: undefined,
+        accountHolder: {
+          ...onrampAccountHolder,
+          firstName: 'INDIANA CHRISTINA R.',
+          lastName: 'SCHEPENS',
+          name: 'INDIANA CHRISTINA R. SCHEPENS',
+        },
+      }),
+      { palremitLiquidityRequest: liquidityRequest, requestId: 'req-name', importKyc, copySourceOfFundsDocument }
+    );
+
+    expect(accountRepo.createAccount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountHolder: expect.objectContaining({
+          firstName: 'INDIANA CHRISTINA R',
+          lastName: 'SCHEPENS',
+          name: 'INDIANA CHRISTINA R SCHEPENS',
+        }),
+      })
+    );
+  });
+
   it('requires taxId when SwipeLux beneficiary KYC import is enabled', async () => {
     const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
       makeOnrampDeps();

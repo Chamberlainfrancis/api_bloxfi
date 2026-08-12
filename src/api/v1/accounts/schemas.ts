@@ -33,7 +33,7 @@ const accountHolderSchema = z.object({
   idCountry: z.preprocess(emptyToUndefined, z.string().min(2).max(3).optional()),
   bvn: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   address: accountHolderAddressSchema.optional(),
-  // Optional for onramp unless SwipeLux KYC import is enabled (enforced in createAccount core).
+  // Optional for onramp unless address is US (SSN/ITIN) or SwipeLux KYC import is enabled.
   taxId: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 });
 
@@ -111,7 +111,16 @@ export const createAccountBodySchema = z
       }
       // sumsubShareToken is optional: omit when swipeluxBeneficiaryKycImport is off
       // (no SwipeLux KYC) or when using hosted KYC (flag on, no share token).
-      // taxId is optional at the schema layer; createAccount requires it when SwipeLux import is on.
+      // taxId: required for US address (SSN/ITIN); also required in createAccount when
+      // SwipeLux KYC import is enabled.
+      const addrCountry = data.accountHolder.address?.country?.trim().toUpperCase();
+      if ((addrCountry === 'US' || addrCountry === 'USA') && !data.accountHolder.taxId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['accountHolder', 'taxId'],
+          message: 'taxId is required for US address (SSN/ITIN)',
+        });
+      }
       if (!data.sofQuestionnaire) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

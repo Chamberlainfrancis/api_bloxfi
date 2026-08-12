@@ -7,13 +7,32 @@
  *     pnpm exec ts-node -r tsconfig-paths/register scripts/issue-graph-account.ts <accountId>
  */
 
-import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 import { issueGraphNamedDepositAccount } from '@/core/accounts/graphAccountIssuance';
+import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
   findAccountById,
   updateAccountProviderIssuance,
 } from '@/db/repositories/account.repo';
 import { prisma } from '@/db/prisma/client';
+import { palremitLiquidityRequest } from '@/services/palremitClient';
+
+/** Graph KYC + VA provision routinely exceeds the default 15s client timeout. */
+const OPS_TIMEOUT_MS = 120_000;
+
+function createOpsLiquidityAdapter(): PalremitLiquidityRequestFn {
+  return async <T>(
+    path: string,
+    options?: { method?: string; body?: unknown; headers?: Record<string, string> }
+  ) => {
+    const r = await palremitLiquidityRequest<T>(path, {
+      method: (options?.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE') ?? 'GET',
+      body: options?.body,
+      headers: options?.headers,
+      timeoutMs: OPS_TIMEOUT_MS,
+    });
+    return { status: r.status, data: r.data };
+  };
+}
 
 async function main(): Promise<void> {
   const accountId = process.argv[2]?.trim();
@@ -45,7 +64,7 @@ async function main(): Promise<void> {
     )
   );
 
-  const liquidity = createPalremitLiquidityAdapter();
+  const liquidity = createOpsLiquidityAdapter();
   const issued = await issueGraphNamedDepositAccount(
     liquidity,
     {

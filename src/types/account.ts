@@ -31,7 +31,7 @@ export interface AccountHolder {
   idCountry?: string;
   bvn?: string;
   address?: AccountHolderAddress;
-  /** Onramp only — tax identifier (SSN/ITIN/etc.). Optional unless SwipeLux KYC import is enabled. */
+  /** Onramp — tax identifier (SSN/ITIN/etc.). Required when address.country is US/USA. */
   taxId?: string;
 }
 

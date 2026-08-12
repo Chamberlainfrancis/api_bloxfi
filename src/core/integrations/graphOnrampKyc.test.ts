@@ -7,6 +7,8 @@ import {
   graphKycExtrasFromUserMetadata,
   GraphOnrampKycError,
   isGraphUsdNamedDepositsEnabled,
+  isUsAddressCountry,
+  sanitizeGraphPersonName,
 } from '@/core/integrations/graphOnrampKyc';
 
 const completeSource = {
@@ -180,6 +182,20 @@ describe('isGraphUsdNamedDepositsEnabled', () => {
   });
 });
 
+describe('sanitizeGraphPersonName / isUsAddressCountry', () => {
+  it('keeps alphanumeric, spaces, and hyphens only', () => {
+    expect(sanitizeGraphPersonName('INDIANA CHRISTINA R.')).toBe('INDIANA CHRISTINA R');
+    expect(sanitizeGraphPersonName('Mary-Jane')).toBe('Mary-Jane');
+    expect(sanitizeGraphPersonName("O'Neil")).toBe('ONeil');
+  });
+
+  it('detects US address countries', () => {
+    expect(isUsAddressCountry('US')).toBe(true);
+    expect(isUsAddressCountry('usa')).toBe(true);
+    expect(isUsAddressCountry('GB')).toBe(false);
+  });
+});
+
 describe('buildGraphIndividualKycInput', () => {
   it('builds Graph individual kyc_input from onramp Account fields', () => {
     const kyc = buildGraphIndividualKycInput(individualSource);
@@ -200,6 +216,59 @@ describe('buildGraphIndividualKycInput', () => {
     });
     expect(kyc.documents).toEqual(individualSource.documents);
     expect(kyc.tax_id).toBeUndefined();
+  });
+
+  it('strips Graph-invalid punctuation from person names', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      accountHolder: {
+        ...individualSource.accountHolder,
+        firstName: 'INDIANA CHRISTINA R.',
+        lastName: "O'Brien",
+        middleName: 'A.J.',
+      },
+    });
+    expect(kyc.first_name).toBe('INDIANA CHRISTINA R');
+    expect(kyc.last_name).toBe('OBrien');
+    expect(kyc.middle_name).toBe('AJ');
+  });
+
+  it('requires tax_id when address country is US', () => {
+    try {
+      buildGraphIndividualKycInput({
+        ...individualSource,
+        accountHolder: {
+          ...individualSource.accountHolder,
+          taxId: '',
+          address: {
+            ...(individualSource.accountHolder as { address: Record<string, string> }).address,
+            country: 'US',
+            stateProvinceRegion: 'TX',
+          },
+        },
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      expect((e as GraphOnrampKycError).missingFields).toContain('tax_id');
+    }
+  });
+
+  it('passes tax_id through for US addresses (SSN/ITIN)', () => {
+    const kyc = buildGraphIndividualKycInput({
+      ...individualSource,
+      accountHolder: {
+        ...individualSource.accountHolder,
+        taxId: '123-45-6789',
+        address: {
+          ...(individualSource.accountHolder as { address: Record<string, string> }).address,
+          country: 'USA',
+          stateProvinceRegion: 'TX',
+        },
+      },
+    });
+    expect(kyc.tax_id).toBe('123-45-6789');
+    expect(kyc.address_country).toBe('USA');
   });
 
   it('maps any ISO alpha-2 address country (e.g. CY → CYP)', () => {
@@ -323,6 +392,27 @@ describe('buildGraphIndividualKycInput', () => {
 });
 
 describe('assertGraphUsdAccountCreatePayload', () => {
+  it('requires tax_id for US address before persist', () => {
+    try {
+      assertGraphUsdAccountCreatePayload({
+        ...individualSource,
+        accountHolder: {
+          ...individualSource.accountHolder,
+          taxId: '',
+          address: {
+            ...(individualSource.accountHolder as { address: Record<string, string> }).address,
+            country: 'US',
+            stateProvinceRegion: 'CA',
+          },
+        },
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      expect((e as GraphOnrampKycError).missingFields).toContain('tax_id');
+    }
+  });
+
   it('accepts subdivision codes and allowlisted docs', () => {
     const kyc = assertGraphUsdAccountCreatePayload(individualSource);
     expect(kyc.address_state).toBe('LA');

@@ -16,7 +16,11 @@ import {
   copyRemoteDocumentToS3,
   RemoteDocumentError,
 } from '@/core/files/copyRemoteDocument';
-import { assertGraphUsdAccountCreatePayload } from '@/core/integrations/graphOnrampKyc';
+import {
+  assertGraphUsdAccountCreatePayload,
+  isUsAddressCountry,
+  sanitizeGraphPersonName,
+} from '@/core/integrations/graphOnrampKyc';
 import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
 import type {
@@ -29,6 +33,7 @@ import { logger } from '@/lib/logger';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 import type {
   AccountDepositDetails,
+  AccountHolder,
   AccountMetadata,
   CreateAccountRequest,
   CreateAccountResponse,
@@ -57,6 +62,19 @@ function resolveSourceOfFundsDocumentUrl(data: CreateAccountRequest): string {
   const nested = data.sofQuestionnaire?.sourceOfFundsDocument;
   if (typeof nested === 'string' && nested.trim()) return nested.trim();
   throw new Error('INVALID_ACCOUNT: sourceOfFundsDocument URL is required');
+}
+
+/** Strip Graph-rejected punctuation from person name fields before persist / KYC. */
+function sanitizeOnrampAccountHolderNames(holder: AccountHolder): AccountHolder {
+  const next: AccountHolder = { ...holder };
+  if (typeof next.name === 'string') next.name = sanitizeGraphPersonName(next.name);
+  if (typeof next.firstName === 'string') next.firstName = sanitizeGraphPersonName(next.firstName);
+  if (typeof next.lastName === 'string') next.lastName = sanitizeGraphPersonName(next.lastName);
+  if (typeof next.middleName === 'string') {
+    const mid = sanitizeGraphPersonName(next.middleName);
+    next.middleName = mid || undefined;
+  }
+  return next;
 }
 
 function issuanceResponseFields(row: {
@@ -184,8 +202,16 @@ export async function createAccount(
       data.type.trim().toLowerCase() === 'usd' && isGraphUsdBusiness(userId, user.metadata);
     const kycImportEnabled =
       !useGraph && isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
-    if (kycImportEnabled && !data.accountHolder.taxId?.trim()) {
-      throw new Error('INVALID_ACCOUNT: taxId is required when beneficiary KYC import is enabled');
+    const addressCountry = data.accountHolder.address?.country;
+    if (
+      (kycImportEnabled || isUsAddressCountry(addressCountry)) &&
+      !data.accountHolder.taxId?.trim()
+    ) {
+      throw new Error(
+        kycImportEnabled
+          ? 'INVALID_ACCOUNT: taxId is required when beneficiary KYC import is enabled'
+          : 'INVALID_ACCOUNT: taxId is required for US address (SSN/ITIN)'
+      );
     }
 
     // Fail closed before persist when Graph KYC is incomplete / payload invalid.
@@ -197,12 +223,17 @@ export async function createAccount(
       });
     }
 
+    // Graph (and similar providers) reject punctuation in person names — sanitize once
+    // so persist, idempotency fingerprints, and KYC all see the same values.
+    const accountHolder = sanitizeOnrampAccountHolderNames(data.accountHolder);
+    const onrampData = { ...data, accountHolder };
+
     const existing = await accountRepo.findByCreationRequestId(options.requestId);
     if (existing) {
       // creationRequestId is globally unique (not scoped by userId) — a bare hit is not proof
       // this row belongs to this caller. Mirror user.repo.ts's createUser/userCreationPayloadsMatch:
       // corroborate userId + identity before replaying, else throw a distinct conflict error.
-      if (!accountCreationPayloadsMatch(existing, userId, data)) {
+      if (!accountCreationPayloadsMatch(existing, userId, onrampData)) {
         throw new CreateAccountConflictError(
           'REQUEST_ID_MISMATCH',
           'requestId was already used to create an onramp account with different data'
@@ -236,7 +267,7 @@ export async function createAccount(
         currency: null,
         paymentRail: null,
         accountType: data.type,
-        accountHolder: data.accountHolder as object,
+        accountHolder: accountHolder as object,
         providerPayout: null,
         swipeluxCustomerId: null,
         kycImportStatus: kycImportEnabled ? 'pending_import' : null,
@@ -252,7 +283,7 @@ export async function createAccount(
       // lookup-and-return instead of propagating the uncaught DB error.
       const raced = await accountRepo.findByCreationRequestId(options.requestId);
       if (!raced) throw e;
-      if (!accountCreationPayloadsMatch(raced, userId, data)) {
+      if (!accountCreationPayloadsMatch(raced, userId, onrampData)) {
         throw new CreateAccountConflictError(
           'REQUEST_ID_MISMATCH',
           'requestId was already used to create an onramp account with different data'
@@ -270,7 +301,7 @@ export async function createAccount(
       const issued = await issueGraphNamedDepositAccount(options.palremitLiquidityRequest, {
         id: created.id,
         userId,
-        accountHolder: data.accountHolder,
+        accountHolder,
         sofQuestionnaire: data.sofQuestionnaire,
         metadata: data.metadata as AccountMetadata | undefined,
       });
@@ -301,11 +332,11 @@ export async function createAccount(
       ...(shareToken ? { importToken: shareToken } : {}), // never persisted — passed straight through when present
       kycInput: {
         customer_type: 'individual',
-        email: data.accountHolder.email!,
-        first_name: data.accountHolder.firstName!,
-        last_name: data.accountHolder.lastName!,
-        phone: data.accountHolder.phone!,
-        tax_id: data.accountHolder.taxId,
+        email: accountHolder.email!,
+        first_name: accountHolder.firstName!,
+        last_name: accountHolder.lastName!,
+        phone: accountHolder.phone!,
+        tax_id: accountHolder.taxId,
       },
     });
 
