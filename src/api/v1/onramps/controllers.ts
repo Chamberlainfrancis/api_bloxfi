@@ -337,6 +337,7 @@ export async function createOnramp(
       next(
         new AppError(e.message, 'UNPROCESSABLE_ENTITY', 422, {
           missingFields: e.missingFields,
+          fieldErrors: e.fieldErrors,
           code: e.code,
         })
       );

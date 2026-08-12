@@ -12,18 +12,60 @@ import {
   isValid as isValidCountryCode,
 } from 'i18n-iso-countries';
 
+export type GraphOnrampKycFieldIssue = {
+  field: string;
+  reason: 'required' | 'invalid';
+  /** Human-readable detail when `reason` is `invalid`. */
+  detail?: string;
+};
+
 export class GraphOnrampKycError extends Error {
+  /** Field paths with problems (API-compat name; includes invalid as well as missing). */
   readonly missingFields: string[];
+  /** Per-field reason: `required` or a short invalid detail. */
+  readonly fieldErrors: Record<string, string>;
   /** Stable machine code for logs / support; not shown in the default message. */
   readonly code = 'USD_ONRAMP_KYC_INCOMPLETE' as const;
 
-  constructor(missingFields: string[]) {
-    const unique = [...new Set(missingFields)].sort();
+  constructor(issues: Array<string | GraphOnrampKycFieldIssue>) {
+    const normalized: GraphOnrampKycFieldIssue[] = issues.map((i) =>
+      typeof i === 'string' ? { field: i, reason: 'required' } : i
+    );
+    const byField = new Map<string, GraphOnrampKycFieldIssue>();
+    for (const issue of normalized) {
+      const prev = byField.get(issue.field);
+      // Prefer invalid over required when both are reported for the same field.
+      if (!prev || (prev.reason === 'required' && issue.reason === 'invalid')) {
+        byField.set(issue.field, issue);
+      }
+    }
+    const unique = [...byField.values()].sort((a, b) => a.field.localeCompare(b.field));
+    const missingFields = unique.map((i) => i.field);
+    const fieldErrors = Object.fromEntries(
+      unique.map((i) => [
+        i.field,
+        i.reason === 'required' ? 'required' : (i.detail ?? 'invalid'),
+      ])
+    );
+    const messageParts = unique.map((i) =>
+      i.reason === 'required'
+        ? `${i.field} is required`
+        : `${i.field}: ${i.detail ?? 'invalid'}`
+    );
     // Client-facing: no provider name. Internal code stays on `code` / `name`.
-    super(`missing required fields for USD KYC: ${unique.join(', ')}`);
+    super(`USD KYC validation failed: ${messageParts.join('; ')}`);
     this.name = 'GraphOnrampKycError';
-    this.missingFields = unique;
+    this.missingFields = missingFields;
+    this.fieldErrors = fieldErrors;
   }
+}
+
+function issueRequired(field: string): GraphOnrampKycFieldIssue {
+  return { field, reason: 'required' };
+}
+
+function issueInvalid(field: string, detail: string): GraphOnrampKycFieldIssue {
+  return { field, reason: 'invalid', detail };
 }
 
 export type GraphOnrampKycDocument = {
@@ -194,22 +236,37 @@ export function buildGraphBusinessKycInput(source: GraphOnrampKycSource): Record
   const jurisdiction = registered.countryAlpha2;
   const bizCountry3 = registered.countryAlpha3;
 
-  if (!entityName) missing.push('entity_name');
-  if (!email) missing.push('email');
-  if (!contactFirst) missing.push('contact_first_name');
-  if (!contactLast) missing.push('contact_last_name');
-  if (!phoneNumber || !isE164(phoneNumber)) missing.push('phone_number');
-  if (!website) missing.push('websites');
-  if (!jurisdiction) missing.push('jurisdiction');
-  if (!industry) missing.push('business_industry');
-  if (!businessIdType) missing.push('business_id_type');
-  if (!registrationNumber && !taxId) missing.push('business_id_number');
-  if (!dateOfIncorporation) missing.push('business_dof');
-  if (!registered.line1) missing.push('address_line1');
-  if (!registered.city) missing.push('address_city');
-  if (!registered.state) missing.push('address_state');
-  if (!registered.postal) missing.push('address_postal_code');
-  if (!bizCountry3) missing.push('address_country');
+  const issues: GraphOnrampKycFieldIssue[] = [];
+  const registeredCountryRaw = str(
+    (asRecord(source.registeredAddress) ?? {}).country ??
+      (asRecord(source.registeredAddress) ?? {}).address_country
+  );
+
+  if (!entityName) issues.push(issueRequired('entity_name'));
+  if (!email) issues.push(issueRequired('email'));
+  if (!contactFirst) issues.push(issueRequired('contact_first_name'));
+  if (!contactLast) issues.push(issueRequired('contact_last_name'));
+  if (!phoneNumber) issues.push(issueRequired('phone_number'));
+  else if (!isE164(phoneNumber)) {
+    issues.push(issueInvalid('phone_number', 'must be E.164 (+country code)'));
+  }
+  if (!website) issues.push(issueRequired('websites'));
+  if (!registeredCountryRaw) issues.push(issueRequired('jurisdiction'));
+  else if (!jurisdiction) {
+    issues.push(issueInvalid('jurisdiction', 'must be a valid ISO 3166 country code'));
+  }
+  if (!industry) issues.push(issueRequired('business_industry'));
+  if (!businessIdType) issues.push(issueRequired('business_id_type'));
+  if (!registrationNumber && !taxId) issues.push(issueRequired('business_id_number'));
+  if (!dateOfIncorporation) issues.push(issueRequired('business_dof'));
+  if (!registered.line1) issues.push(issueRequired('address_line1'));
+  if (!registered.city) issues.push(issueRequired('address_city'));
+  if (!registered.state) issues.push(issueRequired('address_state'));
+  if (!registered.postal) issues.push(issueRequired('address_postal_code'));
+  if (!registeredCountryRaw) issues.push(issueRequired('address_country'));
+  else if (!bizCountry3) {
+    issues.push(issueInvalid('address_country', 'must be a valid ISO 3166 country code'));
+  }
 
   const uboFirst = str(uboExtra.first_name) || contactFirst;
   const uboLast = str(uboExtra.last_name) || contactLast;
@@ -218,6 +275,7 @@ export function buildGraphBusinessKycInput(source: GraphOnrampKycSource): Record
   const uboDob = toDateOnly(str(uboExtra.date_of_birth) || str(lr.dateOfBirth));
   const uboIdType = uboExtra.id_type;
   const uboIdNumber = str(uboExtra.id_number);
+  const uboIdCountryRaw = str(uboExtra.id_country) || lrAddr.countryAlpha2 || jurisdiction || '';
   const uboIdCountry = uboExtra.id_country
     ? toAlpha2(uboExtra.id_country)
     : lrAddr.countryAlpha2 ?? jurisdiction;
@@ -231,33 +289,46 @@ export function buildGraphBusinessKycInput(source: GraphOnrampKycSource): Record
     (lrAddr.countryAlpha3 ?? lrAddr.countryAlpha2 ?? bizCountry3 ?? '');
   const uboCountry3 = uboCountryRaw ? toAlpha3(uboCountryRaw) : null;
 
-  if (!uboFirst) missing.push('ubo.first_name');
-  if (!uboLast) missing.push('ubo.last_name');
-  if (!uboPhone || !isE164(uboPhone)) missing.push('ubo.phone');
-  if (!uboEmail) missing.push('ubo.email');
-  if (!uboDob || !/^\d{4}-\d{2}-\d{2}$/.test(uboDob)) missing.push('ubo.date_of_birth');
-  if (!uboIdType) missing.push('ubo.id_type');
-  if (!uboIdNumber) missing.push('ubo.id_number');
-  if (!uboIdCountry) missing.push('ubo.id_country');
-  if (!uboLine1) missing.push('ubo.address_line1');
-  if (!uboCity) missing.push('ubo.address_city');
-  if (!uboState) missing.push('ubo.address_state');
-  if (!uboPostal) missing.push('ubo.address_postal_code');
-  if (!uboCountry3) missing.push('ubo.address_country');
+  if (!uboFirst) issues.push(issueRequired('ubo.first_name'));
+  if (!uboLast) issues.push(issueRequired('ubo.last_name'));
+  if (!uboPhone) issues.push(issueRequired('ubo.phone'));
+  else if (!isE164(uboPhone)) {
+    issues.push(issueInvalid('ubo.phone', 'must be E.164 (+country code)'));
+  }
+  if (!uboEmail) issues.push(issueRequired('ubo.email'));
+  if (!str(uboExtra.date_of_birth) && !str(lr.dateOfBirth)) {
+    issues.push(issueRequired('ubo.date_of_birth'));
+  } else if (!uboDob || !/^\d{4}-\d{2}-\d{2}$/.test(uboDob)) {
+    issues.push(issueInvalid('ubo.date_of_birth', 'must be YYYY-MM-DD'));
+  }
+  if (!uboIdType) issues.push(issueRequired('ubo.id_type'));
+  if (!uboIdNumber) issues.push(issueRequired('ubo.id_number'));
+  if (!uboIdCountryRaw) issues.push(issueRequired('ubo.id_country'));
+  else if (!uboIdCountry) {
+    issues.push(issueInvalid('ubo.id_country', 'must be a valid ISO 3166 country code'));
+  }
+  if (!uboLine1) issues.push(issueRequired('ubo.address_line1'));
+  if (!uboCity) issues.push(issueRequired('ubo.address_city'));
+  if (!uboState) issues.push(issueRequired('ubo.address_state'));
+  if (!uboPostal) issues.push(issueRequired('ubo.address_postal_code'));
+  if (!uboCountryRaw) issues.push(issueRequired('ubo.address_country'));
+  else if (!uboCountry3) {
+    issues.push(issueInvalid('ubo.address_country', 'must be a valid ISO 3166 country code'));
+  }
 
-  if (!source.background_information) missing.push('background_information');
-  if (!source.documents?.length) missing.push('documents');
+  if (!source.background_information) issues.push(issueRequired('background_information'));
+  if (!source.documents?.length) issues.push(issueRequired('documents'));
   else {
     for (let i = 0; i < source.documents.length; i++) {
       const d = source.documents[i]!;
       if (!str(d.type) || !str(d.url) || !/^https?:\/\//i.test(d.url)) {
-        missing.push(`documents[${i}]`);
+        issues.push(issueRequired(`documents[${i}]`));
       }
     }
   }
 
-  if (missing.length > 0) {
-    throw new GraphOnrampKycError(missing);
+  if (issues.length > 0) {
+    throw new GraphOnrampKycError(issues);
   }
 
   const businessIdNumber = registrationNumber || taxId;
@@ -396,12 +467,14 @@ function resolveDocumentSide(raw: unknown): 'front' | 'back' | null {
 export function assertGraphUsdAccountCreatePayload(
   source: GraphIndividualKycSource
 ): Record<string, unknown> {
-  const invalid: string[] = [];
+  const issues: GraphOnrampKycFieldIssue[] = [];
   const holder = asRecord(source.accountHolder) ?? {};
   const addr = asRecord(holder.address) ?? {};
   const state = str(addr.stateProvinceRegion ?? addr.state ?? addr.address_state);
   if (state && !SUBDIVISION_CODE.test(state)) {
-    invalid.push('address_state');
+    issues.push(
+      issueInvalid('address_state', 'must be an ISO 3166-2 subdivision code (e.g. TX, AB), not a full name')
+    );
   }
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
@@ -410,21 +483,17 @@ export function assertGraphUsdAccountCreatePayload(
     const d = docs[i]!;
     const rawType = str(d.type).toLowerCase();
     if (!rawType) {
-      invalid.push(`documents[${i}].type`);
+      issues.push(issueRequired(`documents[${i}].type`));
       continue;
     }
-    if (!GRAPH_USD_CREATE_DOC_TYPES.has(rawType)) {
-      invalid.push(`documents[${i}].type`);
+    if (!GRAPH_USD_CREATE_DOC_TYPES.has(rawType) || !toGraphPersonDocType(rawType)) {
+      issues.push(issueInvalid(`documents[${i}].type`, 'unsupported document type for USD KYC'));
       continue;
     }
-    const mapped = toGraphPersonDocType(rawType);
-    if (!mapped) {
-      invalid.push(`documents[${i}].type`);
-      continue;
-    }
+    const mapped = toGraphPersonDocType(rawType)!;
     const side = resolveDocumentSide('side' in d ? d.side : undefined);
     if (side === null) {
-      invalid.push(`documents[${i}].side`);
+      issues.push(issueInvalid(`documents[${i}].side`, 'must be front or back'));
       continue;
     }
     const bucket = byMapped.get(mapped) ?? { front: [], back: [] };
@@ -439,12 +508,17 @@ export function assertGraphUsdAccountCreatePayload(
     if (total === 2 && bucket.front.length === 1 && bucket.back.length === 1) continue;
     const extras = [...bucket.front, ...bucket.back].sort((a, b) => a - b).slice(1);
     for (const i of extras) {
-      invalid.push(`documents[${i}].side`);
+      issues.push(
+        issueInvalid(
+          `documents[${i}].side`,
+          'duplicate type needs complementary front + back (or a single document)'
+        )
+      );
     }
   }
 
-  if (invalid.length > 0) {
-    throw new GraphOnrampKycError(invalid);
+  if (issues.length > 0) {
+    throw new GraphOnrampKycError(issues);
   }
   return buildGraphIndividualKycInput(source);
 }
@@ -488,10 +562,12 @@ export type GraphIndividualKycSource = {
  * Throws {@link GraphOnrampKycError} listing missing/invalid fields.
  */
 export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): Record<string, unknown> {
-  const missing: string[] = [];
+  const issues: GraphOnrampKycFieldIssue[] = [];
   const holder = asRecord(source.accountHolder) ?? {};
   const sof = asRecord(source.sofQuestionnaire) ?? {};
-  const addr = mapAddress(asRecord(holder.address));
+  const holderAddr = asRecord(holder.address);
+  const addr = mapAddress(holderAddr);
+  const countryRaw = str(holderAddr?.country ?? holderAddr?.address_country);
 
   const firstName = str(holder.firstName);
   const lastName = str(holder.lastName);
@@ -499,26 +575,43 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   const email = str(holder.email);
   const phoneRaw = str(holder.phone);
   const phone = phoneRaw ? normalizePhoneE164(phoneRaw) : '';
-  const dob = toDateOnly(str(holder.dateOfBirth));
+  const dobRaw = str(holder.dateOfBirth);
+  const dob = toDateOnly(dobRaw);
   const idType = str(holder.idType);
   const idNumber = str(holder.idNumber);
-  const idCountry = str(holder.idCountry) ? toAlpha2(str(holder.idCountry)) : null;
+  const idCountryRaw = str(holder.idCountry);
+  const idCountry = idCountryRaw ? toAlpha2(idCountryRaw) : null;
   const bvn = str(holder.bvn);
   const taxId = str(holder.taxId);
 
-  if (!firstName) missing.push('first_name');
-  if (!lastName) missing.push('last_name');
-  if (!email) missing.push('email');
-  if (!phone || !isE164(phone)) missing.push('phone');
-  if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) missing.push('date_of_birth');
-  if (!IDENTITY_DOC_TYPES.has(idType)) missing.push('id_type');
-  if (!idNumber) missing.push('id_number');
-  if (!idCountry) missing.push('id_country');
-  if (!addr.line1) missing.push('address_line1');
-  if (!addr.city) missing.push('address_city');
-  if (!addr.state) missing.push('address_state');
-  if (!addr.postal) missing.push('address_postal_code');
-  if (!addr.countryAlpha3) missing.push('address_country');
+  if (!firstName) issues.push(issueRequired('first_name'));
+  if (!lastName) issues.push(issueRequired('last_name'));
+  if (!email) issues.push(issueRequired('email'));
+  if (!phoneRaw) issues.push(issueRequired('phone'));
+  else if (!isE164(phone)) {
+    issues.push(issueInvalid('phone', 'must be E.164 (+country code)'));
+  }
+  if (!dobRaw) issues.push(issueRequired('date_of_birth'));
+  else if (!dob || !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    issues.push(issueInvalid('date_of_birth', 'must be YYYY-MM-DD'));
+  }
+  if (!idType) issues.push(issueRequired('id_type'));
+  else if (!IDENTITY_DOC_TYPES.has(idType)) {
+    issues.push(issueInvalid('id_type', 'must be passport, drivers_license, national_id, or voters_card'));
+  }
+  if (!idNumber) issues.push(issueRequired('id_number'));
+  if (!idCountryRaw) issues.push(issueRequired('id_country'));
+  else if (!idCountry) {
+    issues.push(issueInvalid('id_country', 'must be a valid ISO 3166 country code'));
+  }
+  if (!addr.line1) issues.push(issueRequired('address_line1'));
+  if (!addr.city) issues.push(issueRequired('address_city'));
+  if (!addr.state) issues.push(issueRequired('address_state'));
+  if (!addr.postal) issues.push(issueRequired('address_postal_code'));
+  if (!countryRaw) issues.push(issueRequired('address_country'));
+  else if (!addr.countryAlpha3) {
+    issues.push(issueInvalid('address_country', 'must be a valid ISO 3166 country code'));
+  }
 
   const employmentStatus = str(sof.employmentStatus);
   const primaryPurpose = str(sof.primaryPurpose);
@@ -527,10 +620,22 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
   const bucket = str(sof.expectedMonthlyPayments);
   const inflow = bucket ? expectedMonthlyInflowFromSofBucket(bucket) : null;
 
-  if (!EMPLOYMENT.has(employmentStatus)) missing.push('background_information.employment_status');
-  if (!PURPOSE.has(primaryPurpose)) missing.push('background_information.primary_purpose');
-  if (!SOURCE.has(sourceOfFunds)) missing.push('background_information.source_of_funds');
-  if (inflow == null) missing.push('background_information.expected_monthly_inflow');
+  if (!employmentStatus) issues.push(issueRequired('background_information.employment_status'));
+  else if (!EMPLOYMENT.has(employmentStatus)) {
+    issues.push(issueInvalid('background_information.employment_status', 'unsupported value'));
+  }
+  if (!primaryPurpose) issues.push(issueRequired('background_information.primary_purpose'));
+  else if (!PURPOSE.has(primaryPurpose)) {
+    issues.push(issueInvalid('background_information.primary_purpose', 'unsupported value'));
+  }
+  if (!sourceOfFunds) issues.push(issueRequired('background_information.source_of_funds'));
+  else if (!SOURCE.has(sourceOfFunds)) {
+    issues.push(issueInvalid('background_information.source_of_funds', 'unsupported value'));
+  }
+  if (!bucket) issues.push(issueRequired('background_information.expected_monthly_inflow'));
+  else if (inflow == null) {
+    issues.push(issueInvalid('background_information.expected_monthly_inflow', 'invalid payment bucket'));
+  }
 
   const docs = Array.isArray(source.documents) ? source.documents : [];
   type DocCandidate = {
@@ -548,7 +653,7 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
     // Skip unknown/unsupported types (e.g. source_of_funds) without failing closed.
     if (!mappedType) continue;
     if (!url || !/^https?:\/\//i.test(url)) {
-      missing.push(`documents[${i}]`);
+      issues.push(issueInvalid(`documents[${i}]`, 'url must be an http(s) URL'));
       continue;
     }
     // Invalid side is ignored here (assert catches it on create); default omit → front.
@@ -571,11 +676,11 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
     validDocs.push(out);
   }
   if (!validDocs.some((d) => IDENTITY_DOC_TYPES.has(d.type))) {
-    missing.push('documents');
+    issues.push(issueRequired('documents'));
   }
 
-  if (missing.length > 0) {
-    throw new GraphOnrampKycError(missing);
+  if (issues.length > 0) {
+    throw new GraphOnrampKycError(issues);
   }
 
   return {

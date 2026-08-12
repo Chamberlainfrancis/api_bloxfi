@@ -93,7 +93,9 @@ describe('buildGraphBusinessKycInput', () => {
         expect.arrayContaining(['documents', 'background_information', 'ubo.id_type', 'ubo.id_number'])
       );
       expect(err.message.toLowerCase()).not.toContain('graph');
-      expect(err.message).toContain('missing required fields for USD KYC');
+      expect(err.message).toContain('USD KYC validation failed');
+      expect(err.message).toContain('is required');
+      expect(err.fieldErrors.documents).toBe('required');
       expect(err.code).toBe('USD_ONRAMP_KYC_INCOMPLETE');
     }
   });
@@ -216,6 +218,32 @@ describe('buildGraphIndividualKycInput', () => {
     });
     expect(kyc.address_country).toBe('CYP');
     expect(kyc.id_country).toBe('BE');
+  });
+
+  it('reports invalid (not missing) when phone/country are present but unusable', () => {
+    try {
+      buildGraphIndividualKycInput({
+        ...individualSource,
+        accountHolder: {
+          ...individualSource.accountHolder,
+          phone: '0472070952',
+          address: {
+            ...(individualSource.accountHolder as { address: object }).address,
+            country: 'ZZ',
+          },
+        },
+      });
+      expect.unreachable('expected GraphOnrampKycError');
+    } catch (e) {
+      expect(e).toBeInstanceOf(GraphOnrampKycError);
+      const err = e as GraphOnrampKycError;
+      expect(err.message).toContain('USD KYC validation failed');
+      expect(err.message).not.toContain('phone is required');
+      expect(err.message).not.toContain('address_country is required');
+      expect(err.fieldErrors.phone).toContain('E.164');
+      expect(err.fieldErrors.address_country).toContain('ISO 3166');
+      expect(err.missingFields).toEqual(expect.arrayContaining(['phone', 'address_country']));
+    }
   });
 
   it('drops non-Graph document types and maps proof_of_address → utility_bill', () => {
