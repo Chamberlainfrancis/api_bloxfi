@@ -46,13 +46,18 @@ async function main(): Promise<void> {
   );
 
   const liquidity = createPalremitLiquidityAdapter();
-  const issued = await issueGraphNamedDepositAccount(liquidity, {
-    id: account.id,
-    userId: account.userId,
-    accountHolder: account.accountHolder,
-    sofQuestionnaire: account.sofQuestionnaire,
-    metadata: account.metadata,
-  });
+  const issued = await issueGraphNamedDepositAccount(
+    liquidity,
+    {
+      id: account.id,
+      userId: account.userId,
+      accountHolder: account.accountHolder,
+      sofQuestionnaire: account.sofQuestionnaire,
+      metadata: account.metadata,
+    },
+    // New key each ops retry so we do not replay a prior failed provision.
+    { idempotencyKey: `account-graph-prov:${account.id}:retry:${Date.now()}` }
+  );
 
   const updated = await updateAccountProviderIssuance(account.id, {
     providerIssuanceStatus: issued.providerIssuanceStatus,

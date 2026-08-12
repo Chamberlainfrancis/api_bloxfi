@@ -86,10 +86,14 @@ export type GraphIssuanceAccountSource = {
 /**
  * Build KYC + provision Graph. Throws GraphOnrampKycError if KYC incomplete.
  * Returns pending/active/failed without throwing on orchestrator transport errors.
+ *
+ * @param options.idempotencyKey — override for retries after a failed provision
+ *   (default `account-graph-prov:{accountId}` is stable for first create).
  */
 export async function issueGraphNamedDepositAccount(
   liquidityRequest: PalremitLiquidityRequestFn,
-  account: GraphIssuanceAccountSource
+  account: GraphIssuanceAccountSource,
+  options?: { idempotencyKey?: string }
 ): Promise<GraphIssuanceResult> {
   const meta = account.metadata as AccountMetadata | null | undefined;
   const kycInput = buildGraphIndividualKycInput({
@@ -109,7 +113,7 @@ export async function issueGraphNamedDepositAccount(
     kyc_input: kycInput,
   };
 
-  const idempotencyKey = `account-graph-prov:${account.id}`;
+  const idempotencyKey = options?.idempotencyKey ?? `account-graph-prov:${account.id}`;
   let prov: Awaited<ReturnType<typeof provisionPalremitDepositAccount>>;
   try {
     prov = await provisionPalremitDepositAccount(liquidityRequest, body, idempotencyKey);
