@@ -29,9 +29,13 @@ export const BRIANA_BUSINESS_REFERENCE = '9eea8cbd-e545-4d15-85cd-90690ede4b0c';
 /** Prisma User.id for Carlston Co — same Graph named USD VA flow as Briana. */
 export const CARLSTON_BUSINESS_REFERENCE = 'c3731f2b-08b5-4281-a4e1-e881c0b14a7b';
 
+/** Prisma User.id for SMS Data Limited — same Graph named USD VA flow as Briana. */
+export const SMS_DATA_BUSINESS_REFERENCE = 'd3fdd57d-62a9-4ecd-bc1f-3b5542050926';
+
 const GRAPH_USD_PINNED_BUSINESS_REFERENCES = new Set([
   BRIANA_BUSINESS_REFERENCE,
   CARLSTON_BUSINESS_REFERENCE,
+  SMS_DATA_BUSINESS_REFERENCE,
 ]);
 
 /** True when this business should use Graph USD named deposits (pinned businesses or metadata opt-in). */
