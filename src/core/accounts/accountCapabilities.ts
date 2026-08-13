@@ -36,9 +36,9 @@ export function mapUsdNamedDepositCapability(input: {
     typeof input.depositDetails.accountNumber === 'string' &&
     input.depositDetails.accountNumber.trim() !== ''
   ) {
-    status = 'ready';
+    status = 'active';
   } else if (statusRaw === 'pending' || statusRaw === 'active') {
-    // active without deposit details is still waiting on instructions
+    // providerIssuanceStatus active without deposit details is still waiting
     status = 'pending';
   }
 

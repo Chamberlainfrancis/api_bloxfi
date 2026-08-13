@@ -122,7 +122,7 @@ describe('mapAccountRowToApi', () => {
       },
       { mask: false, graphUsdEligible: true }
     );
-    expect(ready.capabilities?.usdNamedDeposit.status).toBe('ready');
+    expect(ready.capabilities?.usdNamedDeposit.status).toBe('active');
 
     const failed = mapAccountRowToApi(
       {

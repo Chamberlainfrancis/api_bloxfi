@@ -91,7 +91,7 @@ export type ProviderIssuanceStatus = 'pending' | 'active' | 'failed';
 export type UsdNamedDepositCapabilityStatus =
   | 'not_started'
   | 'pending'
-  | 'ready'
+  | 'active'
   | 'failed';
 
 export interface UsdNamedDepositCapability {

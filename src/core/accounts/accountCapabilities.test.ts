@@ -32,7 +32,7 @@ describe('mapUsdNamedDepositCapability', () => {
     ).toBe('pending');
   });
 
-  it('maps active + depositDetails to ready', () => {
+  it('maps active + depositDetails to active', () => {
     expect(
       mapUsdNamedDepositCapability({
         providerIssuanceStatus: 'active',
@@ -44,7 +44,7 @@ describe('mapUsdNamedDepositCapability', () => {
           reference: null,
         },
       }).status
-    ).toBe('ready');
+    ).toBe('active');
   });
 
   it('maps active without deposit details to pending', () => {
