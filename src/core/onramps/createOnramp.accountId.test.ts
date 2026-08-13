@@ -120,6 +120,7 @@ function accountRow(id: string, email: string) {
       idType: 'passport',
       idNumber: 'P1',
       idCountry: 'US',
+      taxId: '123-45-6789',
       address: {
         addressLine1: '1 Main',
         city: 'NYC',
