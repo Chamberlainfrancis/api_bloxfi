@@ -5,6 +5,9 @@
 
 import { prisma } from '@/db/prisma/client';
 import type { OfframpStatus } from '@/types/offramp';
+import { mapOfframpStatusToEvent, schedulePartnerWebhook } from '@/core/partnerWebhooks';
+import { shouldEmitRampEvent } from '@/core/partnerWebhooks/rampTransition';
+import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 const STATUS_VALUES = [
   'CREATED',
@@ -72,6 +75,24 @@ export interface OfframpRow {
   updatedAt: Date;
 }
 
+function offrampWebhookData(row: OfframpRow) {
+  const receipt = row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
+    ? (row.receipt as Record<string, unknown>)
+    : null;
+  const hash = receipt && typeof receipt.transactionHash === 'string' ? receipt.transactionHash : undefined;
+  const failedReason = row.failedReason
+    ? redactProviderNamesFromClientMessage(row.failedReason)
+    : undefined;
+  return {
+    offrampId: row.id,
+    userId: row.userId,
+    txnRef: row.txnRef,
+    status: row.status,
+    ...(failedReason ? { failedReason } : {}),
+    ...(hash ? { transactionHash: hash } : {}),
+  };
+}
+
 export async function createOfframp(data: CreateOfframpData): Promise<OfframpRow> {
   const row = await prisma.offramp.create({
     data: {
@@ -93,6 +114,8 @@ export async function createOfframp(data: CreateOfframpData): Promise<OfframpRow
       lpReference: data.lpReference ?? null,
     },
   });
+  const eventType = shouldEmitRampEvent(null, row.status, mapOfframpStatusToEvent);
+  if (eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
   return row as OfframpRow;
 }
 
@@ -160,6 +183,8 @@ export async function updateOfframpStatus(
       ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },
   });
+  const eventType = shouldEmitRampEvent(existing?.status ?? null, row.status, mapOfframpStatusToEvent);
+  if (eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
   return row as OfframpRow | null;
 }
 
