@@ -1,7 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('@/core/partnerWebhooks', () => ({ schedulePartnerWebhook: vi.fn() }));
+
 import { submitKybApplication } from '@/core/kyb/submitKyb';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 describe('submitKybApplication', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('updates user kybStatus to under_review when currently not_started', async () => {
     const repo = {
       findUserById: vi.fn().mockResolvedValue({ kybStatus: 'not_started' }),
@@ -21,6 +29,14 @@ describe('submitKybApplication', () => {
     expect(repo.updateUser).toHaveBeenCalledWith('user_1', { kybStatus: 'under_review' });
     expect(repo.createKybSubmission).toHaveBeenCalledOnce();
     expect(res.status).toBe('under_review');
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'kyb.status_updated',
+      expect.objectContaining({
+        userId: 'user_1',
+        previousStatus: 'not_started',
+        kybStatus: 'under_review',
+      })
+    );
   });
 
   it('does not downgrade already approved/rejected/suspended users', async () => {
@@ -40,5 +56,6 @@ describe('submitKybApplication', () => {
     await submitKybApplication(repo, 'user_2', { rails: ['EUR'] });
     expect(repo.updateUser).not.toHaveBeenCalled();
     expect(repo.createKybSubmission).toHaveBeenCalledOnce();
+    expect(schedulePartnerWebhook).not.toHaveBeenCalled();
   });
 });

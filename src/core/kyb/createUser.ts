@@ -11,6 +11,7 @@ import type {
   KYBStatus,
   UserStatus,
 } from '@/types/user';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 export interface UserRepo {
   createUser(data: CreateUserRequest): Promise<{
@@ -54,5 +55,14 @@ export async function createBusinessUser(
   data: CreateUserRequest
 ): Promise<{ response: CreateUserResponse; created: boolean }> {
   const { user, created } = await repo.createUser(data);
-  return { response: toCreateUserResponse(user), created };
+  const response = toCreateUserResponse(user);
+  if (created) {
+    schedulePartnerWebhook('user.created', {
+      userId: response.id,
+      status: response.status,
+      kybStatus: response.kybStatus,
+      createdAt: response.createdAt,
+    });
+  }
+  return { response, created };
 }

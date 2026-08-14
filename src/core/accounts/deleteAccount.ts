@@ -3,6 +3,7 @@
  */
 
 import type { DeleteAccountResponse } from '@/types/account';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 export interface AccountRepoDelete {
   findAccountByIdAndUser(accountId: string, userId: string): Promise<{ id: string } | null>;
@@ -25,6 +26,11 @@ export async function deleteAccount(
 
   const result = await repo.deleteAccount(accountId, userId);
   if (!result) return null;
+
+  schedulePartnerWebhook('account.deleted', {
+    accountId: result.id,
+    userId,
+  });
 
   return {
     status: 'INACTIVE',

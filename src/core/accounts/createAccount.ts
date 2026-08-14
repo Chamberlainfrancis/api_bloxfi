@@ -31,6 +31,7 @@ import type {
 import { accountCreationPayloadsMatch } from '@/db/repositories/accountCreationPayload';
 import { logger } from '@/lib/logger';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 import type {
   AccountDepositDetails,
   AccountHolder,
@@ -297,6 +298,13 @@ export async function createAccount(
       };
     }
 
+    schedulePartnerWebhook('account.created', {
+      accountId: created.id,
+      userId,
+      rail: 'onramp',
+      type: data.type,
+    });
+
     if (useGraph) {
       const issued = await issueGraphNamedDepositAccount(options.palremitLiquidityRequest, {
         id: created.id,
@@ -415,6 +423,13 @@ export async function createAccount(
     accountType,
     accountHolder: data.accountHolder as object,
     providerPayout: providerPayout as object,
+  });
+
+  schedulePartnerWebhook('account.created', {
+    accountId: account.id,
+    userId,
+    rail: 'offramp',
+    type: account.accountType,
   });
 
   return {

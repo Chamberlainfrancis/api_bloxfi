@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/core/partnerWebhooks', () => ({ schedulePartnerWebhook: vi.fn() }));
 
 vi.mock('@/core/files/copyRemoteDocument', () => ({
   copyRemoteDocumentToS3: vi.fn(),
@@ -13,6 +15,8 @@ vi.mock('@/core/files/copyRemoteDocument', () => ({
 }));
 
 import { createAccount } from '@/core/accounts/createAccount';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
+import { maybeScheduleAccountCapabilitiesUpdated } from '@/core/partnerWebhooks/capabilities';
 import { CreateAccountConflictError } from '@/types/createAccountConflict';
 import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
@@ -149,10 +153,24 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
     createAccount: vi.fn().mockResolvedValue(onrampAccountRow),
     findByCreationRequestId: vi.fn().mockResolvedValue(null),
     updateKycImport: vi.fn().mockResolvedValue(onrampAccountRow),
-    updateProviderIssuance: vi.fn().mockImplementation(async (_id: string, patch: object) => ({
-      ...onrampAccountRow,
-      ...patch,
-    })),
+    updateProviderIssuance: vi.fn().mockImplementation(async (id: string, patch: object) => {
+      const before = {
+        providerIssuanceStatus: onrampAccountRow.providerIssuanceStatus ?? null,
+        depositDetails: (onrampAccountRow as { depositDetails?: unknown }).depositDetails ?? null,
+        providerIssuanceFailureReason: null,
+      };
+      const after = {
+        id,
+        userId: onrampAccountRow.userId,
+        ...before,
+        ...patch,
+      };
+      maybeScheduleAccountCapabilitiesUpdated(before, after);
+      return {
+        ...onrampAccountRow,
+        ...patch,
+      };
+    }),
   };
   const userRepo = {
     findUserById: vi.fn().mockResolvedValue({
@@ -178,6 +196,10 @@ function makeOnrampDeps(userMetadata: unknown = { swipeluxBeneficiaryKycImport: 
 }
 
 describe('createAccount — onramp', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('creates onramp account without SwipeLux KYC when flag is false', async () => {
     const { accountRepo, userRepo, kybRepo, liquidityRequest, importKyc, copySourceOfFundsDocument } =
       makeOnrampDeps(null);
@@ -437,6 +459,14 @@ describe('createAccount — onramp', () => {
     });
     expect(accountRepo.createAccount).not.toHaveBeenCalled();
     expect(importKyc).not.toHaveBeenCalled();
+    expect(schedulePartnerWebhook).not.toHaveBeenCalledWith(
+      'account.created',
+      expect.anything()
+    );
+    expect(schedulePartnerWebhook).not.toHaveBeenCalledWith(
+      'account.capabilities.updated',
+      expect.anything()
+    );
   });
 
   it('throws REQUEST_ID_MISMATCH and does NOT return the other user\'s account when the same creationRequestId belongs to a different userId', async () => {
@@ -681,6 +711,24 @@ describe('createAccount — onramp', () => {
     expect(result.capabilities?.usdNamedDeposit.status).toBe('active');
     expect(provisionCalls[0]?.body?.client_reference).toBe('acc-onramp-1');
     expect(provisionCalls[0]?.body?.preferred_provider).toBe('graph');
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'account.created',
+      expect.objectContaining({
+        accountId: 'acc-onramp-1',
+        userId: BRIANA_BUSINESS_REFERENCE,
+        rail: 'onramp',
+        type: 'usd',
+      })
+    );
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'account.capabilities.updated',
+      expect.objectContaining({
+        accountId: 'acc-onramp-1',
+        capabilities: expect.objectContaining({
+          usdNamedDeposit: expect.objectContaining({ status: 'active' }),
+        }),
+      })
+    );
   });
 
   it('rejects Graph USD create when KYC documents are incomplete before persist', async () => {
@@ -720,6 +768,10 @@ describe('createAccount — onramp', () => {
 });
 
 describe('createAccount — offramp (regression guard)', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('creates an offramp account unaffected by the onramp branch', async () => {
     const { liquidityRequest, accountRepo, userRepo, kybRepo, importKyc } = makeOfframpDeps();
 
@@ -746,6 +798,15 @@ describe('createAccount — offramp (regression guard)', () => {
     expect(accountRepo.createAccount).toHaveBeenCalledOnce();
     expect(accountRepo.findByCreationRequestId).not.toHaveBeenCalled();
     expect(importKyc).not.toHaveBeenCalled();
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'account.created',
+      expect.objectContaining({
+        accountId: 'acc-1',
+        userId: 'user-1',
+        rail: 'offramp',
+        type: 'primary',
+      })
+    );
   });
 
   it('rejects offramp create when type is blank', async () => {

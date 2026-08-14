@@ -3,6 +3,7 @@
  */
 
 import type { KYBStatus, SubmitKybRequest, SubmitKybResponse } from '@/types/user';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 export interface UserRepoSubmitKyb {
   findUserById(userId: string): Promise<{ kybStatus: KYBStatus } | null>;
@@ -41,6 +42,11 @@ export async function submitKybApplication(
   // Keep terminal/restrictive states unchanged until webhook/admin decision.
   if (user && (user.kybStatus === 'not_started' || user.kybStatus === 'incomplete')) {
     await repo.updateUser(userId, { kybStatus: 'under_review' });
+    schedulePartnerWebhook('kyb.status_updated', {
+      userId,
+      previousStatus: user.kybStatus,
+      kybStatus: 'under_review',
+    });
   }
   const estimated = defaultEstimatedCompletionDate();
   const submission = await repo.createKybSubmission(userId, data, estimated);

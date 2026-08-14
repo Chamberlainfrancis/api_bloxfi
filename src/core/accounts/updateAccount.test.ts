@@ -1,5 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/core/partnerWebhooks', () => ({ schedulePartnerWebhook: vi.fn() }));
+
 import { updateAccount } from '@/core/accounts/updateAccount';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 const corridor = {
   asset: 'AED',
@@ -39,6 +43,10 @@ const accountRow = {
 };
 
 describe('updateAccount', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('merges patch, re-validates against live corridor, and persists', async () => {
     const liquidityRequest = vi.fn().mockResolvedValue({
       status: 200,
@@ -95,6 +103,15 @@ describe('updateAccount', () => {
     expect((result?.providerPayout!.destination as Record<string, unknown>).swift_code).toBeUndefined();
     expect(updateAccountProviderPayout).toHaveBeenCalledOnce();
     expect(result?.providerPayout!.requirementsSnapshot?.fetchedAt).toBeDefined();
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'account.updated',
+      expect.objectContaining({
+        accountId: 'acc-1',
+        userId: 'user-1',
+        rail: 'offramp',
+        type: 'primary',
+      })
+    );
   });
 
   it('returns null when account not found', async () => {
@@ -109,6 +126,7 @@ describe('updateAccount', () => {
       { palremitLiquidityRequest: vi.fn() }
     );
     expect(result).toBeNull();
+    expect(schedulePartnerWebhook).not.toHaveBeenCalled();
   });
 
   it('rejects when merged destination still fails corridor validation', async () => {

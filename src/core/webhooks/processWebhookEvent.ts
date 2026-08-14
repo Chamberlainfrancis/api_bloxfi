@@ -19,6 +19,7 @@ import {
 import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/palremitOfframp';
 import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
 import { depositDetailsFromInstructions } from '@/core/accounts/graphAccountIssuance';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 import {
   expectedOfframpCryptoAmount,
   isOfframpCryptoDepositComplete,
@@ -35,7 +36,7 @@ function isAccountUuidClientRef(ref: string): boolean {
 
 export interface WebhookRepos {
   user: {
-    findUserById(id: string): Promise<{ id: string } | null>;
+    findUserById(id: string): Promise<{ id: string; kybStatus?: string } | null>;
     updateUser(
       id: string,
       data: { kybStatus?: KYBStatus; approvedRails?: string[] }
@@ -887,10 +888,19 @@ export async function processWebhookEvent(
       const existing = await repos.user.findUserById(userId);
       if (existing) {
         if (kybStatus) {
+          const nextStatus = toKybStatus(kybStatus);
           await repos.user.updateUser(userId, {
-            kybStatus: toKybStatus(kybStatus),
+            kybStatus: nextStatus,
             ...(approvedRails && approvedRails.length > 0 ? { approvedRails } : {}),
           });
+          if (nextStatus !== existing.kybStatus) {
+            schedulePartnerWebhook('kyb.status_updated', {
+              userId,
+              kybStatus: nextStatus,
+              previousStatus: existing.kybStatus,
+              ...(rails.length > 0 ? { rails } : {}),
+            });
+          }
         }
         if (rails.length > 0) {
           const status =

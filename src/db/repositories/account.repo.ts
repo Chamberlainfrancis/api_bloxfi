@@ -6,6 +6,7 @@
 import { prisma } from "@/db/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 import type { RailType } from "@/types/account";
+import { maybeScheduleAccountCapabilitiesUpdated } from "@/core/partnerWebhooks/capabilities";
 
 export interface CreateAccountData {
   userId: string;
@@ -98,6 +99,7 @@ export async function updateAccountProviderIssuance(
     providerIssuanceFailureReason?: string | null;
   }
 ): Promise<AccountRow> {
+  const before = await prisma.account.findUnique({ where: { id: accountId } });
   const data: Prisma.AccountUpdateInput = {
     providerIssuanceStatus: patch.providerIssuanceStatus,
   };
@@ -117,6 +119,7 @@ export async function updateAccountProviderIssuance(
     where: { id: accountId },
     data,
   });
+  maybeScheduleAccountCapabilitiesUpdated(before ?? {}, account as AccountRow);
   return account as AccountRow;
 }
 

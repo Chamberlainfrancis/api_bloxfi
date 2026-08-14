@@ -11,6 +11,7 @@ import {
 import { mapAccountRowToApi, type AccountRowLike } from '@/core/accounts/mapAccountRow';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import type { GetAccountResponse, UpdateAccountRequest } from '@/types/account';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 export interface AccountRepoUpdate {
   findOfframpAccountByIdAndUser(
@@ -65,6 +66,13 @@ export async function updateAccount(
     providerPayout as object
   );
   if (!updated) return null;
+
+  schedulePartnerWebhook('account.updated', {
+    accountId: updated.id,
+    userId: updated.userId,
+    rail: updated.railType,
+    type: updated.accountType,
+  });
 
   return mapAccountRowToApi(updated, { mask: false });
 }

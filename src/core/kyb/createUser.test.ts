@@ -1,6 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/core/partnerWebhooks', () => ({ schedulePartnerWebhook: vi.fn() }));
+
 import type { CreateUserRequest } from '@/types/user';
 import { createBusinessUser } from '@/core/kyb/createUser';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 function sampleRequest(): CreateUserRequest {
   return {
@@ -40,6 +44,10 @@ function sampleRequest(): CreateUserRequest {
 }
 
 describe('createBusinessUser', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('returns created:true when repo inserts', async () => {
     const req = sampleRequest();
     const createdAt = new Date('2025-01-01T00:00:00.000Z');
@@ -60,6 +68,10 @@ describe('createBusinessUser', () => {
     expect(created).toBe(true);
     expect(response.id).toBe('u1');
     expect(repo.createUser).toHaveBeenCalledWith(req);
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith(
+      'user.created',
+      expect.objectContaining({ userId: 'u1' })
+    );
   });
 
   it('returns created:false on idempotent replay', async () => {
@@ -81,5 +93,6 @@ describe('createBusinessUser', () => {
     const { response, created } = await createBusinessUser(repo, req);
     expect(created).toBe(false);
     expect(response.id).toBe('u1');
+    expect(schedulePartnerWebhook).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/core/partnerWebhooks', () => ({ schedulePartnerWebhook: vi.fn() }));
+
 import { deleteAccount } from '@/core/accounts/deleteAccount';
+import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
 
 describe('deleteAccount', () => {
+  beforeEach(() => {
+    vi.mocked(schedulePartnerWebhook).mockClear();
+  });
+
   it('calls the rail-agnostic findAccountByIdAndUser, then deletes (offramp, unchanged)', async () => {
     const findAccountByIdAndUser = vi.fn().mockResolvedValue({ id: 'acc-1' });
     const hasPendingTransactions = vi.fn().mockResolvedValue(false);
@@ -15,6 +23,10 @@ describe('deleteAccount', () => {
 
     expect(findAccountByIdAndUser).toHaveBeenCalledWith('acc-1', 'user-1');
     expect(result).toEqual({ status: 'INACTIVE', message: 'Account deleted successfully', id: 'acc-1' });
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith('account.deleted', {
+      accountId: 'acc-1',
+      userId: 'user-1',
+    });
   });
 
   it('deletes an onramp account (rail-agnostic lookup finds it where the offramp-only lookup would 404)', async () => {
@@ -59,5 +71,6 @@ describe('deleteAccount', () => {
       )
     ).rejects.toThrow('ACCOUNT_HAS_PENDING_TRANSACTIONS');
     expect(remove).not.toHaveBeenCalled();
+    expect(schedulePartnerWebhook).not.toHaveBeenCalled();
   });
 });
