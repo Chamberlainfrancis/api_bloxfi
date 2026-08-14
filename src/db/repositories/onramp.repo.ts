@@ -5,6 +5,9 @@
 
 import { prisma } from '@/db/prisma/client';
 import type { OnrampStatus } from '@/types/onramp';
+import { mapOnrampStatusToEvent, schedulePartnerWebhook } from '@/core/partnerWebhooks';
+import { shouldEmitRampEvent } from '@/core/partnerWebhooks/rampTransition';
+import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 // Map our status type to Prisma enum (same string values).
 const STATUS_VALUES = [
@@ -55,6 +58,24 @@ export interface OnrampRow {
   updatedAt: Date;
 }
 
+function onrampWebhookData(row: OnrampRow) {
+  const receipt = row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
+    ? (row.receipt as Record<string, unknown>)
+    : null;
+  const hash = receipt && typeof receipt.transactionHash === 'string' ? receipt.transactionHash : undefined;
+  const failedReason = row.failedReason
+    ? redactProviderNamesFromClientMessage(row.failedReason)
+    : undefined;
+  return {
+    onrampId: row.id,
+    userId: row.userId,
+    txnRef: row.txnRef,
+    status: row.status,
+    ...(failedReason ? { failedReason } : {}),
+    ...(hash ? { transactionHash: hash } : {}),
+  };
+}
+
 export async function createOnramp(data: CreateOnrampData): Promise<OnrampRow> {
   const row = await prisma.onramp.create({
     data: {
@@ -73,6 +94,8 @@ export async function createOnramp(data: CreateOnrampData): Promise<OnrampRow> {
       failedReason: data.failedReason ?? null,
     },
   });
+  const eventType = shouldEmitRampEvent(null, row.status, mapOnrampStatusToEvent);
+  if (eventType) schedulePartnerWebhook(eventType, onrampWebhookData(row as OnrampRow));
   return row as OnrampRow;
 }
 
@@ -128,6 +151,8 @@ export async function updateOnrampStatus(
       ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },
   });
+  const eventType = shouldEmitRampEvent(existing?.status ?? null, row.status, mapOnrampStatusToEvent);
+  if (eventType) schedulePartnerWebhook(eventType, onrampWebhookData(row as OnrampRow));
   return row as OnrampRow;
 }
 
