@@ -5,6 +5,11 @@
 
 import { applyOfframpPlatformFee } from '@/core/payments';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
+import {
+  applyOnrampAccountMarkup,
+  resolveOnrampAccountMarkup,
+} from '@/core/quotes/onrampAccountMarkup';
+import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
@@ -107,6 +112,9 @@ export interface CreateOnrampOptions {
       provisionedAccountId?: string | null;
       depositDetails?: unknown;
       providerIssuanceFailureReason?: string | null;
+      currency?: string;
+      railType?: string;
+      accountType?: string;
     }[]
   >;
   /**
@@ -191,6 +199,38 @@ function asObjectRecord(x: unknown): Record<string, unknown> | null {
     return x as Record<string, unknown>;
   }
   return null;
+}
+
+type ListedOnrampAccount = NonNullable<
+  Awaited<ReturnType<NonNullable<CreateOnrampOptions['listOnrampAccounts']>>>
+>[number];
+
+function listedAccountMarkupRule(
+  fromCurrency: string,
+  userId: string,
+  userMetadata: unknown,
+  account: ListedOnrampAccount | undefined
+) {
+  if (!account) return null;
+  const details =
+    account.depositDetails != null &&
+    typeof account.depositDetails === 'object' &&
+    !Array.isArray(account.depositDetails)
+      ? (account.depositDetails as AccountDepositDetails)
+      : null;
+  const railType = account.railType ?? 'onramp';
+  const capabilities = buildAccountCapabilities({
+    graphUsdEligible: isGraphUsdBusiness(userId, userMetadata),
+    railType,
+    providerIssuanceStatus: account.providerIssuanceStatus,
+    depositDetails: details,
+    providerIssuanceFailureReason: account.providerIssuanceFailureReason,
+  });
+  return resolveOnrampAccountMarkup({
+    fromCurrency,
+    account: { currency: account.currency, railType, accountType: account.accountType },
+    capabilities,
+  });
 }
 
 /** Names for Palremit fiat deposit API (first_name / last_name) when no legal rep person fields exist. */
@@ -314,6 +354,67 @@ export async function createOnramp(
     }
   }
 
+  // Resolve Account before pricing so named-USD markup and quote binding can run.
+  const onrampAccounts = options.listOnrampAccounts
+    ? await options.listOnrampAccounts(userId)
+    : [];
+  const explicitAccountId = src.accountId?.trim() || undefined;
+  let inferred = options.listOnrampAccounts
+    ? inferOnrampAccount(onrampAccounts)
+    : ({ kind: 'none' } as const);
+
+  if (explicitAccountId) {
+    const explicit = onrampAccounts.find((a) => a.id === explicitAccountId);
+    if (!explicit) {
+      throw new Error('ONRAMP_ACCOUNT_NOT_FOUND');
+    }
+    const holder =
+      explicit.accountHolder != null && typeof explicit.accountHolder === 'object'
+        ? (explicit.accountHolder as { email?: unknown })
+        : null;
+    const contactEmail =
+      typeof holder?.email === 'string' && holder.email.trim()
+        ? holder.email.trim()
+        : undefined;
+    inferred = {
+      kind: 'resolved',
+      account: {
+        accountReference: explicit.id,
+        contactEmail,
+        customerType: 'individual',
+      },
+    };
+  } else if (inferred.kind === 'ambiguous') {
+    logger.warn(
+      { userId, accountIds: inferred.accountIds },
+      'onramp account inference ambiguous — pass source.accountId (Prisma Account.id)'
+    );
+  }
+
+  const resolvedAccountRow =
+    inferred.kind === 'resolved'
+      ? onrampAccounts.find((a) => a.id === inferred.account.accountReference)
+      : undefined;
+  const markupRule = listedAccountMarkupRule(
+    fromCurrency,
+    userId,
+    user.metadata,
+    resolvedAccountRow
+  );
+
+  if (options.lockedQuote) {
+    const quoteAccountId = options.lockedQuote.accountId?.trim();
+    if (markupRule && !quoteAccountId) {
+      throw new Error('QUOTE_ACCOUNT_REQUIRED');
+    }
+    if (quoteAccountId) {
+      const resolvedId = inferred.kind === 'resolved' ? inferred.account.accountReference : undefined;
+      if (quoteAccountId !== resolvedId) {
+        throw new Error('QUOTE_ACCOUNT_MISMATCH');
+      }
+    }
+  }
+
   let grossFiat: number;
   let receiveNet: number;
   let quoteInformation: QuoteInformation;
@@ -339,10 +440,22 @@ export async function createOnramp(
     if (!quote?.conversionRate || typeof quote.conversion !== 'number') {
       throw new Error('PALREMIT_RATES_UNAVAILABLE');
     }
-    const conversionRate = quote.conversionRate;
+    let conversionRate = quote.conversionRate;
+    let receiveGross = quote.conversion;
+    if (markupRule) {
+      const priced = applyOnrampAccountMarkup({
+        amount: src.amount,
+        toCurrency,
+        marketRate: quote.marketRate,
+        rateCurrency: quote.rateCurrency,
+        perCurrency: quote.perCurrency,
+        markup: markupRule.markup,
+      });
+      conversionRate = priced.conversionRate;
+      receiveGross = priced.conversion;
+    }
 
     grossFiat = src.amount;
-    const receiveGross = quote.conversion;
     const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
       applyOfframpPlatformFee(receiveGross, platformFee);
 
@@ -411,7 +524,7 @@ export async function createOnramp(
       ? await buildPalremitProfit({
           sourceAmount: src.amount,
           toCurrency,
-          rate: quote.conversionRate,
+          rate: conversionRate,
           marketRate: quote.marketRate ?? undefined,
           rateCurrency: quote.rateCurrency ?? undefined,
           perCurrency: quote.perCurrency ?? undefined,
@@ -442,45 +555,6 @@ export async function createOnramp(
   const { firstName, lastName } = resolveOnrampUserIdentity(user);
 
   const txnRef = generateOnrampTxnRef();
-
-  // Prefer explicit Prisma Account.id (source.accountId). Otherwise infer —
-  // inconclusive inference is left unset for non-Graph (per-business path).
-  // Graph USD requires a resolved Account for named-VA reuse / individual KYC.
-  const onrampAccounts = options.listOnrampAccounts
-    ? await options.listOnrampAccounts(userId)
-    : [];
-  const explicitAccountId = src.accountId?.trim() || undefined;
-  let inferred = options.listOnrampAccounts
-    ? inferOnrampAccount(onrampAccounts)
-    : ({ kind: 'none' } as const);
-
-  if (explicitAccountId) {
-    const explicit = onrampAccounts.find((a) => a.id === explicitAccountId);
-    if (!explicit) {
-      throw new Error('ONRAMP_ACCOUNT_NOT_FOUND');
-    }
-    const holder =
-      explicit.accountHolder != null && typeof explicit.accountHolder === 'object'
-        ? (explicit.accountHolder as { email?: unknown })
-        : null;
-    const contactEmail =
-      typeof holder?.email === 'string' && holder.email.trim()
-        ? holder.email.trim()
-        : undefined;
-    inferred = {
-      kind: 'resolved',
-      account: {
-        accountReference: explicit.id,
-        contactEmail,
-        customerType: 'individual',
-      },
-    };
-  } else if (inferred.kind === 'ambiguous') {
-    logger.warn(
-      { userId, accountIds: inferred.accountIds },
-      'onramp account inference ambiguous — pass source.accountId (Prisma Account.id)'
-    );
-  }
 
   const accountFields: {
     accountReference?: string;

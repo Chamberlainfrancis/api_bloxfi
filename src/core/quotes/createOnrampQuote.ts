@@ -4,10 +4,15 @@
 
 import { applyOfframpPlatformFee } from '@/core/payments';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
+import {
+  applyOnrampAccountMarkup,
+  resolveOnrampAccountMarkup,
+} from '@/core/quotes/onrampAccountMarkup';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import type { PlatformFee, RampFeePreview } from '@/types/offramp';
 import type { OnrampFees, QuoteInformation } from '@/types/onramp';
-import type { OnrampQuoteResponse, OnrampQuoteSnapshot } from '@/types/quote';
+import type { AccountCapabilities } from '@/types/account';
+import type { OnrampQuoteMarkup, OnrampQuoteResponse, OnrampQuoteSnapshot } from '@/types/quote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 
 export interface CreateOnrampQuoteInput {
@@ -16,6 +21,15 @@ export interface CreateOnrampQuoteInput {
   amount: number;
   destinationChain: string;
   platformFee: PlatformFee;
+  accountId?: string;
+}
+
+export interface OnrampQuoteAccountForMarkup {
+  id: string;
+  currency: string;
+  railType: string;
+  accountType?: string;
+  capabilities?: AccountCapabilities;
 }
 
 export interface CreateOnrampQuoteOptions {
@@ -42,6 +56,7 @@ export interface CreateOnrampQuoteOptions {
     network?: string | null;
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
   convertToUsdc: (from: string, amount: number) => Promise<number | null>;
+  loadOnrampAccountForMarkup?: (accountId: string) => Promise<OnrampQuoteAccountForMarkup | null>;
 }
 
 function parseQuoteExpiry(minutes = 180): Date {
@@ -71,7 +86,46 @@ export async function createOnrampQuote(
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
-  const receiveGross = palremitQuote.conversion;
+  let conversionRate = palremitQuote.conversionRate;
+  let receiveGross = palremitQuote.conversion;
+  let snapshotAccountId: string | undefined;
+  let snapshotMarkup: OnrampQuoteMarkup | null | undefined;
+
+  const accountId = input.accountId?.trim();
+  if (accountId) {
+    const account = options.loadOnrampAccountForMarkup
+      ? await options.loadOnrampAccountForMarkup(accountId)
+      : null;
+    if (!account || account.railType !== 'onramp') {
+      throw new Error('ONRAMP_ACCOUNT_NOT_FOUND');
+    }
+    snapshotAccountId = account.id;
+    const rule = resolveOnrampAccountMarkup({
+      fromCurrency,
+      account,
+      capabilities: account.capabilities,
+    });
+    if (rule) {
+      const priced = applyOnrampAccountMarkup({
+        amount: input.amount,
+        toCurrency,
+        marketRate: palremitQuote.marketRate,
+        rateCurrency: palremitQuote.rateCurrency,
+        perCurrency: palremitQuote.perCurrency,
+        markup: rule.markup,
+      });
+      conversionRate = priced.conversionRate;
+      receiveGross = priced.conversion;
+      snapshotMarkup = {
+        capability: rule.capability,
+        currency: rule.currency,
+        markup: rule.markup,
+      };
+    } else {
+      snapshotMarkup = null;
+    }
+  }
+
   const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
     applyOfframpPlatformFee(receiveGross, input.platformFee);
 
@@ -129,7 +183,7 @@ export async function createOnrampQuote(
     railFee: { amount: '0.00', currency: fromCurrency },
     receiveGross: quote.receiveGross,
     receiveNet: quote.receiveNet,
-    rate: palremitQuote.conversionRate,
+    rate: conversionRate,
     expiresAt: expiresAt.toISOString(),
     transferFee: quote.transferFee,
   };
@@ -151,7 +205,7 @@ export async function createOnrampQuote(
   const profit = await buildPalremitProfit({
     sourceAmount: input.amount,
     toCurrency,
-    rate: palremitQuote.conversionRate,
+    rate: conversionRate,
     marketRate: palremitQuote.marketRate ?? undefined,
     rateCurrency: palremitQuote.rateCurrency ?? undefined,
     perCurrency: palremitQuote.perCurrency ?? undefined,
@@ -167,13 +221,18 @@ export async function createOnrampQuote(
     clientDestinationChain,
     sendAmount: input.amount,
     platformFee: input.platformFee,
-    conversionRate: palremitQuote.conversionRate,
+    conversionRate,
     rateValidUntil: expiresAt.toISOString(),
     receiveNet,
     quote,
     quoteInformation,
     fees,
     profit,
+    ...(snapshotAccountId ? { accountId: snapshotAccountId } : {}),
+    ...(snapshotMarkup !== undefined ? { markup: snapshotMarkup } : {}),
+    ...(palremitQuote.marketRate ? { marketRate: palremitQuote.marketRate } : {}),
+    ...(palremitQuote.rateCurrency ? { rateCurrency: palremitQuote.rateCurrency } : {}),
+    ...(palremitQuote.perCurrency ? { perCurrency: palremitQuote.perCurrency } : {}),
   };
 
   const row = await rampQuoteRepo.createRampQuote({
@@ -187,7 +246,7 @@ export async function createOnrampQuote(
     expiresAt: row.expiresAt.toISOString(),
     fromCurrency,
     toCurrency,
-    conversionRate: palremitQuote.conversionRate,
+    conversionRate,
     rateValidUntil: expiresAt.toISOString(),
     quote,
   };

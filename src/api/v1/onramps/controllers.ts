@@ -31,7 +31,10 @@ import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSou
 import { createOnrampQuote } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
-import { findOnrampAccountsByUser } from '@/db/repositories/account.repo';
+import { findOnrampAccountsByUser, findAccountById } from '@/db/repositories/account.repo';
+import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
+import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
+import type { AccountDepositDetails } from '@/types/account';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
 import {
   createOnrampBodySchema,
@@ -82,6 +85,31 @@ const getQuoteFromPalremit = async (from: string, to: string, amount: number) =>
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
+}
+
+async function loadOnrampAccountForMarkup(accountId: string) {
+  const acc = await findAccountById(accountId);
+  if (!acc || acc.railType !== 'onramp') return null;
+  const user = await userRepo.findUserById(acc.userId);
+  const details =
+    acc.depositDetails != null &&
+    typeof acc.depositDetails === 'object' &&
+    !Array.isArray(acc.depositDetails)
+      ? (acc.depositDetails as AccountDepositDetails)
+      : null;
+  return {
+    id: acc.id,
+    currency: acc.currency,
+    railType: acc.railType,
+    accountType: acc.accountType,
+    capabilities: buildAccountCapabilities({
+      graphUsdEligible: isGraphUsdBusiness(acc.userId, user?.metadata),
+      railType: acc.railType,
+      providerIssuanceStatus: acc.providerIssuanceStatus,
+      depositDetails: details,
+      providerIssuanceFailureReason: acc.providerIssuanceFailureReason,
+    }),
+  };
 }
 
 export async function getOnrampRates(
@@ -160,6 +188,7 @@ export async function createOnrampQuoteHandler(
         fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
       convertToUsdc: (from, amount) =>
         getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
+      loadOnrampAccountForMarkup,
     });
     sendSuccess(res, result, 201);
   } catch (e) {
@@ -171,6 +200,17 @@ export async function createOnrampQuoteHandler(
           requestedChain: e.requestedChain,
           validNetworkCodes: e.validNetworkCodes,
         })
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'ONRAMP_ACCOUNT_NOT_FOUND') {
+      next(
+        new AppError(
+          'accountId must be an onramp Account id',
+          'INVALID_REQUEST',
+          400,
+          { field: 'accountId' }
+        )
       );
       return;
     }
@@ -224,16 +264,19 @@ export async function createOnramp(
     let body: Omit<CreateOnrampRequest, 'requestId'>;
 
     if (parsed.data.quoteId) {
-      const snapshot = await rampQuoteRepo.consumeRampQuote<OnrampQuoteSnapshot>(
-        parsed.data.quoteId,
-        'onramp'
-      );
-      if (!snapshot) {
+      const row = await rampQuoteRepo.findRampQuoteById(parsed.data.quoteId);
+      const now = new Date();
+      if (
+        !row ||
+        row.rampType !== 'onramp' ||
+        row.consumedAt != null ||
+        row.expiresAt <= now
+      ) {
         next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
         return;
       }
-      lockedQuote = snapshot;
-      body = hydrateOnrampCreateFromQuote(snapshot, {
+      lockedQuote = row.payload as OnrampQuoteSnapshot;
+      body = hydrateOnrampCreateFromQuote(lockedQuote, {
         source: {
           userId: parsed.data.source.userId!,
           transferType: parsed.data.source.transferType,
@@ -276,6 +319,9 @@ export async function createOnramp(
         ...(lockedQuote ? { lockedQuote } : {}),
       }
     );
+    if (parsed.data.quoteId) {
+      await rampQuoteRepo.consumeRampQuote(parsed.data.quoteId, 'onramp');
+    }
     sendSuccess(res, result, 201);
   } catch (e) {
     if (e instanceof Error && e.message === 'USER_NOT_FOUND') {
@@ -364,6 +410,28 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'QUOTE_CURRENCY_MISMATCH') {
       next(new AppError('Quote currencies do not match the create request', 'INVALID_REQUEST', 400));
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_ACCOUNT_REQUIRED') {
+      next(
+        new AppError(
+          'quoteId must be from a quote created with accountId for this Account',
+          'INVALID_REQUEST',
+          400,
+          { field: 'quoteId' }
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_ACCOUNT_MISMATCH') {
+      next(
+        new AppError(
+          'source.accountId must match the Account used on the quote',
+          'INVALID_REQUEST',
+          400,
+          { field: 'source.accountId' }
+        )
+      );
       return;
     }
     next(e);

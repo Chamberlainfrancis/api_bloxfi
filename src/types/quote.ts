@@ -58,6 +58,13 @@ export interface OfframpQuoteResponse {
   quote: RampFeePreview;
 }
 
+/** Capability + currency markup applied at quote time (named USD today). */
+export interface OnrampQuoteMarkup {
+  capability: string;
+  currency: string;
+  markup: number;
+}
+
 /** Persisted snapshot for onramp quote → create hydration. */
 export interface OnrampQuoteSnapshot {
   version: 1;
@@ -74,6 +81,13 @@ export interface OnrampQuoteSnapshot {
   quoteInformation: QuoteInformation;
   fees: OnrampFees;
   profit?: PalremitProfit | null;
+  /** Set when the quote was created with accountId. */
+  accountId?: string;
+  /** Applied rule, or null when accountId was present but no config hit. */
+  markup?: OnrampQuoteMarkup | null;
+  marketRate?: string;
+  rateCurrency?: string;
+  perCurrency?: string;
 }
 
 export interface OnrampQuoteResponse {

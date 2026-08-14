@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createOnrampBodySchema } from '@/api/v1/onramps/schemas';
+import { createOnrampBodySchema, createOnrampQuoteBodySchema } from '@/api/v1/onramps/schemas';
 
 const baseBody = {
   requestId: '11111111-1111-4111-8111-111111111111',
@@ -51,6 +51,48 @@ describe('createOnrampBodySchema', () => {
       expect(r.data.platformFee.currency).toBeUndefined();
       expect(r.data.platformFee.network).toBeUndefined();
     }
+  });
+
+  it('accepts optional accountId on an onramp quote', () => {
+    const accountId = '44444444-4444-4444-8444-444444444444';
+    const r = createOnrampQuoteBodySchema.safeParse({
+      fromCurrency: 'USD',
+      toCurrency: 'USDT',
+      amount: 100,
+      chain: 'POLYGON',
+      accountId,
+      platformFee: baseBody.platformFee,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.accountId).toBe(accountId);
+    }
+  });
+
+  it('omits accountId on an onramp quote when not sent', () => {
+    const r = createOnrampQuoteBodySchema.safeParse({
+      fromCurrency: 'USD',
+      toCurrency: 'USDT',
+      amount: 100,
+      chain: 'POLYGON',
+      platformFee: baseBody.platformFee,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.accountId).toBeUndefined();
+    }
+  });
+
+  it('rejects non-uuid accountId on an onramp quote', () => {
+    const r = createOnrampQuoteBodySchema.safeParse({
+      fromCurrency: 'USD',
+      toCurrency: 'USDT',
+      amount: 100,
+      chain: 'POLYGON',
+      accountId: 'not-a-uuid',
+      platformFee: baseBody.platformFee,
+    });
+    expect(r.success).toBe(false);
   });
 
   it('accepts optional platformFee.currency and platformFee.network', () => {
