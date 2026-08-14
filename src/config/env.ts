@@ -46,6 +46,18 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((s) => s === "true" || s === "1"),
+  /** Outbound partner webhook URL. Unset = do not send. */
+  PARTNER_WEBHOOK_URL: z.string().url().optional(),
+  /** HMAC secret for outbound partner webhooks. Required when PARTNER_WEBHOOK_URL is set. */
+  PARTNER_WEBHOOK_SECRET: z.string().min(16).optional(),
+}).superRefine((v, ctx) => {
+  if (v.PARTNER_WEBHOOK_URL && !v.PARTNER_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["PARTNER_WEBHOOK_SECRET"],
+      message: "required when PARTNER_WEBHOOK_URL is set",
+    });
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;
