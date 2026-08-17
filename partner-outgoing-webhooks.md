@@ -1,12 +1,55 @@
-# Partner outgoing webhooks
+# BloxFi webhooks
 
-JSON body posted to `PARTNER_WEBHOOK_URL`. This document covers **event types and payload shapes only**.
+We send HTTPS POSTs to your webhook URL when a user, KYB status, account, onramp, or offramp changes in a way that matters.
+
+Use `eventType` to decide what happened. Use `eventId` to ignore duplicates. Use `data` for ids and status; fetch the full resource from the API if you need more than the payload includes.
+
+---
+
+## Delivery
+
+| | |
+|---|---|
+| Method | `POST` |
+| URL | The HTTPS endpoint you give us |
+| Body | JSON (see [Envelope](#envelope)) |
+| Timeout | 5 seconds |
+| Success | Any `2xx` |
+| Retries | Up to 3 attempts for the same `eventId` if we do not get a `2xx` |
+
+**Headers**
+
+```
+Content-Type: application/json
+X-Webhook-Signature: <hmac>
+```
+
+`X-Webhook-Signature` is a 64-character lowercase hex **HMAC-SHA256** of the **exact raw request body**, using the signing secret we share with you. There is no `sha256=` prefix.
+
+Verify the signature before you parse or act on the body. Compute HMAC-SHA256 over the raw bytes you received and compare it to the header in constant time.
+
+Node.js:
+
+```js
+const crypto = require('crypto');
+
+function isValidSignature(rawBody, header, secret) {
+  const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
+  const a = Buffer.from(header, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+```
+
+Treat `eventId` as an idempotency key. We reuse the same `eventId` on retries; do not process the same id twice.
+
+Optional fields are **omitted** when unknown, not sent as `null`, unless a sample below shows `null`.
 
 ---
 
 ## Envelope
 
-Every delivery is this object. `data` is event-specific (see below).
+Every request body looks like this. Only `data` changes per event.
 
 ```json
 {
@@ -17,61 +60,59 @@ Every delivery is this object. `data` is event-specific (see below).
 }
 ```
 
-| Field | Type | Notes |
+| Field | Type | Description |
 |---|---|---|
-| `eventId` | UUID string | New id per event. Retries of the same event reuse it. |
-| `eventType` | string | One of the values in [Event types](#event-types). |
-| `occurredAt` | ISO-8601 UTC | Time the event was scheduled. |
-| `data` | object | Partner-safe fields for that event. |
-
-Omitted optional keys are **absent**, not `null`, unless a sample shows `null`.
+| `eventId` | UUID | Unique id for this event. Same value on retries. |
+| `eventType` | string | One of the types listed below. |
+| `occurredAt` | string | ISO-8601 UTC timestamp. |
+| `data` | object | Event payload. |
 
 ---
 
-## Event types
+## Event catalog
 
-| `eventType` | `data` |
+| `eventType` | When you receive it |
 |---|---|
-| `user.created` | `{ userId, status, kybStatus, createdAt }` |
-| `kyb.status_updated` | `{ userId, kybStatus, previousStatus, rails? }` |
-| `account.created` | `{ accountId, userId, rail, type }` |
-| `account.updated` | `{ accountId, userId, rail, type }` |
-| `account.deleted` | `{ accountId, userId }` |
-| `account.capabilities.updated` | `{ accountId, userId, capabilities, depositDetails? }` |
-| `onramp.created` | [Onramp `data`](#onramp-data) |
-| `onramp.fiat_received` | same |
-| `onramp.crypto_initiated` | same |
-| `onramp.completed` | same |
-| `onramp.failed` | same |
-| `onramp.expired` | same |
-| `offramp.created` | [Offramp `data`](#offramp-data) |
-| `offramp.crypto_received` | same |
-| `offramp.crypto_confirmed` | same |
-| `offramp.fiat_initiated` | same |
-| `offramp.completed` | same |
-| `offramp.failed` | same |
-| `offramp.cancelled` | same |
-| `offramp.refunded` | same |
-| `offramp.expired` | same |
+| `user.created` | A new business user was created. |
+| `kyb.status_updated` | That user’s KYB status changed. |
+| `account.created` | A new onramp or offramp account was created. |
+| `account.updated` | An offramp account destination was updated. |
+| `account.deleted` | An account was deleted. |
+| `account.capabilities.updated` | Named USD deposit readiness changed (`pending` / `active` / `failed`). |
+| `onramp.created` | An onramp was created and is waiting for fiat. |
+| `onramp.fiat_received` | Fiat for that onramp has been received. |
+| `onramp.crypto_initiated` | Crypto payout has started. |
+| `onramp.completed` | Onramp finished; crypto was sent. |
+| `onramp.failed` | Onramp failed (fiat or crypto). |
+| `onramp.expired` | Onramp expired before completion. |
+| `offramp.created` | An offramp was created and is waiting for crypto. |
+| `offramp.crypto_received` | Crypto for that offramp has been received. |
+| `offramp.crypto_confirmed` | Received crypto is confirmed. |
+| `offramp.fiat_initiated` | Fiat payout has started. |
+| `offramp.completed` | Offramp finished; fiat was sent. |
+| `offramp.failed` | Offramp failed (crypto or fiat). |
+| `offramp.cancelled` | Offramp was cancelled. |
+| `offramp.refunded` | Offramp was refunded. |
+| `offramp.expired` | Offramp expired before completion. |
 
-Ramp `eventType` values are **collapsed**. Several internal statuses map to one event; a move inside the same bucket does not emit again. `data.status` is the **internal status at emit time**, not the event name.
+Onramps and offramps send **one webhook per milestone**, not one per every status the REST API can return. `data.status` is the resource status at the time of the event (same values as `GET /onramps/:id` and `GET /offramps/:id`). You may see `onramp.fiat_received` with `status: "FIAT_PENDING"`; you will not get a second webhook when that onramp later becomes `FIAT_PROCESSED`.
 
 ---
 
-## Identity and KYB
+## Users and KYB
 
 ### `user.created`
 
-Emitted when a new user row is inserted. Idempotent replay of an existing user does not emit.
+A new user. Creating the same user again (idempotent retry) does not send another webhook.
 
 `data`
 
 | Field | Type | Values |
 |---|---|---|
 | `userId` | UUID | |
-| `status` | string | `active` \| `inactive` \| `suspended` |
-| `kybStatus` | string | `not_started` \| `incomplete` \| `under_review` \| `approved` \| `rejected` \| `suspended` |
-| `createdAt` | ISO-8601 UTC | |
+| `status` | string | `active`, `inactive`, `suspended` |
+| `kybStatus` | string | `not_started`, `incomplete`, `under_review`, `approved`, `rejected`, `suspended` |
+| `createdAt` | string | ISO-8601 UTC |
 
 ```json
 {
@@ -89,18 +130,18 @@ Emitted when a new user row is inserted. Idempotent replay of an existing user d
 
 ### `kyb.status_updated`
 
-Emitted only when `kybStatus` actually changes (submit `not_started`/`incomplete` → `under_review`, or inbound KYB decision). Draft KYB saves do not emit.
+Sent only when `kybStatus` changes (for example submit → `under_review`, or a decision → `approved` / `rejected`). Saving a KYB draft does not send a webhook.
 
 `data`
 
-| Field | Type | Values |
+| Field | Type | Description |
 |---|---|---|
 | `userId` | UUID | |
-| `kybStatus` | string | New status (`not_started` \| `incomplete` \| `under_review` \| `approved` \| `rejected` \| `suspended`) |
-| `previousStatus` | string | Status before this change |
-| `rails` | string[] | Optional. Present only when the inbound KYB payload included a non-empty rails list (e.g. `["USD"]`). Submit-path events omit this key. |
+| `kybStatus` | string | New status. Same values as above. |
+| `previousStatus` | string | Status before this change. |
+| `rails` | string[] | Optional. Present on some decision events (e.g. `["USD"]`). |
 
-Submit:
+Submitted for review:
 
 ```json
 {
@@ -115,7 +156,7 @@ Submit:
 }
 ```
 
-Inbound approval (with rails):
+Approved:
 
 ```json
 {
@@ -133,13 +174,11 @@ Inbound approval (with rails):
 
 ---
 
-## Account
+## Accounts
 
-`rail` is `onramp` or `offramp`. `type` is the account label (commonly `primary`).
+`rail` is `onramp` or `offramp`. `type` is the account label you sent on create (often `primary`).
 
 ### `account.created`
-
-New account row. Idempotent `creationRequestId` replay does not emit. Capabilities are **not** included here; named-VA issuance uses `account.capabilities.updated`.
 
 ```json
 {
@@ -155,11 +194,13 @@ New account row. Idempotent `creationRequestId` replay does not emit. Capabiliti
 }
 ```
 
-Offramp create uses the same shape with `"rail": "offramp"`.
+Offramp accounts use the same shape with `"rail": "offramp"`.
+
+Named USD deposit instructions are **not** on this event. Wait for `account.capabilities.updated`.
 
 ### `account.updated`
 
-Offramp destination update succeeded.
+Offramp payout destination was changed.
 
 ```json
 {
@@ -191,19 +232,19 @@ Offramp destination update succeeded.
 
 ### `account.capabilities.updated`
 
-Emitted when mapped `capabilities.usdNamedDeposit.status` **changes** (`not_started` \| `pending` \| `active` \| `failed`). Unchanged status (including `pending` → `pending`) does not emit.
+Sent when `capabilities.usdNamedDeposit.status` changes. Unchanged status (for example still `pending`) does not send another webhook.
 
 `data`
 
-| Field | Type | Notes |
+| Field | Type | Description |
 |---|---|---|
 | `accountId` | UUID | |
 | `userId` | UUID | |
-| `capabilities.usdNamedDeposit.status` | string | `not_started` \| `pending` \| `active` \| `failed` |
-| `capabilities.usdNamedDeposit.failureReason` | string \| null | Set when `failed`; otherwise `null`. Provider brand names are stripped. |
-| `depositDetails` | object | Present **only** when status is `active` and deposit instructions exist. |
+| `capabilities.usdNamedDeposit.status` | string | `not_started`, `pending`, `active`, `failed` |
+| `capabilities.usdNamedDeposit.failureReason` | string \| null | Set when `failed`; otherwise `null`. |
+| `depositDetails` | object | Present only when status is `active` and bank details are available. |
 
-Pending:
+Issuance in progress:
 
 ```json
 {
@@ -223,7 +264,7 @@ Pending:
 }
 ```
 
-Active (named deposit instructions available):
+Named deposit account is ready to receive USD:
 
 ```json
 {
@@ -244,16 +285,16 @@ Active (named deposit instructions available):
       "accountNumber": "9992740191426913",
       "routingNumber": "084106768",
       "accountHolderName": "Gilles Eykelberg",
-      "reference": "GRAPH-1",
+      "reference": "VA-184729",
       "country": "US"
     }
   }
 }
 ```
 
-`depositDetails.country` is optional. `reference` may be `null`.
+`depositDetails.country` may be omitted. `reference` may be `null`.
 
-Failed:
+Issuance failed:
 
 ```json
 {
@@ -273,37 +314,33 @@ Failed:
 }
 ```
 
-The same HTTP create may emit `account.created` and then `account.capabilities.updated`.
+Creating a named-USD onramp account can produce `account.created` and then one or more `account.capabilities.updated` events.
 
 ---
 
-## Onramp
+## Onramps (fiat → crypto)
 
-### Onramp `data`
+All `onramp.*` events share this `data` shape.
 
-Shared by every `onramp.*` event.
-
-| Field | Type | Notes |
+| Field | Type | Description |
 |---|---|---|
 | `onrampId` | UUID | |
 | `userId` | UUID | |
-| `txnRef` | string | Platform transaction reference |
-| `status` | string | Internal status **at emit time** (see mapping below) |
-| `failedReason` | string | Optional. Present when the row has a failure message (brands stripped). |
-| `transactionHash` | string | Optional. Present when `receipt.transactionHash` is a string (typically `onramp.completed`). |
+| `txnRef` | string | BloxFi transaction reference |
+| `status` | string | Onramp status at this event (same as the GET onramp response) |
+| `failedReason` | string | Optional. On `onramp.failed` when a reason is available. |
+| `transactionHash` | string | Optional. Crypto payout hash when known (typically `onramp.completed`). |
 
-### Status → `eventType`
+Typical `status` values you will see on each event:
 
-| Internal `status` | `eventType` |
+| `eventType` | `data.status` |
 |---|---|
-| `CREATED`, `AWAITING_FUNDS` | `onramp.created` |
-| `FIAT_PENDING`, `FIAT_PROCESSED` | `onramp.fiat_received` |
-| `CRYPTO_INITIATED`, `CRYPTO_PENDING` | `onramp.crypto_initiated` |
-| `COMPLETED` | `onramp.completed` |
-| `FIAT_FAILED`, `FIAT_RETURNED`, `CRYPTO_FAILED` | `onramp.failed` |
-| `EXPIRED` | `onramp.expired` |
-
-Create usually inserts `AWAITING_FUNDS`, so the first event is `onramp.created` with that status. `FIAT_PENDING` → `FIAT_PROCESSED` does not emit a second `onramp.fiat_received`. Same for `CRYPTO_INITIATED` → `CRYPTO_PENDING`.
+| `onramp.created` | `AWAITING_FUNDS` (sometimes `CREATED`) |
+| `onramp.fiat_received` | `FIAT_PENDING` or `FIAT_PROCESSED` |
+| `onramp.crypto_initiated` | `CRYPTO_INITIATED` or `CRYPTO_PENDING` |
+| `onramp.completed` | `COMPLETED` |
+| `onramp.failed` | `FIAT_FAILED`, `FIAT_RETURNED`, or `CRYPTO_FAILED` |
+| `onramp.expired` | `EXPIRED` |
 
 ### `onramp.created`
 
@@ -372,8 +409,6 @@ Create usually inserts `AWAITING_FUNDS`, so the first event is `onramp.created` 
 
 ### `onramp.failed`
 
-`status` is one of `FIAT_FAILED`, `FIAT_RETURNED`, `CRYPTO_FAILED`.
-
 ```json
 {
   "eventId": "aaaaaaa5-aaaa-4aaa-8aaa-aaaaaaaaaaa5",
@@ -407,36 +442,34 @@ Create usually inserts `AWAITING_FUNDS`, so the first event is `onramp.created` 
 
 ---
 
-## Offramp
+## Offramps (crypto → fiat)
 
-### Offramp `data`
+All `offramp.*` events share this `data` shape.
 
-Shared by every `offramp.*` event.
-
-| Field | Type | Notes |
+| Field | Type | Description |
 |---|---|---|
 | `offrampId` | UUID | |
 | `userId` | UUID | |
-| `txnRef` | string | Platform transaction reference |
-| `status` | string | Internal status **at emit time** (see mapping below) |
-| `failedReason` | string | Optional. Present when the row has a failure message (brands stripped). |
-| `transactionHash` | string | Optional. Present when `receipt.transactionHash` is a string (typically `offramp.completed`). |
+| `txnRef` | string | BloxFi transaction reference |
+| `status` | string | Offramp status at this event (same as the GET offramp response) |
+| `failedReason` | string | Optional. On `offramp.failed` when a reason is available. |
+| `transactionHash` | string | Optional. Hash when known (typically `offramp.completed`). |
 
-### Status → `eventType`
+Typical `status` values you will see on each event:
 
-| Internal `status` | `eventType` |
+| `eventType` | `data.status` |
 |---|---|
-| `CREATED`, `AWAITING_CRYPTO` | `offramp.created` |
-| `CRYPTO_PENDING`, `CRYPTO_RECEIVED` | `offramp.crypto_received` |
-| `CRYPTO_CONFIRMED` | `offramp.crypto_confirmed` |
-| `FIAT_INITIATED`, `FIAT_PENDING` | `offramp.fiat_initiated` |
-| `COMPLETED` | `offramp.completed` |
-| `FAILED`, `CRYPTO_FAILED`, `FIAT_FAILED` | `offramp.failed` |
-| `CANCELLED` | `offramp.cancelled` |
-| `REFUNDED` | `offramp.refunded` |
-| `EXPIRED` | `offramp.expired` |
+| `offramp.created` | `AWAITING_CRYPTO` (sometimes `CREATED`) |
+| `offramp.crypto_received` | `CRYPTO_PENDING` or `CRYPTO_RECEIVED` |
+| `offramp.crypto_confirmed` | `CRYPTO_CONFIRMED` |
+| `offramp.fiat_initiated` | `FIAT_INITIATED` or `FIAT_PENDING` |
+| `offramp.completed` | `COMPLETED` |
+| `offramp.failed` | `FAILED`, `CRYPTO_FAILED`, or `FIAT_FAILED` |
+| `offramp.cancelled` | `CANCELLED` |
+| `offramp.refunded` | `REFUNDED` |
+| `offramp.expired` | `EXPIRED` |
 
-`PROCESSING_FEE` and `FEE_PROCESSED` do not emit. Create usually inserts `AWAITING_CRYPTO`. `CRYPTO_PENDING` → `CRYPTO_RECEIVED` does not emit twice; same for `FIAT_INITIATED` → `FIAT_PENDING`.
+Some intermediate statuses (for example fee processing) do not produce a webhook.
 
 ### `offramp.created`
 
@@ -520,8 +553,6 @@ Shared by every `offramp.*` event.
 ```
 
 ### `offramp.failed`
-
-`status` is one of `FAILED`, `CRYPTO_FAILED`, `FIAT_FAILED`.
 
 ```json
 {
