@@ -2,6 +2,12 @@ import { createHmac } from 'crypto';
 import { logger } from '@/lib/logger';
 import type { PartnerWebhookEnvelope } from '@/types/partnerWebhook';
 
+export type DispatchResult =
+  | { outcome: 'skipped_no_url'; attempts: 0 }
+  | { outcome: 'skipped_no_secret'; attempts: 0 }
+  | { outcome: 'delivered'; attempts: number; httpStatus: number }
+  | { outcome: 'failed'; attempts: number; httpStatus?: number; errorMessage?: string };
+
 export type DispatchOpts = {
   url?: string | null;
   secret?: string | null;
@@ -37,22 +43,24 @@ async function resolveUrlAndSecret(
 export async function dispatchPartnerWebhook(
   envelope: PartnerWebhookEnvelope,
   opts?: DispatchOpts
-): Promise<void> {
+): Promise<DispatchResult> {
   const { url, secret } = await resolveUrlAndSecret(opts);
-  if (!url) return;
+  if (!url) return { outcome: 'skipped_no_url', attempts: 0 };
 
   if (!secret) {
     logger.warn(
       { eventType: envelope.eventType, eventId: envelope.eventId },
       'partner webhook secret missing'
     );
-    return;
+    return { outcome: 'skipped_no_secret', attempts: 0 };
   }
 
   const rawBody = JSON.stringify(envelope);
   const signature = signPartnerWebhookBody(rawBody, secret);
   const fetchFn = opts?.fetchFn ?? fetch;
 
+  let lastStatus: number | undefined;
+  let lastError: string | undefined;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetchFn(url, {
@@ -64,9 +72,12 @@ export async function dispatchPartnerWebhook(
         body: rawBody,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (is2xx(response.status)) return;
-    } catch {
-      // timeout / network — retry
+      lastStatus = response.status;
+      if (is2xx(response.status)) {
+        return { outcome: 'delivered', attempts: attempt, httpStatus: response.status };
+      }
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -74,4 +85,10 @@ export async function dispatchPartnerWebhook(
     { eventType: envelope.eventType, eventId: envelope.eventId },
     'partner webhook delivery failed'
   );
+  return {
+    outcome: 'failed',
+    attempts: MAX_ATTEMPTS,
+    ...(lastStatus !== undefined ? { httpStatus: lastStatus } : {}),
+    ...(lastError ? { errorMessage: lastError } : {}),
+  };
 }

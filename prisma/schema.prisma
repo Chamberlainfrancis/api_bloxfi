@@ -37,6 +37,31 @@ model WebhookInboundLog {
   @@index([receivedAt])
 }
 
+// Outbound partner webhooks (POST PARTNER_WEBHOOK_URL). Audit only — not a retry outbox.
+// HMAC secret is never stored. Purged after retention (see webhookRetention job).
+model WebhookOutboundLog {
+  id           String    @id @default(uuid())
+  createdAt    DateTime  @default(now())
+  eventId      String
+  eventType    String
+  payload      Json
+  rawBody      String    @db.Text
+  destination  String?
+  /**
+   * pending | skipped_no_url | skipped_no_secret | delivered | failed
+   */
+  outcome      String
+  attempts     Int       @default(0)
+  httpStatus   Int?
+  errorMessage String?   @db.Text
+  deliveredAt  DateTime?
+
+  @@index([createdAt])
+  @@index([eventId])
+  @@index([eventType])
+  @@index([outcome])
+}
+
 /** First-seen idempotency key per inbound webhook delivery (Palremit may retry). */
 model WebhookDedupe {
   id         String   @id @default(uuid())

@@ -53,7 +53,9 @@ describe('dispatchPartnerWebhook', () => {
         secret: 's'.repeat(16),
         fetchFn: fetchFn as unknown as typeof fetch,
       })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual(
+      expect.objectContaining({ outcome: 'failed', attempts: 3, httpStatus: 500 })
+    );
     expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 });

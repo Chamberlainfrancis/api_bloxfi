@@ -46,6 +46,7 @@ async function main() {
   const keyPrefix = API_KEY_ENV.slice(0, 8);
 
   const webhookLogs = await prisma.webhookInboundLog.count();
+  const webhookOutboundLogs = await prisma.webhookOutboundLog.count();
   const webhookDedupe = await prisma.webhookDedupe.count();
 
   const fileIdsInUse = new Set(
@@ -58,7 +59,14 @@ async function main() {
   console.log('Keep user:', KEEP_USER_ID, keepUser.businessEmailNorm ?? '(no email)');
   console.log('Delete other users:', otherUsers.length, otherUsers.map((u) => u.id).join(', ') || '(none)');
   console.log('Delete keep-user onramps/offramps:', keepUserRamps);
-  console.log('Truncate webhook logs:', webhookLogs, 'dedupe:', webhookDedupe);
+  console.log(
+    'Truncate webhook logs inbound:',
+    webhookLogs,
+    'outbound:',
+    webhookOutboundLogs,
+    'dedupe:',
+    webhookDedupe
+  );
   console.log('Delete orphan files:', orphanFiles.length);
   console.log('ApiKey rows now:', apiKeys.length, '→ keep 1 for partner', PARTNER_ID);
   console.log(dryRun ? '\n[DRY RUN — no writes]\n' : '\n[Applying…]\n');
@@ -79,6 +87,7 @@ async function main() {
     }
 
     await tx.webhookInboundLog.deleteMany();
+    await tx.webhookOutboundLog.deleteMany();
     await tx.webhookDedupe.deleteMany();
 
     await tx.apiKey.deleteMany();
