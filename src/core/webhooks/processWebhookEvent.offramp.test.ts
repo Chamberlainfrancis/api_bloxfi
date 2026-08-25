@@ -158,6 +158,40 @@ describe('processWebhookEvent offramp deposit.credited', () => {
     expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
   });
 
+  it('treats a Palremit 2-decimal credit as complete when the quote has extra dust', async () => {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const advanceOfframpAfterCryptoWebhook = vi.fn().mockResolvedValue(undefined);
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue({
+      ...baseOfframp(),
+      source: { currency: 'usdt', amount: 1261.13046446, chain: 'TRC20' },
+      depositInstructions: { amount: '1261.13046446', currency: 'USDT', network: 'TRC20' },
+    });
+
+    await processWebhookEvent(
+      {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef,
+          updateOfframpStatus,
+          advanceOfframpAfterCryptoWebhook,
+        },
+      },
+      depositCreditedPayload(1261.13)
+    );
+
+    expect(updateOfframpStatus).toHaveBeenCalledWith(
+      'offramp-1',
+      'CRYPTO_CONFIRMED',
+      expect.objectContaining({
+        providerRefs: expect.objectContaining({
+          palremitOrchestrator: expect.objectContaining({ depositStatus: 'credited' }),
+        }),
+      })
+    );
+    expect(advanceOfframpAfterCryptoWebhook).toHaveBeenCalledWith('offramp-1');
+  });
+
   it('recovers EXPIRED offramp when LP credits deposit after deposit window', async () => {
     const updateOfframpStatus = vi.fn().mockResolvedValue({});
     const advanceOfframpAfterCryptoWebhook = vi.fn().mockResolvedValue(undefined);

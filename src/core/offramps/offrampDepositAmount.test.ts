@@ -34,9 +34,27 @@ describe('offrampDepositAmount', () => {
   });
 
   it('requires full quoted amount before payout', () => {
-    expect(isOfframpCryptoDepositComplete(100, 600250)).toBe(false);
-    expect(isOfframpCryptoDepositComplete(600249.999999, 600250)).toBe(true);
-    expect(isOfframpCryptoDepositComplete(600250, 600250)).toBe(true);
-    expect(isOfframpCryptoDepositComplete(700000, 600250)).toBe(true);
+    expect(isOfframpCryptoDepositComplete(100, 600250, 'USDT')).toBe(false);
+    expect(isOfframpCryptoDepositComplete(600249.999999, 600250, 'USDT')).toBe(true);
+    expect(isOfframpCryptoDepositComplete(600250, 600250, 'USDT')).toBe(true);
+    expect(isOfframpCryptoDepositComplete(700000, 600250, 'USDT')).toBe(true);
+  });
+
+  it('treats amounts equal at 2 decimal places as complete', () => {
+    expect(isOfframpCryptoDepositComplete(1261.13, 1261.13046446, 'USDT')).toBe(true);
+  });
+
+  it('accepts a sub-dollar underpayment for USDT, USDC, and USD', () => {
+    expect(isOfframpCryptoDepositComplete(99.5, 100, 'USDT')).toBe(true);
+    expect(isOfframpCryptoDepositComplete(99.5, 100, 'usdc')).toBe(true);
+    expect(isOfframpCryptoDepositComplete(99.5, 100, 'USD')).toBe(true);
+  });
+
+  it('rejects an exact-dollar underpayment even for stables', () => {
+    expect(isOfframpCryptoDepositComplete(99, 100, 'USDT')).toBe(false);
+  });
+
+  it('does not apply the dollar underpayment tolerance to other assets', () => {
+    expect(isOfframpCryptoDepositComplete(99.5, 100, 'BTC')).toBe(false);
   });
 });

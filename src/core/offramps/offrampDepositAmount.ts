@@ -3,8 +3,28 @@
  * Payout runs only when cumulative credited amount meets the quoted deposit.
  */
 
-/** Tolerance for crypto amount comparison (USDT-scale; 6 decimal places). */
-export const OFFRAMP_CRYPTO_AMOUNT_EPSILON = 1e-6;
+/** Compare quoted vs received crypto at cents. Palremit/Quidax often credit 2dp. */
+export const OFFRAMP_CRYPTO_DECIMALS = 2;
+
+/**
+ * Max underpayment still treated as a complete deposit, in source-asset units
+ * after 2dp rounding. Extend this map for other assets later.
+ */
+export const OFFRAMP_UNDERPAYMENT_TOLERANCE_BY_ASSET: Readonly<Record<string, number>> = {
+  USDT: 1,
+  USDC: 1,
+  USD: 1,
+};
+
+export function roundOfframpCryptoAmount(amount: number): number {
+  const scale = 10 ** OFFRAMP_CRYPTO_DECIMALS;
+  return Math.round(amount * scale) / scale;
+}
+
+export function underpaymentToleranceForAsset(asset: string | null | undefined): number {
+  if (typeof asset !== 'string' || asset.trim() === '') return 0;
+  return OFFRAMP_UNDERPAYMENT_TOLERANCE_BY_ASSET[asset.trim().toUpperCase()] ?? 0;
+}
 
 export function parseDepositWebhookAmount(deposit: Record<string, unknown>): number | null {
   const raw = deposit.amount;
@@ -60,14 +80,19 @@ export function priorCryptoReceivedAmount(timeline: unknown): number {
   return 0;
 }
 
-/** True when cumulative credited crypto meets or exceeds the quoted deposit amount. */
+/** True when cumulative credited crypto meets the quoted deposit (2dp), or a configured underpayment. */
 export function isOfframpCryptoDepositComplete(
   cumulativeReceived: number,
   expectedAmount: number,
-  epsilon = OFFRAMP_CRYPTO_AMOUNT_EPSILON
+  sourceCurrency?: string | null
 ): boolean {
   if (!Number.isFinite(cumulativeReceived) || !Number.isFinite(expectedAmount) || expectedAmount <= 0) {
     return false;
   }
-  return cumulativeReceived + epsilon >= expectedAmount;
+  const received = roundOfframpCryptoAmount(cumulativeReceived);
+  const expected = roundOfframpCryptoAmount(expectedAmount);
+  if (received >= expected) return true;
+  const shortfall = expected - received;
+  const tolerance = underpaymentToleranceForAsset(sourceCurrency);
+  return tolerance > 0 && shortfall < tolerance;
 }

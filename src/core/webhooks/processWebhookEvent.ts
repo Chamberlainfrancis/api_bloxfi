@@ -336,7 +336,11 @@ export async function processWebhookEvent(
             ? (offramp.timeline as Record<string, unknown>)
             : {};
         const totalReceived = priorCryptoReceivedAmount(existingTimeline) + incomingAmount;
-        const depositComplete = isOfframpCryptoDepositComplete(totalReceived, expectedAmount);
+        const depositComplete = isOfframpCryptoDepositComplete(
+          totalReceived,
+          expectedAmount,
+          assetCode || src.currency
+        );
         const now = new Date().toISOString();
 
         const depId = typeof dep.id === 'string' ? dep.id.trim() : '';
