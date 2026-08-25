@@ -6,6 +6,7 @@ import { resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
+import { floorOfframpMarketRate } from '@/core/quotes/floorOfframpMarketRate';
 import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
@@ -86,7 +87,7 @@ export async function createOfframpQuote(
   });
   if (pairPriced) conversionRate = pairPriced.conversionRate;
 
-  const baseRateNum = parseFloat(conversionRate) || 0;
+  let baseRateNum = parseFloat(conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
   // Platform fee is taken from the source crypto (gross). The provider fee is
@@ -101,6 +102,27 @@ export async function createOfframpQuote(
     country: input.corridor.country,
     beneficiaryType: input.corridor.beneficiaryType ?? undefined,
   });
+
+  const rawMarket = parseFloat(String(rateResponse.marketRate ?? conversionRate));
+  const apiMarket = Number.isFinite(rawMarket) && rawMarket > 0 ? rawMarket : baseRateNum;
+  const executable = parseFloat(feeQuote?.effectiveRate ?? '');
+  const flooredMarket = floorOfframpMarketRate(
+    apiMarket,
+    Number.isFinite(executable) ? executable : null,
+  );
+  if (flooredMarket < apiMarket) {
+    const repriced = applyPairMarkupIfMatched({
+      fromCurrency,
+      toCurrency,
+      amount: input.amount,
+      marketRate: flooredMarket,
+      rateCurrency: rateResponse.rateCurrency,
+      perCurrency: rateResponse.perCurrency,
+    });
+    conversionRate = repriced ? repriced.conversionRate : String(flooredMarket);
+    baseRateNum = parseFloat(conversionRate) || 0;
+    if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
+  }
 
   const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
     feeQuote,
@@ -123,7 +145,7 @@ export async function createOfframpQuote(
     sourceAmount: input.amount,
     toCurrency,
     rate: conversionRate,
-    marketRate: rateResponse.marketRate,
+    marketRate: flooredMarket,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
     nowIso: new Date().toISOString(),

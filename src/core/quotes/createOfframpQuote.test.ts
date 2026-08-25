@@ -71,6 +71,41 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
     expect(Number(snapshot.baseConversionRate)).toBeCloseTo(customer, 10);
     expect(Number(snapshot.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 2);
   });
+
+  it('floors EUR conversion at the live OwlPay effective_rate, then 25 bps', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.8681172675'),
+        marketRate: '0.870293',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [{ kind: 'transfer fee', amount: '0', currency: 'USDC' }],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: '868.12',
+        effectiveRate: '0.855861',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'FR', destinationType: 'local_bank' },
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    const customer = 0.855861 * 0.9975;
+    expect(Number(result.baseConversionRate)).toBeCloseTo(customer, 8);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(1000 * customer, 2);
+  });
 });
 
 describe('createOfframpQuote', () => {
