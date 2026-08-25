@@ -7,6 +7,7 @@ import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiq
 import {
   buildWithdrawalFromAccount,
   createPalremitOfframpFiatWithdrawal,
+  sourceAmountCapFromProviderRefs,
 } from '@/core/integrations/palremitOfframp';
 import type { OfframpStatus } from '@/types/offramp';
 
@@ -96,6 +97,7 @@ export async function advanceOfframpIfDepositReady(
     metadata: destination.metadata,
     businessReference: userId,
     accountHolderEmail: holderEmail,
+    sourceAmountCap: sourceAmountCapFromProviderRefs(row.providerRefs),
   });
   if (!withdrawalBody) return;
 

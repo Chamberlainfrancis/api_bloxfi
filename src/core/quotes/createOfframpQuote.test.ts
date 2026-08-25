@@ -134,6 +134,45 @@ describe('createOfframpQuote', () => {
     expect(snapshot.profit?.marketRate).toBe('1460');
   });
 
+  it('locks EUR quotes that floor to the executable OwlPay rate', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.87'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: '870.00',
+        // Worse than the customer rate we would otherwise lock, but still
+        // above the floored market so createOfframpQuote reprices first.
+        // Use a rate so low that even after floor, receiveNet/rate > sendNet
+        // cannot happen (floor forces customer ≤ executable). This documents
+        // that a missing floor would have thrown — covered by offrampQuoteSolvency.
+        effectiveRate: '0.87',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+    };
+    await expect(
+      createOfframpQuote(
+        {
+          fromCurrency: 'usdt',
+          toCurrency: 'eur',
+          fromChain: 'TRC20',
+          amount: 1000,
+          corridor: { country: 'FR', destinationType: 'local_bank' },
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+        },
+        options as never
+      )
+    ).resolves.toBeTruthy();
+  });
+
   it('denominates the platform fee in the source crypto (fromCurrency) at crypto precision', async () => {
     await createOfframpQuote(
       {

@@ -230,6 +230,8 @@ export interface WithdrawalFromAccountInput {
   businessReference?: string;
   /** Fallback for destination.beneficiary.email when providerPayout omitted it. */
   accountHolderEmail?: string;
+  /** Locked quote sendNet — Palremit's max funding-leg spend. */
+  sourceAmountCap?: string;
 }
 
 function mergeOfframpExtrasIntoDestination(
@@ -295,12 +297,39 @@ export function buildWithdrawalFromAccount(
     destination_type: pp.corridor.destinationType,
     destination,
     ...(input.businessReference?.trim() ? { business_reference: input.businessReference.trim() } : {}),
+    ...(input.sourceAmountCap?.trim() ? { source_amount_cap: input.sourceAmountCap.trim() } : {}),
   };
 }
 
 /** Whether account has corridor-backed payout data for offramp fiat withdrawal. */
 export function isAccountReadyForOfframp(input: { providerPayout: unknown }): boolean {
   return parseProviderPayout(input.providerPayout) != null;
+}
+
+export function mergeSourceAmountCapIntoProviderRefs(
+  refs: Record<string, unknown>,
+  cap: string | undefined
+): Record<string, unknown> {
+  const trimmed = cap?.trim();
+  if (!trimmed) return refs;
+  const orch =
+    refs.palremitOrchestrator != null &&
+    typeof refs.palremitOrchestrator === 'object' &&
+    !Array.isArray(refs.palremitOrchestrator)
+      ? (refs.palremitOrchestrator as Record<string, unknown>)
+      : {};
+  return {
+    ...refs,
+    palremitOrchestrator: { ...orch, sourceAmountCap: trimmed },
+  };
+}
+
+export function sourceAmountCapFromProviderRefs(refs: unknown): string | undefined {
+  if (refs == null || typeof refs !== 'object' || Array.isArray(refs)) return undefined;
+  const orch = (refs as Record<string, unknown>).palremitOrchestrator;
+  if (orch == null || typeof orch !== 'object' || Array.isArray(orch)) return undefined;
+  const cap = (orch as Record<string, unknown>).sourceAmountCap;
+  return typeof cap === 'string' && cap.trim() ? cap.trim() : undefined;
 }
 
 export type PalremitOfframpFiatWithdrawalResult =

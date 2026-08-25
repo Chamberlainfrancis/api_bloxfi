@@ -50,6 +50,25 @@ describe('buildWithdrawalFromAccount', () => {
     expect((body?.destination as Record<string, unknown>).account_number).toBe('GE00TB123');
   });
 
+  it('copies sourceAmountCap onto source_amount_cap', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-cap',
+      destinationAmount: 100,
+      providerPayout,
+      sourceAmountCap: '32138.11000000',
+    });
+    expect(body?.source_amount_cap).toBe('32138.11000000');
+  });
+
+  it('omits source_amount_cap when sendNet is missing', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-cap',
+      destinationAmount: 100,
+      providerPayout,
+    });
+    expect(body).not.toHaveProperty('source_amount_cap');
+  });
+
   it('merges purposeOfPayment into extras when missing on account', () => {
     const pp = {
       ...providerPayout,

@@ -195,6 +195,10 @@ export async function createOfframpQuoteHandler(
       );
       return;
     }
+    if (e instanceof Error && e.message === 'UNFAVORABLE_RATE') {
+      next(new AppError('This rate is currently unavailable.', 'UNPROCESSABLE_ENTITY', 422));
+      return;
+    }
     next(e);
   }
 }

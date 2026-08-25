@@ -128,6 +128,10 @@ describe('createOfframp — quote-first only', () => {
     expect((persisted.fees as { platformFee: { amount: string } }).platformFee.amount).toBe('1.00000000');
     expect((persisted.source as { amount: number }).amount).toBe(100);
     expect((persisted.destination as { amount: number }).amount).toBe(148500);
+    expect(
+      (persisted.providerRefs as { palremitOrchestrator: { sourceAmountCap: string } }).palremitOrchestrator
+        .sourceAmountCap
+    ).toBe('99.00000000');
   });
 
   it('throws QUOTE_REQUIRED when no lockedQuote is supplied', async () => {

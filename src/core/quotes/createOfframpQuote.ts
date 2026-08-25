@@ -7,6 +7,7 @@ import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import { floorOfframpMarketRate } from '@/core/quotes/floorOfframpMarketRate';
+import { offrampImpliedSourceExceedsSendNet } from '@/core/quotes/offrampQuoteSolvency';
 import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
@@ -139,6 +140,16 @@ export async function createOfframpQuote(
 
   if (amounts.sendNet <= 0) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
+
+  if (
+    offrampImpliedSourceExceedsSendNet({
+      sendNet: amounts.sendNet,
+      receiveNet: amounts.receiveNet,
+      effectiveRate: Number.isFinite(executable) ? executable : null,
+    })
+  ) {
+    throw new Error('UNFAVORABLE_RATE');
   }
 
   const profit = await buildPalremitProfit({

@@ -3,7 +3,7 @@
  */
 
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
-import { isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
+import { isAccountReadyForOfframp, mergeSourceAmountCapIntoProviderRefs } from '@/core/integrations/palremitOfframp';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
@@ -277,7 +277,10 @@ export async function createOfframp(
   const row = await offrampRepo.createOfframp({
     requestId,
     txnRef,
-    providerRefs: palremitDeposit.providerRefs,
+    providerRefs: mergeSourceAmountCapIntoProviderRefs(
+      palremitDeposit.providerRefs,
+      snap.quote.sendNet?.amount
+    ),
     userId,
     status: 'AWAITING_CRYPTO',
     source: sourcePayload,
