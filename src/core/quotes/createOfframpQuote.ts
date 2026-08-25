@@ -5,6 +5,7 @@
 import { resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
@@ -74,7 +75,18 @@ export async function createOfframpQuote(
   const rateResponse = await options.getRateFromPalremit(fromCurrency, toCurrency, resolvedChain);
   if (!rateResponse) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
-  const baseRateNum = parseFloat(rateResponse.conversionRate) || 0;
+  let conversionRate = rateResponse.conversionRate;
+  const pairPriced = applyPairMarkupIfMatched({
+    fromCurrency,
+    toCurrency,
+    amount: input.amount,
+    marketRate: rateResponse.marketRate,
+    rateCurrency: rateResponse.rateCurrency,
+    perCurrency: rateResponse.perCurrency,
+  });
+  if (pairPriced) conversionRate = pairPriced.conversionRate;
+
+  const baseRateNum = parseFloat(conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
   // Platform fee is taken from the source crypto (gross). The provider fee is
@@ -110,7 +122,7 @@ export async function createOfframpQuote(
   const profit = await buildPalremitProfit({
     sourceAmount: input.amount,
     toCurrency,
-    rate: rateResponse.conversionRate,
+    rate: conversionRate,
     marketRate: rateResponse.marketRate,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
@@ -179,7 +191,7 @@ export async function createOfframpQuote(
     sendAmount: input.amount,
     corridor: input.corridor,
     platformFee: input.platformFee,
-    baseConversionRate: rateResponse.conversionRate,
+    baseConversionRate: conversionRate,
     conversionRate: allInRate,
     inverseRate: rateInformation.inverseRate,
     rateValidUntil: rateResponse.rateValidUntil,
@@ -203,7 +215,7 @@ export async function createOfframpQuote(
     toCurrency,
     fromChain: resolvedChain,
     conversionRate: allInRate,
-    baseConversionRate: rateResponse.conversionRate,
+    baseConversionRate: conversionRate,
     inverseRate: rateInformation.inverseRate,
     rateValidUntil: rateResponse.rateValidUntil,
     minimumAmount: rateResponse.minimumAmount,

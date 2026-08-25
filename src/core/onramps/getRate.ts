@@ -3,6 +3,7 @@
  */
 
 import type { GetOnrampRatesResponse } from '@/types/onramp';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 
 export interface GetOnrampRateOptions {
   getRateFromPalremit?: (from: string, to: string) => Promise<GetOnrampRatesResponse | null>;
@@ -29,8 +30,17 @@ export async function getOnrampRate(
   if (!result?.conversionRate) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
+  const priced = applyPairMarkupIfMatched({
+    fromCurrency: from,
+    toCurrency: to,
+    amount: 1,
+    marketRate: result.marketRate,
+    rateCurrency: result.rateCurrency,
+    perCurrency: result.perCurrency,
+  });
   return {
     ...result,
+    conversionRate: priced?.conversionRate ?? result.conversionRate,
     conversionRates: result.conversionRates ?? [],
   };
 }

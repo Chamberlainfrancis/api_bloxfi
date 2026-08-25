@@ -3,6 +3,7 @@ import {
   buildStaticFallbackDepositInfo,
   isPreferredStaticDepositCurrency,
   isStaticDepositCurrency,
+  onrampDepositWindowMinutes,
   staticDepositNarrationRef,
 } from '@/core/onramps/staticDepositAccounts';
 
@@ -51,7 +52,7 @@ describe('staticDepositAccounts', () => {
     expect(info?.instruction).toContain('Transfers without this narration cannot be matched');
   });
 
-  it('builds USD Cross River, GHS First Bank, and NGN Wema instructions', () => {
+  it('builds USD Cross River, GHS FBN Bank GhIPSS, and NGN Wema instructions', () => {
     const usd = buildStaticFallbackDepositInfo({
       currency: 'USD',
       amount: 500,
@@ -68,8 +69,10 @@ describe('staticDepositAccounts', () => {
       txnRef: 'ON-GHS',
       depositByIso: '2026-07-24T00:00:00.000Z',
     });
-    expect(ghs?.bankName).toBe('FIRST BANK');
-    expect(ghs?.wire).toEqual({ accountNumber: '9990000103912', routingNumber: 'INCEGHAC' });
+    expect(ghs?.bankName).toBe('FBN BANK');
+    expect(ghs?.wire).toEqual({ accountNumber: '9990000103912', routingNumber: '200100' });
+    expect(ghs?.sortCode).toBe('200100');
+    expect(ghs?.bic).toBe('INCEGHAC');
     expect(ghs?.instruction).toContain('transfer narration / description: ON-GHS');
 
     const ngn = buildStaticFallbackDepositInfo({
@@ -85,6 +88,14 @@ describe('staticDepositAccounts', () => {
       reference: 'ON-NGN',
     });
     expect(ngn?.instruction).toContain('transfer narration / description: ON-NGN');
+  });
+
+  it('gives preferred-static rails 24h to deposit and others 3h', () => {
+    expect(onrampDepositWindowMinutes('GHS')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('gbp')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('NGN')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('USD')).toBe(180);
+    expect(onrampDepositWindowMinutes('EUR')).toBe(180);
   });
 
   it('returns null for unsupported currencies', () => {

@@ -45,10 +45,14 @@ const STATIC: Record<
     country: 'US',
   },
   GHS: {
-    bankName: 'FIRST BANK',
+    // GhIPSS Instant Pay: bank list name + 6-digit sort code (HO 200100).
+    // SWIFT INCEGHAC is kept as bic for international wires only.
+    bankName: 'FBN BANK',
     accountName: 'Palremit limited',
     accountNumber: '9990000103912',
-    routingNumber: 'INCEGHAC',
+    routingNumber: '200100',
+    sortCode: '200100',
+    bic: 'INCEGHAC',
     country: 'GH',
   },
   // TEMP: Wema pooled RA — remove when Kuda VAs are restored.
@@ -84,6 +88,21 @@ export function isStaticDepositCurrency(asset: string): asset is StaticDepositCu
 export function isPreferredStaticDepositCurrency(asset: string): boolean {
   const a = asset.trim().toUpperCase();
   return a === 'GBP' || a === 'GHS' || a === 'NGN';
+}
+
+/** Default onramp deposit window (orchestrator-provisioned rails with webhooks). */
+export const DEFAULT_ONRAMP_DEPOSIT_WINDOW_MINUTES = 180;
+
+/**
+ * Preferred-static rails need ops to match and mark fiat received — 3h is too
+ * short for Ghana/UK/NG local transfers plus manual credit.
+ */
+export const STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES = 24 * 60;
+
+export function onrampDepositWindowMinutes(currency: string): number {
+  return isPreferredStaticDepositCurrency(currency)
+    ? STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES
+    : DEFAULT_ONRAMP_DEPOSIT_WINDOW_MINUTES;
 }
 
 export function buildStaticFallbackDepositInfo(params: {

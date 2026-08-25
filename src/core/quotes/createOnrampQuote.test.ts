@@ -137,6 +137,27 @@ describe('createOnrampQuote — account markup', () => {
     expect(Number(snap.quote.baseReceiveNet?.amount)).toBeCloseTo(gross * 0.99, 6);
   });
 
+  it('applies 25 bps on marketRate for EUR → USDT even without accountId', async () => {
+    const result = await createOnrampQuote(
+      { ...quoteInput, fromCurrency: 'eur', toCurrency: 'usdt' },
+      makeOptions({
+        getQuoteFromPalremit: vi.fn(async () => ({
+          conversionRate: '0.871',
+          conversion: 114.81,
+          marketRate: '0.87',
+          rateCurrency: 'EUR',
+          perCurrency: 'USDT',
+        })),
+      })
+    );
+    const customer = 0.87 * 1.0025;
+    expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
+    const snap = lastSnapshot();
+    expect(Number(snap.conversionRate)).toBeCloseTo(customer, 10);
+    expect(snap.marketRate).toBe('0.87');
+    expect(Number(snap.quote.receiveGross.amount)).toBeCloseTo(100 / customer, 6);
+  });
+
   it('throws PALREMIT_RATES_UNAVAILABLE when named markup hits and mid is missing', async () => {
     await expect(
       createOnrampQuote(
@@ -155,5 +176,31 @@ describe('createOnrampQuote — account markup', () => {
         })
       )
     ).rejects.toThrow('PALREMIT_RATES_UNAVAILABLE');
+  });
+});
+
+describe('createOnrampQuote — deposit window', () => {
+  it('locks GHS quotes for 24h and USD quotes for 3h', async () => {
+    const ghsNow = Date.now();
+    await createOnrampQuote(
+      { ...quoteInput, fromCurrency: 'ghs', toCurrency: 'usdt' },
+      makeOptions({
+        getQuoteFromPalremit: vi.fn(async () => ({
+          conversionRate: '12',
+          conversion: 8.3,
+        })),
+      })
+    );
+    const ghsSnap = lastSnapshot();
+    const ghsMs = new Date(ghsSnap.rateValidUntil).getTime() - ghsNow;
+    expect(ghsMs).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 2000);
+    expect(ghsMs).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+
+    const usdNow = Date.now();
+    await createOnrampQuote(quoteInput, makeOptions());
+    const usdSnap = lastSnapshot();
+    const usdMs = new Date(usdSnap.rateValidUntil).getTime() - usdNow;
+    expect(usdMs).toBeGreaterThanOrEqual(180 * 60 * 1000 - 2000);
+    expect(usdMs).toBeLessThan(180 * 60 * 1000 + 5000);
   });
 });

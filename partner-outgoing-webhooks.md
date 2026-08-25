@@ -241,7 +241,7 @@ Sent when `capabilities.usdNamedDeposit.status` changes. Unchanged status (for e
 | `accountId` | UUID | |
 | `userId` | UUID | |
 | `capabilities.usdNamedDeposit.status` | string | `not_started`, `pending`, `active`, `failed` |
-| `capabilities.usdNamedDeposit.failureReason` | string \| null | Set when `failed`; otherwise `null`. |
+| `capabilities.usdNamedDeposit.failureReason` | string \| null | Set when `failed`; otherwise `null`. Identity / named-deposit KYC failures include the reason with provider brand names removed. |
 | `depositDetails` | object | Present only when status is `active` and bank details are available. |
 
 Issuance in progress:
@@ -307,7 +307,7 @@ Issuance failed:
     "capabilities": {
       "usdNamedDeposit": {
         "status": "failed",
-        "failureReason": "Identity verification could not be completed"
+        "failureReason": "Poor image quality on the driving licence"
       }
     }
   }

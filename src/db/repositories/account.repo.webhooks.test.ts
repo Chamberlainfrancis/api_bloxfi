@@ -74,6 +74,36 @@ describe('maybeScheduleAccountCapabilitiesUpdated', () => {
     );
   });
 
+  it('emits failureReason when usdNamedDeposit becomes failed', () => {
+    maybeScheduleAccountCapabilitiesUpdated(
+      { providerIssuanceStatus: 'pending' },
+      {
+        id: 'acc-onramp-1',
+        userId: 'user-1',
+        providerIssuanceStatus: 'failed',
+        providerIssuanceFailureReason:
+          'Poor image quality on the driving licence. Graph could not finish verification.',
+      }
+    );
+    expect(schedulePartnerWebhook).toHaveBeenCalledWith('account.capabilities.updated', {
+      accountId: 'acc-onramp-1',
+      userId: 'user-1',
+      capabilities: {
+        usdNamedDeposit: {
+          status: 'failed',
+          failureReason:
+            'Poor image quality on the driving licence. provider could not finish verification.',
+        },
+      },
+    });
+    const payload = vi.mocked(schedulePartnerWebhook).mock.calls[0]?.[1] as {
+      capabilities: { usdNamedDeposit: { failureReason: string } };
+    };
+    expect(payload.capabilities.usdNamedDeposit.failureReason.toLowerCase()).not.toContain(
+      'graph'
+    );
+  });
+
   it('does not emit when mapped status is unchanged', () => {
     maybeScheduleAccountCapabilitiesUpdated(
       { providerIssuanceStatus: 'pending' },

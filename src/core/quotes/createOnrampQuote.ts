@@ -8,12 +8,14 @@ import {
   applyOnrampAccountMarkup,
   resolveOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import type { PlatformFee, RampFeePreview } from '@/types/offramp';
 import type { OnrampFees, QuoteInformation } from '@/types/onramp';
 import type { AccountCapabilities } from '@/types/account';
 import type { OnrampQuoteMarkup, OnrampQuoteResponse, OnrampQuoteSnapshot } from '@/types/quote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import { onrampDepositWindowMinutes } from '@/core/onramps/staticDepositAccounts';
 
 export interface CreateOnrampQuoteInput {
   fromCurrency: string;
@@ -59,8 +61,8 @@ export interface CreateOnrampQuoteOptions {
   loadOnrampAccountForMarkup?: (accountId: string) => Promise<OnrampQuoteAccountForMarkup | null>;
 }
 
-function parseQuoteExpiry(minutes = 180): Date {
-  return new Date(Date.now() + minutes * 60 * 1000);
+function parseQuoteExpiry(fromCurrency: string): Date {
+  return new Date(Date.now() + onrampDepositWindowMinutes(fromCurrency) * 60 * 1000);
 }
 
 export async function createOnrampQuote(
@@ -126,6 +128,21 @@ export async function createOnrampQuote(
     }
   }
 
+  if (!snapshotMarkup) {
+    const priced = applyPairMarkupIfMatched({
+      fromCurrency,
+      toCurrency,
+      amount: input.amount,
+      marketRate: palremitQuote.marketRate,
+      rateCurrency: palremitQuote.rateCurrency,
+      perCurrency: palremitQuote.perCurrency,
+    });
+    if (priced) {
+      conversionRate = priced.conversionRate;
+      receiveGross = priced.conversion;
+    }
+  }
+
   const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
     applyOfframpPlatformFee(receiveGross, input.platformFee);
 
@@ -153,7 +170,7 @@ export async function createOnrampQuote(
   }
 
   const receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
-  const expiresAt = parseQuoteExpiry();
+  const expiresAt = parseQuoteExpiry(fromCurrency);
 
   const quote: RampFeePreview = {
     sendGross: { amount: input.amount.toFixed(2), currency: fromCurrency },

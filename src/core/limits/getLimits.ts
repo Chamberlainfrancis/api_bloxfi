@@ -24,6 +24,19 @@ const DEFAULT_RAILS: RailLimits[] = [
     processingTime: '1-2 business days',
   },
   {
+    rail: 'GHS',
+    currency: 'GHS',
+    onramp: {
+      minAmount: '100',
+      maxAmount: '1000000',
+      currency: 'GHS',
+      dailyLimit: '600000',
+      monthlyLimit: '6000000',
+    },
+    highValueSupport: true,
+    processingTime: '1-2 business days',
+  },
+  {
     rail: 'EUR',
     currency: 'EUR',
     onramp: { minAmount: '10', maxAmount: '100000', currency: 'EUR', dailyLimit: '50000', monthlyLimit: '500000' },

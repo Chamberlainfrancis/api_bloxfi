@@ -1,0 +1,33 @@
+import { describe, it, expect, vi } from 'vitest';
+import { getOnrampRate } from '@/core/onramps/getRate';
+
+describe('getOnrampRate — pair markup', () => {
+  it('applies 25 bps on marketRate for EUR → USDT', async () => {
+    const result = await getOnrampRate('eur', 'usdt', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'eur',
+        toCurrency: 'usdt',
+        conversionRate: '0.871',
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+    });
+    expect(Number(result.conversionRate)).toBeCloseTo(0.87 * 1.0025, 10);
+    expect(result.marketRate).toBe('0.87');
+  });
+
+  it('keeps the B2B rate for USD → USDT', async () => {
+    const result = await getOnrampRate('usd', 'usdt', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'usd',
+        toCurrency: 'usdt',
+        conversionRate: '1',
+        marketRate: '1',
+        rateCurrency: 'USD',
+        perCurrency: 'USDT',
+      })),
+    });
+    expect(result.conversionRate).toBe('1');
+  });
+});

@@ -102,7 +102,9 @@ describe('processWebhookEvent account Graph issuance', () => {
           client_reference: ACCOUNT_ID,
           mode: 'FIAT_DEPOSIT_KYC',
           state: 'failed',
-          failure_reason: { message: 'KYC rejected' },
+          failure_reason: {
+            message: 'Poor image quality on the driving licence. Graph could not finish verification.',
+          },
         },
       },
     });
@@ -111,7 +113,8 @@ describe('processWebhookEvent account Graph issuance', () => {
       ACCOUNT_ID,
       expect.objectContaining({
         providerIssuanceStatus: 'failed',
-        providerIssuanceFailureReason: 'KYC rejected',
+        providerIssuanceFailureReason:
+          'Poor image quality on the driving licence. provider could not finish verification.',
       })
     );
   });

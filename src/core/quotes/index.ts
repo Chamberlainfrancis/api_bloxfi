@@ -5,6 +5,7 @@ export {
   resolveOnrampAccountMarkup,
   applyOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
+export { findPairMarkup, applyPairMarkup, applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 export {
   hydrateOfframpCreateFromQuote,
   hydrateOnrampCreateFromQuote,

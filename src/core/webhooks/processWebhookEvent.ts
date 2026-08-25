@@ -20,6 +20,7 @@ import { mapCryptoInstructionsToDepositInstructions } from '@/core/integrations/
 import type { PalremitDepositInstructions } from '@/core/integrations/palremitLiquidity';
 import { depositDetailsFromInstructions } from '@/core/accounts/graphAccountIssuance';
 import { schedulePartnerWebhook } from '@/core/partnerWebhooks';
+import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 import {
   expectedOfframpCryptoAmount,
   isOfframpCryptoDepositComplete,
@@ -218,7 +219,7 @@ async function applyFiatDepositAccountIssuanceWebhook(
     ...(params.status === 'active' ? { depositDetails, providerIssuanceFailureReason: null } : {}),
     ...(params.status === 'failed'
       ? {
-          providerIssuanceFailureReason: params.failureReason ?? 'PALREMIT_PROVISION_FAILED',
+          providerIssuanceFailureReason: params.failureReason ?? 'Identity verification could not be completed',
         }
       : {}),
     ...(params.status === 'pending' ? { providerIssuanceFailureReason: null } : {}),
@@ -807,13 +808,16 @@ export async function processWebhookEvent(
       const mode = typeof account.mode === 'string' ? account.mode : '';
       if (!clientRef || !accId) break;
 
-      const msg =
+      const rawMsg =
         account.failure_reason != null &&
         typeof account.failure_reason === 'object' &&
         !Array.isArray(account.failure_reason) &&
         typeof (account.failure_reason as { message?: unknown }).message === 'string'
           ? String((account.failure_reason as { message: string }).message).trim()
-          : 'PALREMIT_PROVISION_FAILED';
+          : '';
+      const msg = redactProviderNamesFromClientMessage(
+        rawMsg || 'Identity verification could not be completed'
+      );
 
       if (isOnrampTxnRef(clientRef) && mode.startsWith('FIAT_DEPOSIT')) {
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);

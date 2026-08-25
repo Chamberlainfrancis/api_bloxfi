@@ -394,10 +394,13 @@ describe('createOnrampPalremitFiatDeposit', () => {
     });
 
     expect(request).not.toHaveBeenCalled();
+    expect(result?.depositInfo.bankName).toBe('FBN BANK');
     expect(result?.depositInfo.wire).toEqual({
       accountNumber: '9990000103912',
-      routingNumber: 'INCEGHAC',
+      routingNumber: '200100',
     });
+    expect(result?.depositInfo.sortCode).toBe('200100');
+    expect(result?.depositInfo.bic).toBe('INCEGHAC');
     expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
       providerName: 'static_fallback',
       staticFallbackReason: 'preferred_static',

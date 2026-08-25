@@ -7,6 +7,7 @@ import {
   getPalremitProvisionedAccount,
   provisionPalremitDepositAccount,
   type PalremitDepositInstructions,
+  type PalremitProvisionedAccount,
 } from '@/core/integrations/palremitLiquidity';
 import {
   buildGraphIndividualKycInput,
@@ -20,6 +21,20 @@ import type {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+const GENERIC_ISSUANCE_FAILURE = 'Identity verification could not be completed';
+
+function failureReasonFromProvisionedAccount(
+  account: PalremitProvisionedAccount | null | undefined,
+  fallback: string = GENERIC_ISSUANCE_FAILURE
+): string {
+  const fr = account?.failure_reason;
+  if (fr != null && typeof fr === 'object' && !Array.isArray(fr)) {
+    const msg = (fr as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+  }
+  return fallback;
 }
 
 export function depositDetailsFromInstructions(
@@ -89,11 +104,13 @@ export type GraphIssuanceAccountSource = {
  *
  * @param options.idempotencyKey — override for retries after a failed provision
  *   (default `account-graph-prov:{accountId}` is stable for first create).
+ * @param options.providerExtras — forwarded as `provider_extras` (e.g. a unique
+ *   Graph bank-account `label` so a failed VA is not reused).
  */
 export async function issueGraphNamedDepositAccount(
   liquidityRequest: PalremitLiquidityRequestFn,
   account: GraphIssuanceAccountSource,
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string; providerExtras?: Record<string, unknown> }
 ): Promise<GraphIssuanceResult> {
   const meta = account.metadata as AccountMetadata | null | undefined;
   const kycInput = buildGraphIndividualKycInput({
@@ -112,13 +129,16 @@ export async function issueGraphNamedDepositAccount(
     allow_provider_failover: false,
     kyc_input: kycInput,
   };
+  if (options?.providerExtras) {
+    body.provider_extras = options.providerExtras;
+  }
 
   const idempotencyKey = options?.idempotencyKey ?? `account-graph-prov:${account.id}`;
   let prov: Awaited<ReturnType<typeof provisionPalremitDepositAccount>>;
   try {
     prov = await provisionPalremitDepositAccount(liquidityRequest, body, idempotencyKey);
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'GRAPH_PROVISION_FAILED';
+    const message = GENERIC_ISSUANCE_FAILURE;
     logger.error({ err: e, accountId: account.id }, 'graph account provision request failed');
     return {
       providerIssuanceStatus: 'failed',
@@ -133,7 +153,7 @@ export async function issueGraphNamedDepositAccount(
       providerIssuanceStatus: 'failed',
       provisionedAccountId: null,
       depositDetails: null,
-      providerIssuanceFailureReason: 'GRAPH_PROVISION_EMPTY_RESPONSE',
+      providerIssuanceFailureReason: GENERIC_ISSUANCE_FAILURE,
     };
   }
 
@@ -144,7 +164,7 @@ export async function issueGraphNamedDepositAccount(
 
   if (prov.account.state?.toLowerCase() === 'failed') {
     status = 'failed';
-    failureReason = 'GRAPH_PROVISION_STATE_FAILED';
+    failureReason = failureReasonFromProvisionedAccount(prov.account);
   } else if (prov.account.deposit_instructions) {
     depositDetails = depositDetailsFromInstructions(prov.account.deposit_instructions);
     if (depositDetails) status = 'active';
@@ -155,7 +175,7 @@ export async function issueGraphNamedDepositAccount(
     });
     if (polled.failed) {
       status = 'failed';
-      failureReason = 'GRAPH_PROVISION_STATE_FAILED';
+      failureReason = failureReasonFromProvisionedAccount(polled.account);
     } else if (polled.account?.deposit_instructions) {
       depositDetails = depositDetailsFromInstructions(polled.account.deposit_instructions);
       if (depositDetails) status = 'active';

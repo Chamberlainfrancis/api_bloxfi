@@ -30,6 +30,7 @@ import {
 import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSourceInput } from '@/types/onramp';
 import { createOnrampQuote } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 import { findOnrampAccountsByUser, findAccountById } from '@/db/repositories/account.repo';
 import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
@@ -139,7 +140,17 @@ export async function getOnrampRates(
         result.toCurrency,
         q.amount
       );
-      const grossReceive = oq?.conversion ?? 0;
+      const priced = oq
+        ? applyPairMarkupIfMatched({
+            fromCurrency: result.fromCurrency,
+            toCurrency: result.toCurrency,
+            amount: q.amount,
+            marketRate: oq.marketRate,
+            rateCurrency: oq.rateCurrency,
+            perCurrency: oq.perCurrency,
+          })
+        : null;
+      const grossReceive = priced?.conversion ?? oq?.conversion ?? 0;
       const feeQuote =
         grossReceive > 0
           ? await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {

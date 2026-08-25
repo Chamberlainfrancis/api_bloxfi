@@ -95,3 +95,60 @@ describe('createOnramp — rate-spread profit', () => {
     expect(profit.amountUsdc).not.toBeNull();
   });
 });
+
+describe('createOnramp — deposit window', () => {
+  it('gives GHS (static) 24h and USD 3h', async () => {
+    const now = Date.now();
+    const ghs = makeDeps();
+    ghs.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'GHS', status: 'approved' }]);
+    await createOnramp(
+      ghs.onrampRepo,
+      ghs.userRepo,
+      ghs.walletRepo,
+      ghs.kybRepo,
+      'ON-ghs-window',
+      {
+        source: { userId: 'user_1', currency: 'ghs', amount: 500 },
+        destination: { userId: 'user_1', currency: 'usdt', chain: 'tron', externalWalletId: 'wal_1' },
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      } as Omit<CreateOnrampRequest, 'requestId'>,
+      ghs.options
+    );
+    const ghsExp = new Date(
+      (ghs.created.data!.quoteInformation as { expiresAt: string }).expiresAt
+    ).getTime();
+    expect(ghsExp - now).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 2000);
+    expect(ghsExp - now).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+    expect(ghs.options.createPalremitFiatDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositByIso: (ghs.created.data!.quoteInformation as { expiresAt: string }).expiresAt,
+      })
+    );
+
+    const usd = makeDeps();
+    usd.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'USD', status: 'approved' }]);
+    usd.options.getQuoteFromPalremit = vi.fn(async () => ({
+      conversionRate: '1',
+      conversion: 100,
+    }));
+    const usdNow = Date.now();
+    await createOnramp(
+      usd.onrampRepo,
+      usd.userRepo,
+      usd.walletRepo,
+      usd.kybRepo,
+      'ON-usd-window',
+      {
+        source: { userId: 'user_1', currency: 'usd', amount: 100 },
+        destination: { userId: 'user_1', currency: 'usdt', chain: 'tron', externalWalletId: 'wal_1' },
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      } as Omit<CreateOnrampRequest, 'requestId'>,
+      usd.options
+    );
+    const usdExp = new Date(
+      (usd.created.data!.quoteInformation as { expiresAt: string }).expiresAt
+    ).getTime();
+    expect(usdExp - usdNow).toBeGreaterThanOrEqual(180 * 60 * 1000 - 2000);
+    expect(usdExp - usdNow).toBeLessThan(180 * 60 * 1000 + 5000);
+  });
+});

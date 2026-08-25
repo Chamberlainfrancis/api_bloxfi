@@ -3,6 +3,7 @@
  */
 
 import type { GetOfframpRatesResponse } from '@/types/offramp';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 
 export interface GetOfframpRateOptions {
   getRateFromPalremit?: (
@@ -38,5 +39,19 @@ export async function getOfframpRate(
   if (!result) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
-  return result;
+  const priced = applyPairMarkupIfMatched({
+    fromCurrency: from,
+    toCurrency: to,
+    amount: 1,
+    marketRate: result.marketRate,
+    rateCurrency: result.rateCurrency,
+    perCurrency: result.perCurrency,
+  });
+  if (!priced) return result;
+  const rateNum = parseFloat(priced.conversionRate);
+  return {
+    ...result,
+    conversionRate: priced.conversionRate,
+    inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
+  };
 }

@@ -294,3 +294,39 @@ describe('createOnramp — named USD markup', () => {
     expect(qi.receiveNet.amount).toBe(snap.quoteInformation.receiveNet.amount);
   });
 });
+
+describe('createOnramp — USD↔EUR pair markup', () => {
+  it('applies 25 bps on direct create for EUR → USDT', async () => {
+    const d = makeDeps();
+    d.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'EUR', status: 'approved' }]);
+    d.getQuoteFromPalremit.mockResolvedValue({
+      conversionRate: '0.871',
+      conversion: 114.81,
+      marketRate: '0.87',
+      rateCurrency: 'EUR',
+      perCurrency: 'USDT',
+    });
+    await createOnramp(
+      d.onrampRepo,
+      d.userRepo,
+      d.walletRepo,
+      d.kybRepo,
+      'ON-req-eur-markup',
+      {
+        source: { userId: d.userId, currency: 'eur', amount: 100 },
+        destination: {
+          userId: d.userId,
+          currency: 'usdt',
+          chain: 'tron',
+          externalWalletId: 'wal_1',
+        },
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      d.options
+    );
+    const customer = 0.87 * 1.0025;
+    const qi = d.created.data!.quoteInformation as { rate: string; receiveGross: { amount: string } };
+    expect(Number(qi.rate)).toBeCloseTo(customer, 10);
+    expect(Number(qi.receiveGross.amount)).toBeCloseTo(100 / customer, 6);
+  });
+});

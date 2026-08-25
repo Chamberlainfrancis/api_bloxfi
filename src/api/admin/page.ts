@@ -208,20 +208,27 @@ const LABELS = {
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
 let state = { view: "transactions", type: "onramp", status: "", includeExpired: false, cursor: null };
-let detailCtx = { id: "", txnRef: "", platformFee: null, withdrawalProcessing: false };
+let detailCtx = { id: "", txnRef: "", type: "onramp", platformFee: null, withdrawalProcessing: false };
 const $ = (id) => document.getElementById(id);
 
 function showDetailMsg(msg, kind) {
-  const el = $("retryFiatPayoutMsg") || $("dInlineMsg");
-  if (!el) return;
-  if (!msg) { el.style.display = "none"; el.textContent = ""; if (el.id === "retryFiatPayoutMsg") el.className = "payout-retry-msg"; else el.className = "d-inline-msg"; return; }
-  if (el.id === "retryFiatPayoutMsg") {
-    el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
-  } else {
-    el.className = "d-inline-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
-  }
-  el.textContent = msg;
-  el.style.display = "block";
+  const els = [$("markActionMsg"), $("retryFiatPayoutMsg"), $("dInlineMsg")].filter(Boolean);
+  if (!els.length) return;
+  els.forEach(function (el) {
+    if (!msg) {
+      el.style.display = "none";
+      el.textContent = "";
+      el.className = (el.id === "retryFiatPayoutMsg" || el.id === "markActionMsg") ? "payout-retry-msg" : "d-inline-msg";
+      return;
+    }
+    if (el.id === "retryFiatPayoutMsg" || el.id === "markActionMsg") {
+      el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+    } else {
+      el.className = "d-inline-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+    }
+    el.textContent = msg;
+    el.style.display = "block";
+  });
 }
 
 function payoutRetryFormHtml() {
@@ -238,27 +245,45 @@ function payoutRetryFormHtml() {
 }
 
 function readPasscode() {
-  const el = $("retryFiatPasscode");
-  const v = el && el.value ? el.value.trim() : "";
-  if (v) sessionStorage.setItem("dashSecret", v);
-  return v || (sessionStorage.getItem("dashSecret") || "").trim();
+  const candidates = [$("markPasscode"), $("retryFiatPasscode")];
+  for (var i = 0; i < candidates.length; i++) {
+    var el = candidates[i];
+    var v = el && el.value ? el.value.trim() : "";
+    if (v) {
+      sessionStorage.setItem("dashSecret", v);
+      return v;
+    }
+  }
+  return (sessionStorage.getItem("dashSecret") || "").trim();
 }
 
 function readActor() {
-  const el = $("retryFiatActor");
-  return el && el.value ? el.value.trim() : undefined;
+  const candidates = [$("markActor"), $("retryFiatActor")];
+  for (var i = 0; i < candidates.length; i++) {
+    var el = candidates[i];
+    if (el && el.value && el.value.trim()) return el.value.trim();
+  }
+  return undefined;
 }
 
 function restorePasscodeField() {
-  const el = $("retryFiatPasscode");
-  if (!el) return;
   const saved = sessionStorage.getItem("dashSecret");
-  if (saved && !el.value) el.value = saved;
+  ["retryFiatPasscode", "markPasscode"].forEach(function (id) {
+    var el = $(id);
+    if (el && saved && !el.value) el.value = saved;
+  });
 }
 
 function focusPasscode() {
-  const el = $("retryFiatPasscode");
+  const el = $("markPasscode") || $("retryFiatPasscode");
   if (el) { el.focus(); el.select(); }
+}
+
+function clearPasscodeFields() {
+  ["retryFiatPasscode", "markPasscode"].forEach(function (id) {
+    var el = $(id);
+    if (el) el.value = "";
+  });
 }
 
 function setBtnLoading(btn, loading, loadingText) {
@@ -493,6 +518,7 @@ async function openDetail(id, forceType) {
     detailCtx = {
       id: id,
       txnRef: t.txnRef || "",
+      type: detailType,
       platformFee: t.fees && t.fees.platformFee ? t.fees.platformFee : null,
       withdrawalProcessing: !!t.withdrawalProcessing
     };
@@ -645,8 +671,28 @@ async function openDetail(id, forceType) {
       processingWarn +
       (t.type === "onramp" && (t.status === "AWAITING_FUNDS" || t.status === "FIAT_PENDING")
         ? '<div class="notice">Use “Mark fiat received” when the customer has paid into a static/fallback account (or fiat is confirmed offline). This starts the crypto payout. “Mark Successful” is for final payout completion only.</div>' +
+          '<div class="payout-retry-fields">' +
+            '<label for="fiatRecvCode">Bank reference</label>' +
+            '<input type="text" id="fiatRecvCode" placeholder="Confirmation / bank reference" />' +
+            '<label for="fiatRecvReason">Reason</label>' +
+            '<input type="text" id="fiatRecvReason" placeholder="Why fiat is confirmed" />' +
+          "</div>" +
           '<div class="actions" style="margin-bottom:12px"><button type="button" class="ok" id="markFiatReceived">Mark fiat received</button></div>'
         : "") +
+      '<div class="payout-retry-fields">' +
+        '<label for="markPasscode">Passcode</label>' +
+        '<input type="password" id="markPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+        '<label for="markActor">Your name</label>' +
+        '<input type="text" id="markActor" placeholder="Optional" autocomplete="name" />' +
+      "</div>" +
+      '<div class="payout-retry-fields">' +
+        '<label for="markNote">Note</label>' +
+        '<input type="text" id="markNote" placeholder="Why are you changing this status? (optional)" style="min-width:280px;flex:1" />' +
+      "</div>" +
+      (t.withdrawalProcessing
+        ? '<label class="muted" style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" id="markAnyway" /> Palremit is still processing — mark anyway</label>'
+        : "") +
+      '<div id="markActionMsg" class="payout-retry-msg" style="display:none"></div>' +
       '<div class="actions"><button type="button" class="ok" id="markOk">Mark Successful</button><button type="button" class="danger" id="markFail">Mark Failed</button></div></div></div>';
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
@@ -662,14 +708,14 @@ async function openDetail(id, forceType) {
 
 async function mark(id, outcome, withdrawalProcessing) {
   if (withdrawalProcessing) {
-    const proceed = confirm(
-      "The Palremit withdrawal is still processing. Marking it now may conflict with an in-flight payout. Continue anyway?"
-    );
-    if (!proceed) return;
+    const box = $("markAnyway");
+    if (!box || !box.checked) {
+      showDetailMsg("Palremit withdrawal is still processing. Check “mark anyway” to proceed.", "bad");
+      return;
+    }
   }
-  const verb = outcome === "success" ? "successful" : "failed";
-  const note = prompt("Why are you marking this " + verb + "? (note)", "");
-  if (note === null) return;
+  const noteEl = $("markNote");
+  const note = noteEl && noteEl.value ? noteEl.value.trim() : "";
   const secret = requirePasscode("mark this transaction");
   if (!secret) return;
   const actor = readActor();
@@ -677,17 +723,17 @@ async function mark(id, outcome, withdrawalProcessing) {
   setBtnLoading(btn, true, "Saving");
   showDetailMsg("Marking transaction…", "info");
   try {
-    await api("/transactions/" + state.type + "/" + id + "/mark", {
+    await api("/transactions/" + (detailCtx.type || state.type) + "/" + id + "/mark", {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify({ outcome: outcome, note: note, actor: actor })
+      body: JSON.stringify({ outcome: outcome, note: note, actor: actor, secret: secret })
     });
     $("detail").close();
     await load(true);
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      clearPasscodeFields();
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
       focusPasscode();
     } else {
@@ -700,16 +746,18 @@ async function mark(id, outcome, withdrawalProcessing) {
 }
 
 async function markFiatReceived(id) {
-  const code = prompt("Confirmation / bank reference code (required)", "");
-  if (code === null) return;
-  if (!String(code).trim()) {
+  const codeEl = $("fiatRecvCode");
+  const reasonEl = $("fiatRecvReason");
+  const code = codeEl && codeEl.value ? String(codeEl.value).trim() : "";
+  const reason = reasonEl && reasonEl.value ? String(reasonEl.value).trim() : "";
+  if (!code) {
     showDetailMsg("A confirmation code is required.", "bad");
+    if (codeEl) codeEl.focus();
     return;
   }
-  const reason = prompt("Why are you marking fiat received? (required)", "");
-  if (reason === null) return;
-  if (!String(reason).trim()) {
+  if (!reason) {
     showDetailMsg("A reason is required.", "bad");
+    if (reasonEl) reasonEl.focus();
     return;
   }
   const secret = requirePasscode("mark fiat received");
@@ -722,14 +770,14 @@ async function markFiatReceived(id) {
     await api("/transactions/onramp/" + id + "/mark-fiat-received", {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify({ code: String(code).trim(), reason: String(reason).trim(), actor: actor })
+      body: JSON.stringify({ code: code, reason: reason, actor: actor, secret: secret })
     });
     $("detail").close();
     await load(true);
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      clearPasscodeFields();
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
       focusPasscode();
     } else {
@@ -764,7 +812,7 @@ async function retryFiatPayout(offrampId, txnRef) {
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      clearPasscodeFields();
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
       focusPasscode();
     } else {
@@ -803,7 +851,7 @@ async function approveSettlement(offrampId, platformFee) {
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
-      if ($("retryFiatPasscode")) $("retryFiatPasscode").value = "";
+      clearPasscodeFields();
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
       focusPasscode();
     } else {

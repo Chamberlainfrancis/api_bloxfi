@@ -9,11 +9,13 @@ import {
   applyOnrampAccountMarkup,
   resolveOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
+import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
 import { inferOnrampAccount } from '@/core/onramps/inferOnrampAccount';
+import { onrampDepositWindowMinutes } from '@/core/onramps/staticDepositAccounts';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -33,8 +35,6 @@ import {
 } from '@/core/integrations/graphOnrampKyc';
 import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
-
-const QUOTE_EXPIRY_MINUTES = 180; // 3h deposit window
 
 export interface CreateOnrampOptions {
   getQuoteFromPalremit?: (
@@ -453,6 +453,19 @@ export async function createOnramp(
       });
       conversionRate = priced.conversionRate;
       receiveGross = priced.conversion;
+    } else {
+      const priced = applyPairMarkupIfMatched({
+        fromCurrency,
+        toCurrency,
+        amount: src.amount,
+        marketRate: quote.marketRate,
+        rateCurrency: quote.rateCurrency,
+        perCurrency: quote.perCurrency,
+      });
+      if (priced) {
+        conversionRate = priced.conversionRate;
+        receiveGross = priced.conversion;
+      }
     }
 
     grossFiat = src.amount;
@@ -491,7 +504,7 @@ export async function createOnramp(
     }
     receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
 
-    expiresAt = new Date(Date.now() + QUOTE_EXPIRY_MINUTES * 60 * 1000);
+    expiresAt = new Date(Date.now() + onrampDepositWindowMinutes(fromCurrency) * 60 * 1000);
     const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
     const sendNet = sendGross;
     const railFee = { amount: '0.00', currency: fromCurrency };
