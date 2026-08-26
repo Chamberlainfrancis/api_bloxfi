@@ -19,6 +19,7 @@ import {
   getPalremitOfframpRates,
   fetchPalremitWithdrawalFeeQuote,
   getPalremitConversionAmount,
+  type PalremitWithdrawalFeeQuote,
 } from '@/core/integrations';
 import { buildOfframpFeePreview, resolveTransferFeeInSendCurrency } from '@/core/payments';
 import {
@@ -96,29 +97,42 @@ export async function getOfframpRates(
       next(validationError(message, parsed.error.flatten()));
       return;
     }
-    const result = await offrampCore.getOfframpRate(
-      parsed.data.fromCurrency,
-      parsed.data.toCurrency,
-      parsed.data.fromChain,
+    const q = parsed.data;
+    const corridorReady = Boolean(q.country && q.destinationType);
+    const preview = await offrampCore.getOfframpRate(
+      q.fromCurrency,
+      q.toCurrency,
+      q.fromChain,
       { getRateFromPalremit }
     );
-    // Optional fee preview when amount + corridor inputs are supplied.
-    const q = parsed.data;
-    if (q.amount != null && q.country && q.destinationType) {
-      // Offramp: crypto in → fiat out. conversionRate is fiat-per-crypto.
-      const rateNum = parseFloat(result.conversionRate) || 0;
-      const grossReceive = q.amount * rateNum;
-      const feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
-        asset: result.toCurrency,
-        amount: grossReceive,
-        destinationType: q.destinationType,
+    let executableRate: number | null = null;
+    let feeQuote: PalremitWithdrawalFeeQuote | null = null;
+    if (corridorReady) {
+      const previewRate = parseFloat(preview.conversionRate) || parseFloat(String(preview.marketRate)) || 0;
+      const payoutFiat = q.amount != null && previewRate > 0 ? q.amount * previewRate : 10_000;
+      feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
+        asset: preview.toCurrency,
+        amount: payoutFiat,
+        destinationType: q.destinationType!,
         country: q.country,
         beneficiaryType: q.beneficiaryType ?? undefined,
       });
-      // The provider fee is charged on the funding leg (its own currency, e.g.
-      // USDC) — convert it into the send currency and deduct it from the send,
-      // then convert the remainder to fiat (deduct-from-send). This keeps the
-      // recipient's receive amount exactly what we quote.
+      const parsedExec = parseFloat(feeQuote?.effectiveRate ?? '');
+      executableRate = Number.isFinite(parsedExec) && parsedExec > 0 ? parsedExec : null;
+    }
+    const result = await offrampCore.getOfframpRate(
+      q.fromCurrency,
+      q.toCurrency,
+      q.fromChain,
+      {
+        getRateFromPalremit,
+        executableRate,
+        requireExecutable: corridorReady && q.toCurrency.trim().toLowerCase() === 'eur',
+      }
+    );
+    if (q.amount != null && corridorReady) {
+      const rateNum = parseFloat(result.conversionRate) || 0;
+      const grossReceive = q.amount * rateNum;
       const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
         feeQuote,
         sendCurrency: result.fromCurrency,

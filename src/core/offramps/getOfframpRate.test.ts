@@ -41,4 +41,47 @@ describe('getOfframpRate — pair markup', () => {
     });
     expect(result.conversionRate).toBe('1450');
   });
+
+  it('floors EUR at OwlPay then takes 25 bps so the customer rate is below OwlPay', async () => {
+    const result = await getOfframpRate('usdt', 'eur', 'TRC20', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        conversionRate: '0.856314',
+        inverseRate: String(1 / 0.856314),
+        rateValidUntil: new Date().toISOString(),
+        minimumAmount: '10',
+        maximumAmount: '100000',
+        estimatedProcessingTime: '1-3 business days',
+        marketRate: '0.85846',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      executableRate: 0.855,
+    });
+    const customer = 0.855 * 0.9975;
+    expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
+    expect(Number(result.conversionRate)).toBeLessThan(0.855);
+  });
+
+  it('refuses EUR when an executable rate is required but missing', async () => {
+    await expect(
+      getOfframpRate('usdt', 'eur', 'TRC20', {
+        getRateFromPalremit: vi.fn(async () => ({
+          fromCurrency: 'usdt',
+          toCurrency: 'eur',
+          conversionRate: '0.856314',
+          inverseRate: String(1 / 0.856314),
+          rateValidUntil: new Date().toISOString(),
+          minimumAmount: '10',
+          maximumAmount: '100000',
+          estimatedProcessingTime: '1-3 business days',
+          marketRate: '0.85846',
+          rateCurrency: 'EUR',
+          perCurrency: 'USDT',
+        })),
+        requireExecutable: true,
+      })
+    ).rejects.toThrow('PALREMIT_RATES_UNAVAILABLE');
+  });
 });

@@ -17,3 +17,8 @@ export function floorOfframpMarketRate(
   }
   return Math.min(currencyApiMarket, executableRate);
 }
+
+/** True when a parsed OwlPay (or other dest-fixed) effective_rate can be used as a floor. */
+export function isUsableExecutableRate(rate: number | null | undefined): rate is number {
+  return rate != null && Number.isFinite(rate) && rate > 0;
+}

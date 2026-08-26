@@ -5,8 +5,11 @@
 import { resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
-import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
-import { floorOfframpMarketRate } from '@/core/quotes/floorOfframpMarketRate';
+import { applyPairMarkupIfMatched, findPairMarkup } from '@/core/quotes/pairMarkup';
+import {
+  floorOfframpMarketRate,
+  isUsableExecutableRate,
+} from '@/core/quotes/floorOfframpMarketRate';
 import { offrampImpliedSourceExceedsSendNet } from '@/core/quotes/offrampQuoteSolvency';
 import {
   computeOfframpQuoteAmounts,
@@ -107,20 +110,24 @@ export async function createOfframpQuote(
   const rawMarket = parseFloat(String(rateResponse.marketRate ?? conversionRate));
   const apiMarket = Number.isFinite(rawMarket) && rawMarket > 0 ? rawMarket : baseRateNum;
   const executable = parseFloat(feeQuote?.effectiveRate ?? '');
+  const executableOk = isUsableExecutableRate(executable);
+  if (findPairMarkup(fromCurrency, toCurrency) && !executableOk) {
+    throw new Error('UNFAVORABLE_RATE');
+  }
   const flooredMarket = floorOfframpMarketRate(
     apiMarket,
-    Number.isFinite(executable) ? executable : null,
+    executableOk ? executable : null,
   );
-  if (flooredMarket < apiMarket) {
-    const repriced = applyPairMarkupIfMatched({
-      fromCurrency,
-      toCurrency,
-      amount: input.amount,
-      marketRate: flooredMarket,
-      rateCurrency: rateResponse.rateCurrency,
-      perCurrency: rateResponse.perCurrency,
-    });
-    conversionRate = repriced ? repriced.conversionRate : String(flooredMarket);
+  const repriced = applyPairMarkupIfMatched({
+    fromCurrency,
+    toCurrency,
+    amount: input.amount,
+    marketRate: flooredMarket,
+    rateCurrency: rateResponse.rateCurrency,
+    perCurrency: rateResponse.perCurrency,
+  });
+  if (repriced) {
+    conversionRate = repriced.conversionRate;
     baseRateNum = parseFloat(conversionRate) || 0;
     if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
@@ -146,7 +153,7 @@ export async function createOfframpQuote(
     offrampImpliedSourceExceedsSendNet({
       sendNet: amounts.sendNet,
       receiveNet: amounts.receiveNet,
-      effectiveRate: Number.isFinite(executable) ? executable : null,
+      effectiveRate: executableOk ? executable : null,
     })
   ) {
     throw new Error('UNFAVORABLE_RATE');
