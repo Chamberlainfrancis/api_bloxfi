@@ -168,9 +168,11 @@ export const createOfframpQuoteBodySchema = z
     toCurrency: z.string().min(1),
     fromChain: z.string().min(1),
     amount: z.number().positive(),
-    country: z.string().length(2),
-    destinationType: z.string().min(1),
+    country: z.string().length(2).optional(),
+    destinationType: z.string().min(1).optional(),
     beneficiaryType: z.enum(['individual', 'business']).optional(),
+    /** Prisma Account.id — corridor is taken from providerPayout so OwlPay matches the payout bank. */
+    accountId: z.string().uuid(),
     platformFee: platformFeeSchema.superRefine((pf, ctx) => {
       if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
         ctx.addIssue({
@@ -193,10 +195,11 @@ export const createOfframpQuoteBodySchema = z
     fromChain: val.fromChain.trim(),
     amount: val.amount,
     corridor: {
-      country: val.country.trim().toUpperCase(),
-      destinationType: val.destinationType.trim(),
+      ...(val.country?.trim() ? { country: val.country.trim().toUpperCase() } : {}),
+      ...(val.destinationType?.trim() ? { destinationType: val.destinationType.trim() } : {}),
       ...(val.beneficiaryType ? { beneficiaryType: val.beneficiaryType } : {}),
     },
+    accountId: val.accountId,
     platformFee: val.platformFee,
   }));
 

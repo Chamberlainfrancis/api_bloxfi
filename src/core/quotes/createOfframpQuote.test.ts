@@ -28,12 +28,27 @@ function rateResponse(
   } as unknown as GetOfframpRatesResponse;
 }
 
-function makeOptions() {
+const ACC = '55555555-5555-4555-8555-555555555555';
+
+function makeOptions(
+  account: {
+    asset: string;
+    country: string;
+    destinationType?: string;
+    beneficiaryType?: 'individual' | 'business';
+  } = { asset: 'NGN', country: 'NG' }
+) {
   return {
     getRateFromPalremit: vi.fn(async () => rateResponse('1450', 'ngn')),
     resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
     getProviderWithdrawalFeeQuote: vi.fn(async () => null),
     convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+    loadOfframpAccountCorridor: vi.fn(async () => ({
+      asset: account.asset,
+      country: account.country,
+      destinationType: account.destinationType ?? 'local_bank',
+      beneficiaryType: account.beneficiaryType ?? 'individual',
+    })),
   };
 }
 
@@ -56,6 +71,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         expiresAt: null,
       })),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'DE' }).loadOfframpAccountCorridor,
     };
     const result = await createOfframpQuote(
       {
@@ -64,6 +80,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         fromChain: 'TRC20',
         amount: 1000,
         corridor: { country: 'DE', destinationType: 'local_bank' },
+        accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
       },
       options as never
@@ -97,6 +114,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         expiresAt: null,
       })),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
     };
     const result = await createOfframpQuote(
       {
@@ -105,6 +123,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         fromChain: 'TRC20',
         amount: 1000,
         corridor: { country: 'FR', destinationType: 'local_bank' },
+        accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
       },
       options as never
@@ -132,6 +151,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         expiresAt: null,
       })),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
     };
     const result = await createOfframpQuote(
       {
@@ -140,6 +160,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
         fromChain: 'TRC20',
         amount: 1000,
         corridor: { country: 'FR', destinationType: 'local_bank' },
+        accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
       },
       options as never
@@ -162,6 +183,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
       resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
       getProviderWithdrawalFeeQuote: vi.fn(async () => null),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
     };
     await expect(
       createOfframpQuote(
@@ -171,7 +193,8 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
           fromChain: 'TRC20',
           amount: 1000,
           corridor: { country: 'FR', destinationType: 'local_bank' },
-          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+          accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
         },
         options as never
       )
@@ -188,10 +211,12 @@ describe('createOfframpQuote', () => {
       resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
       getProviderWithdrawalFeeQuote: vi.fn(async () => null),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount * 1.1),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'NGN', country: 'NG' }).loadOfframpAccountCorridor,
     };
     await createOfframpQuote(
       { fromCurrency: 'usdt', toCurrency: 'ngn', fromChain: 'TRC20', amount: 1000,
         corridor: { country: 'NG', destinationType: 'local_bank' },
+        accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee', currency: 'USDC', network: 'MATIC' } },
       options as never
     );
@@ -228,6 +253,7 @@ describe('createOfframpQuote', () => {
         expiresAt: null,
       })),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
     };
     await expect(
       createOfframpQuote(
@@ -237,7 +263,8 @@ describe('createOfframpQuote', () => {
           fromChain: 'TRC20',
           amount: 1000,
           corridor: { country: 'FR', destinationType: 'local_bank' },
-          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+          accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
         },
         options as never
       )
@@ -252,6 +279,7 @@ describe('createOfframpQuote', () => {
         fromChain: 'TRC20',
         amount: 1000,
         corridor: { country: 'NG', destinationType: 'local_bank' },
+        accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee', currency: 'USDC', network: 'MATIC' },
       },
       makeOptions()
@@ -267,5 +295,79 @@ describe('createOfframpQuote', () => {
     expect(snapshot.fees.platformFee.settlementCurrency).toBe('USDC');
     expect(snapshot.quote.platformFee?.currency).toBe('usdt');
     expect(snapshot.quote.platformFee?.amount).toBe('10.00000000');
+  });
+
+  it('quotes OwlPay using the payout account corridor when accountId is sent', async () => {
+    const options = {
+      ...makeOptions(),
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.871'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: '867.83',
+        effectiveRate: '0.87',
+        expiresAt: null,
+      })),
+      loadOfframpAccountCorridor: vi.fn(async () => ({
+        asset: 'EUR',
+        country: 'DE',
+        destinationType: 'local_bank',
+        beneficiaryType: 'business' as const,
+      })),
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: {},
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(options.loadOfframpAccountCorridor).toHaveBeenCalledWith(
+      ACC
+    );
+    expect(options.getProviderWithdrawalFeeQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        asset: 'eur',
+        country: 'DE',
+        destinationType: 'local_bank',
+        beneficiaryType: 'business',
+      })
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.87 * 0.9975, 8);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { corridor: { country: string; destinationType: string } };
+    expect(snapshot.corridor).toEqual({
+      country: 'DE',
+      destinationType: 'local_bank',
+      beneficiaryType: 'business',
+    });
+  });
+
+  it('throws OFFRAMP_ACCOUNT_NOT_FOUND when accountId does not resolve', async () => {
+    await expect(
+      createOfframpQuote(
+        {
+          fromCurrency: 'usdt',
+          toCurrency: 'eur',
+          fromChain: 'TRC20',
+          amount: 1000,
+          corridor: {},
+          accountId: ACC,
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+        },
+        { ...makeOptions(), loadOfframpAccountCorridor: vi.fn(async () => null) } as never
+      )
+    ).rejects.toThrow('OFFRAMP_ACCOUNT_NOT_FOUND');
   });
 });

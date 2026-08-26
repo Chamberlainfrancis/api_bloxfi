@@ -1,4 +1,5 @@
 export { createOfframpQuote, assertOfframpQuoteCorridorMatchesAccount } from '@/core/quotes/createOfframpQuote';
+export { resolveOfframpQuoteCorridor } from '@/core/quotes/resolveOfframpQuoteCorridor';
 export { createOnrampQuote } from '@/core/quotes/createOnrampQuote';
 export {
   findOnrampAccountMarkup,

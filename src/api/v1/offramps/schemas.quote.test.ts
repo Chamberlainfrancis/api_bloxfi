@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { createOfframpBodySchema, createOfframpQuoteBodySchema } from '@/api/v1/offramps/schemas';
 
 describe('createOfframpQuoteBodySchema platformFee.network', () => {
+  const accountId = '55555555-5555-4555-8555-555555555555';
   const base = {
     fromCurrency: 'usdt',
     toCurrency: 'eur',
     fromChain: 'TRC20',
     amount: 1000,
-    country: 'DE',
-    destinationType: 'local_bank',
+    accountId,
     platformFee: {
       type: 'PERCENTAGE' as const,
       value: 0.01,
@@ -25,6 +25,28 @@ describe('createOfframpQuoteBodySchema platformFee.network', () => {
   it('rejects a quote when platformFee.network is missing (required for USDC settlement)', () => {
     const { network, ...feeWithoutNetwork } = base.platformFee;
     const r = createOfframpQuoteBodySchema.safeParse({ ...base, platformFee: feeWithoutNetwork });
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts accountId without country and destinationType', () => {
+    const r = createOfframpQuoteBodySchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.accountId).toBe(accountId);
+      expect(r.data.corridor).toEqual({});
+    }
+  });
+
+  it('rejects a quote without accountId even when country and destinationType are sent', () => {
+    const r = createOfframpQuoteBodySchema.safeParse({
+      fromCurrency: 'usdt',
+      toCurrency: 'eur',
+      fromChain: 'TRC20',
+      amount: 1000,
+      country: 'DE',
+      destinationType: 'local_bank',
+      platformFee: base.platformFee,
+    });
     expect(r.success).toBe(false);
   });
 });

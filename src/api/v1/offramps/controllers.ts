@@ -36,6 +36,7 @@ import {
   retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote } from '@/core/quotes';
+import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   hydrateOfframpCreateFromQuote,
   validateUsdOfframpMetadata,
@@ -181,6 +182,13 @@ export async function createOfframpQuoteHandler(
         fetchPalremitWithdrawalFeeQuote(palremitLiquidity, input),
       convertToUsdc: (from, amount) =>
         getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
+      loadOfframpAccountCorridor: async (accountId) => {
+        const acc = await accountRepo.findAccountById(accountId);
+        if (!acc || acc.railType !== 'offramp') return null;
+        const pp = parseProviderPayout(acc.providerPayout);
+        if (!pp) throw new Error('ACCOUNT_INCOMPLETE_FOR_OFFRAMP');
+        return pp.corridor;
+      },
     });
     sendSuccess(res, result, 201);
   } catch (e) {
@@ -211,6 +219,44 @@ export async function createOfframpQuoteHandler(
     }
     if (e instanceof Error && e.message === 'UNFAVORABLE_RATE') {
       next(new AppError('This rate is currently unavailable.', 'UNPROCESSABLE_ENTITY', 422));
+      return;
+    }
+    if (e instanceof Error && e.message === 'OFFRAMP_ACCOUNT_NOT_FOUND') {
+      next(
+        new AppError('accountId must be an offramp Account id', 'INVALID_REQUEST', 400, {
+          field: 'accountId',
+        })
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'ACCOUNT_INCOMPLETE_FOR_OFFRAMP') {
+      next(
+        new AppError(
+          'Offramp account incomplete: create the account via payout corridors (corridor + destination) so providerPayout is stored',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'QUOTE_CORRIDOR_MISMATCH') {
+      next(
+        new AppError(
+          'Offramp account corridor does not match the quoted corridor',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
+    if (e instanceof Error && e.message === 'CORRIDOR_REQUIRED') {
+      next(
+        new AppError(
+          'Offramp account corridor is missing country or destinationType',
+          'INVALID_REQUEST',
+          400
+        )
+      );
       return;
     }
     next(e);

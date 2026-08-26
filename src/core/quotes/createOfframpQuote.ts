@@ -17,6 +17,11 @@ import {
   formatOfframpInverseRate,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
+import {
+  resolveOfframpQuoteCorridor,
+  type OfframpAccountPayoutCorridor,
+  type OfframpQuoteCorridorBody,
+} from '@/core/quotes/resolveOfframpQuoteCorridor';
 import type {
   GetOfframpRatesResponse,
   OfframpFees,
@@ -32,8 +37,9 @@ export interface CreateOfframpQuoteInput {
   toCurrency: string;
   fromChain: string;
   amount: number;
-  corridor: OfframpQuoteCorridor;
+  corridor: OfframpQuoteCorridor | OfframpQuoteCorridorBody;
   platformFee: PlatformFee;
+  accountId: string;
 }
 
 export interface CreateOfframpQuoteOptions {
@@ -55,6 +61,9 @@ export interface CreateOfframpQuoteOptions {
     beneficiaryType?: 'individual' | 'business' | null;
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
   convertToUsdc: (from: string, amount: number) => Promise<number | null>;
+  loadOfframpAccountCorridor: (
+    accountId: string
+  ) => Promise<OfframpAccountPayoutCorridor | null>;
 }
 
 function parseQuoteExpiry(rateValidUntil: string): Date {
@@ -70,6 +79,15 @@ export async function createOfframpQuote(
   const fromCurrency = input.fromCurrency.trim().toLowerCase();
   const toCurrency = input.toCurrency.trim().toLowerCase();
   const clientFromChain = input.fromChain.trim();
+  const accountId = input.accountId.trim();
+  if (!accountId) throw new Error('OFFRAMP_ACCOUNT_NOT_FOUND');
+  const accountCorridor = await options.loadOfframpAccountCorridor(accountId);
+  if (!accountCorridor) throw new Error('OFFRAMP_ACCOUNT_NOT_FOUND');
+  const corridor = resolveOfframpQuoteCorridor({
+    toCurrency,
+    body: input.corridor,
+    account: accountCorridor,
+  });
 
   const resolvedChain = await options.resolvePalremitNetwork(
     fromCurrency.toUpperCase(),
@@ -102,9 +120,9 @@ export async function createOfframpQuote(
   const feeQuote = await options.getProviderWithdrawalFeeQuote({
     asset: toCurrency,
     amount: afterPlatformFiat,
-    destinationType: input.corridor.destinationType,
-    country: input.corridor.country,
-    beneficiaryType: input.corridor.beneficiaryType ?? undefined,
+    destinationType: corridor.destinationType,
+    country: corridor.country,
+    beneficiaryType: corridor.beneficiaryType ?? undefined,
   });
 
   const rawMarket = parseFloat(String(rateResponse.marketRate ?? conversionRate));
@@ -229,7 +247,7 @@ export async function createOfframpQuote(
     fromChain: resolvedChain,
     clientFromChain,
     sendAmount: input.amount,
-    corridor: input.corridor,
+    corridor,
     platformFee: input.platformFee,
     baseConversionRate: conversionRate,
     conversionRate: allInRate,
