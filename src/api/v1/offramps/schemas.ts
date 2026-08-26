@@ -184,7 +184,15 @@ export const createOfframpQuoteBodySchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['network'],
-          message: 'platformFee.network is required (used for the USDC fee settlement payout)',
+          message: 'platformFee.network is required (used for the USDT/USDC fee settlement payout)',
+        });
+      }
+      const feeCcy = pf.currency?.trim().toUpperCase();
+      if (feeCcy && feeCcy !== 'USDT' && feeCcy !== 'USDC') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['currency'],
+          message: 'platformFee.currency must be USDT or USDC',
         });
       }
     }),

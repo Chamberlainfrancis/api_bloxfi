@@ -46,9 +46,9 @@ export interface PlatformFee {
   type: 'PERCENTAGE' | 'FLAT';
   value: number;
   walletAddress: string;
-  /** Settlement asset — USDC expected; defaults to USDC when omitted */
+  /** Settlement asset — USDT or USDC; defaults to the source stable when omitted */
   currency?: string;
-  /** Palremit network code for fee payout (e.g. MATIC, ERC20) */
+  /** Palremit network code for fee payout (e.g. TRC20, MATIC, ERC20) */
   network?: string;
 }
 
@@ -125,7 +125,7 @@ export interface OfframpFees {
     /** Source crypto currency the fee was computed in */
     currency: string;
     walletAddress: string;
-    /** USDC settlement destination (from create request) */
+    /** USDT or USDC settlement destination (from quote) */
     settlementCurrency?: string;
     settlementNetwork?: string;
     transactionHash?: string;

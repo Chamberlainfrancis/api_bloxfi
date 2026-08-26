@@ -22,9 +22,17 @@ describe('createOfframpQuoteBodySchema platformFee.network', () => {
     expect(createOfframpQuoteBodySchema.safeParse(base).success).toBe(true);
   });
 
-  it('rejects a quote when platformFee.network is missing (required for USDC settlement)', () => {
+  it('rejects a quote when platformFee.network is missing', () => {
     const { network, ...feeWithoutNetwork } = base.platformFee;
     const r = createOfframpQuoteBodySchema.safeParse({ ...base, platformFee: feeWithoutNetwork });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects a quote when platformFee.currency is not USDT or USDC', () => {
+    const r = createOfframpQuoteBodySchema.safeParse({
+      ...base,
+      platformFee: { ...base.platformFee, currency: 'EUR' },
+    });
     expect(r.success).toBe(false);
   });
 

@@ -16,6 +16,7 @@ import {
   formatOfframpConversionRate,
   formatOfframpInverseRate,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
+import { parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import {
   resolveOfframpQuoteCorridor,
@@ -225,6 +226,9 @@ export async function createOfframpQuote(
     expiresAt: expiresAt.toISOString(),
   };
 
+  const settlementCurrency =
+    parseStableFeeAsset(input.platformFee.currency) ?? parseStableFeeAsset(fromCurrency);
+
   const fees: OfframpFees = {
     platformFee: {
       type: input.platformFee.type,
@@ -232,7 +236,7 @@ export async function createOfframpQuote(
       amount: amounts.platformFeeAmount.toFixed(8),
       currency: fromCurrency,
       walletAddress: input.platformFee.walletAddress,
-      settlementCurrency: input.platformFee.currency?.trim().toUpperCase() || 'USDC',
+      ...(settlementCurrency ? { settlementCurrency } : {}),
       ...(input.platformFee.network?.trim()
         ? { settlementNetwork: input.platformFee.network.trim() }
         : {}),

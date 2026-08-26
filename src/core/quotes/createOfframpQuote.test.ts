@@ -297,6 +297,29 @@ describe('createOfframpQuote', () => {
     expect(snapshot.quote.platformFee?.amount).toBe('10.00000000');
   });
 
+  it('defaults settlementCurrency to the USDT/USDC source when platformFee.currency is omitted', async () => {
+    await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'ngn',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'NG', destinationType: 'local_bank' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee', network: 'TRC20' },
+      },
+      makeOptions()
+    );
+
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0].payload as {
+      fees: { platformFee: { currency: string; settlementCurrency: string; settlementNetwork?: string } };
+    };
+
+    expect(snapshot.fees.platformFee.currency).toBe('usdt');
+    expect(snapshot.fees.platformFee.settlementCurrency).toBe('USDT');
+    expect(snapshot.fees.platformFee.settlementNetwork).toBe('TRC20');
+  });
+
   it('quotes OwlPay using the payout account corridor when accountId is sent', async () => {
     const options = {
       ...makeOptions(),

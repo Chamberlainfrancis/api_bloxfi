@@ -1,5 +1,6 @@
 /**
- * Post-completion offramp platform-fee settlement via Palremit USDC crypto withdrawal.
+ * Post-completion offramp platform-fee settlement via Palremit USDT/USDC crypto withdrawal.
+ * Pays out on `platformFee.network`. Converts USDT↔USDC at the configured 1.02 only.
  * Queued as `pending` on offramp completion; admin approval triggers the withdrawal.
  * Soft validation: invalid config is recorded on the offramp and no withdrawal is sent.
  */
@@ -10,6 +11,7 @@ import {
   fetchPalremitNetworksForCoin,
   resolvePalremitNetworkFromOptions,
 } from '@/core/integrations/palremitCoinNetworks';
+import { convertUsdtUsdc, parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
 import type {
   OfframpFees,
   OfframpStatus,
@@ -19,7 +21,6 @@ import type {
 import { buildOfframpFeeClientReference } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
 
-const DEFAULT_SETTLEMENT_ASSET = 'USDC';
 const MIN_SETTLEMENT_AMOUNT = 0.000001;
 
 export interface SettleOfframpPlatformFeeRepo {
@@ -44,10 +45,6 @@ export interface SettleOfframpPlatformFeeRepo {
 
 export interface SettleOfframpPlatformFeeDeps {
   liquidityRequest: PalremitLiquidityRequestFn;
-  getRate?: (
-    fromCurrency: string,
-    toCurrency: string
-  ) => Promise<{ conversionRate: string } | null>;
 }
 
 export type SettleOfframpPlatformFeeOutcome =
@@ -88,7 +85,7 @@ function mergePlatformFeeSettlement(
     type: 'PERCENTAGE' as const,
     value: '0',
     amount: '0',
-    currency: DEFAULT_SETTLEMENT_ASSET,
+    currency: 'USDC',
     walletAddress: '',
   };
   const prev = pf.settlement;
@@ -113,33 +110,45 @@ function mergePlatformFeeSettlement(
   };
 }
 
-async function resolveSettlementAmountUsdc(
+function resolveSettlementAmount(
   feeAmountStr: string,
   feeCurrency: string,
-  settlementAsset: string,
-  getRate?: SettleOfframpPlatformFeeDeps['getRate']
-): Promise<{ amount: number } | { error: string }> {
+  settlementAsset: string
+): { amount: number } | { error: string } {
   const feeAmount = Number(feeAmountStr);
   if (!Number.isFinite(feeAmount) || feeAmount <= 0) {
     return { error: 'platform fee amount is zero or invalid' };
   }
-  const from = feeCurrency.trim().toUpperCase();
-  const to = settlementAsset.trim().toUpperCase();
-  if (from === to) {
-    return { amount: feeAmount };
+  const from = parseStableFeeAsset(feeCurrency);
+  const to = parseStableFeeAsset(settlementAsset);
+  if (!from) {
+    return { error: `platform fee currency must be USDT or USDC (got ${feeCurrency.trim().toUpperCase() || 'empty'})` };
   }
-  if (!getRate) {
-    return { error: `cannot convert ${from} fee to ${to}: rates unavailable` };
+  if (!to) {
+    return { error: `settlement currency must be USDT or USDC (got ${settlementAsset.trim().toUpperCase() || 'empty'})` };
   }
-  const rateRow = await getRate(from, to);
-  if (!rateRow?.conversionRate) {
-    return { error: `cannot convert ${from} fee to ${to}: rate lookup failed` };
+  return { amount: convertUsdtUsdc(feeAmount, from, to) };
+}
+
+async function resolveWithdrawNetworkForAsset(
+  deps: SettleOfframpPlatformFeeDeps,
+  asset: string,
+  networkRaw: string
+): Promise<{ network: string } | { error: string }> {
+  const options = await fetchPalremitNetworksForCoin(deps.liquidityRequest, asset);
+  if (!options?.length) {
+    return { error: `${asset} network list unavailable from Palremit` };
   }
-  const rate = parseFloat(rateRow.conversionRate);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    return { error: `cannot convert ${from} fee to ${to}: invalid rate` };
+  const resolved = resolvePalremitNetworkFromOptions(options, networkRaw);
+  if (!resolved) {
+    const codes = options.map((o) => o.code).join(', ');
+    return { error: `unsupported network "${networkRaw}" for ${asset} (valid: ${codes})` };
   }
-  return { amount: feeAmount * rate };
+  const opt = options.find((o) => o.code === resolved);
+  if (opt?.withdrawEnabled === false) {
+    return { error: `withdrawals disabled on network ${resolved}` };
+  }
+  return { network: resolved };
 }
 
 export async function persistPlatformFeeSettlement(
@@ -182,9 +191,18 @@ async function validatePlatformFeeSettlement(
     notes.push('missing platformFee.walletAddress');
   }
 
-  const settlementAsset = (pf?.settlementCurrency ?? DEFAULT_SETTLEMENT_ASSET).trim().toUpperCase();
-  if (settlementAsset !== DEFAULT_SETTLEMENT_ASSET) {
-    notes.push(`settlement currency must be USDC (got ${settlementAsset})`);
+  const feeCurrency = pf?.currency?.trim() ?? '';
+  const rawSettlement = pf?.settlementCurrency?.trim() ?? '';
+  if (rawSettlement && !parseStableFeeAsset(rawSettlement)) {
+    notes.push(`settlement currency must be USDT or USDC (got ${rawSettlement.toUpperCase()})`);
+  }
+  if (feeCurrency && !parseStableFeeAsset(feeCurrency)) {
+    notes.push(`platform fee currency must be USDT or USDC (got ${feeCurrency.toUpperCase()})`);
+  }
+  let settlementAsset =
+    parseStableFeeAsset(rawSettlement) ?? parseStableFeeAsset(feeCurrency) ?? '';
+  if (!settlementAsset) {
+    notes.push('settlement currency must be USDT or USDC');
   }
 
   const networkRaw = pf?.settlementNetwork?.trim() ?? '';
@@ -192,16 +210,10 @@ async function validatePlatformFeeSettlement(
     notes.push('missing platformFee.network for settlement');
   }
 
-  const feeCurrency = pf?.currency?.trim().toUpperCase() ?? '';
   const feeAmountStr = pf?.amount ?? '';
   let settlementAmount = 0;
   if (!notes.length) {
-    const amountRes = await resolveSettlementAmountUsdc(
-      feeAmountStr,
-      feeCurrency,
-      settlementAsset,
-      deps.getRate
-    );
+    const amountRes = resolveSettlementAmount(feeAmountStr, feeCurrency, settlementAsset);
     if ('error' in amountRes) {
       notes.push(amountRes.error);
     } else {
@@ -213,20 +225,27 @@ async function validatePlatformFeeSettlement(
   }
 
   let resolvedNetwork: string | null = null;
-  if (!notes.length && networkRaw) {
-    const options = await fetchPalremitNetworksForCoin(deps.liquidityRequest, DEFAULT_SETTLEMENT_ASSET);
-    if (!options?.length) {
-      notes.push('USDC network list unavailable from Palremit');
+  if (!notes.length && networkRaw && settlementAsset) {
+    const primary = await resolveWithdrawNetworkForAsset(deps, settlementAsset, networkRaw);
+    if ('network' in primary) {
+      resolvedNetwork = primary.network;
     } else {
-      resolvedNetwork = resolvePalremitNetworkFromOptions(options, networkRaw);
-      if (!resolvedNetwork) {
-        const codes = options.map((o) => o.code).join(', ');
-        notes.push(`unsupported network "${networkRaw}" for USDC (valid: ${codes})`);
-      } else {
-        const opt = options.find((o) => o.code === resolvedNetwork);
-        if (opt?.withdrawEnabled === false) {
-          notes.push(`withdrawals disabled on network ${resolvedNetwork}`);
+      const feeAsset = parseStableFeeAsset(feeCurrency);
+      const canFallback = Boolean(feeAsset && feeAsset !== settlementAsset);
+      const fallback = canFallback
+        ? await resolveWithdrawNetworkForAsset(deps, feeAsset!, networkRaw)
+        : null;
+      if (fallback && 'network' in fallback && feeAsset) {
+        settlementAsset = feeAsset;
+        resolvedNetwork = fallback.network;
+        const amountRes = resolveSettlementAmount(feeAmountStr, feeCurrency, feeAsset);
+        if ('error' in amountRes) {
+          notes.push(amountRes.error);
+        } else {
+          settlementAmount = amountRes.amount;
         }
+      } else {
+        notes.push(primary.error);
       }
     }
   }
@@ -355,7 +374,7 @@ export async function settleOfframpPlatformFee(
   const idempotencyKey = `offramp-fee-settlement:${validation.txnRef}`;
   const withdrawalBody: Record<string, unknown> = {
     client_reference: clientReference,
-    asset: DEFAULT_SETTLEMENT_ASSET,
+    asset: validation.settlementAsset,
     amount: validation.settlementAmount,
     destination_type: 'crypto_address',
     network: validation.resolvedNetwork,

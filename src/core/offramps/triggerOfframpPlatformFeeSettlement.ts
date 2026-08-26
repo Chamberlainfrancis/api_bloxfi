@@ -4,8 +4,6 @@
 
 import * as offrampRepo from '@/db/repositories/offramp.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
-import { getPalremitOfframpRates } from '@/core/integrations/palremit';
-import { createPalremitCurrencyAdapter } from '@/services/palremitAdapters';
 import {
   queueOfframpPlatformFeeSettlement,
   settleOfframpPlatformFee,
@@ -13,7 +11,6 @@ import {
 import { logger } from '@/lib/logger';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
-const palremitCurrency = createPalremitCurrencyAdapter();
 
 const settlementRepo = {
   findOfframpById: offrampRepo.findOfframpById,
@@ -23,11 +20,6 @@ const settlementRepo = {
 
 const settlementDeps = {
   liquidityRequest: palremitLiquidity,
-  getRate: async (from: string, to: string) => {
-    const row = await getPalremitOfframpRates(palremitCurrency, from, to);
-    if (!row) return null;
-    return { conversionRate: row.conversionRate };
-  },
 };
 
 /** Queue settlement as pending (called automatically when an offramp completes). */

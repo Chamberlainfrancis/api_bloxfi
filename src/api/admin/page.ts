@@ -621,7 +621,7 @@ async function openDetail(id, forceType) {
       let notice = "";
       let actions = "";
       if (st === "pending") {
-        notice = '<div class="notice">This offramp has a platform fee waiting for admin approval before USDC is sent.</div>';
+        notice = '<div class="notice">This offramp has a platform fee waiting for admin approval before the fee is sent.</div>';
         actions = '<div class="actions"><button type="button" class="ok" id="approveFee">Approve fee settlement</button></div>';
       } else if (st === "failed") {
         const failNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : (t.failedReason || "Settlement failed");

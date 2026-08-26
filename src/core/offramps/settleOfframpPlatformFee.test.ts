@@ -269,8 +269,7 @@ describe('settleOfframpPlatformFee — source-currency fee', () => {
     });
   });
 
-  it('settles a USDC-source fee to USDC with no rate lookup', async () => {
-    const getRate = vi.fn(async () => ({ conversionRate: '1' }));
+  it('settles a USDC fee on the platformFee network with no conversion', async () => {
     findOfframpById.mockResolvedValue(
       baseOfframp({
         fees: {
@@ -288,18 +287,24 @@ describe('settleOfframpPlatformFee — source-currency fee', () => {
       })
     );
 
-    const res = await settleOfframpPlatformFee(repo, { liquidityRequest, getRate }, 'offramp-1');
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
     expect(res.outcome).toBe('processing');
-    expect(getRate).not.toHaveBeenCalled();
+    expect(palremitCoinNetworks.fetchPalremitNetworksForCoin).toHaveBeenCalledWith(
+      liquidityRequest,
+      'USDC'
+    );
     expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
       liquidityRequest,
-      expect.objectContaining({ amount: 10 }),
+      expect.objectContaining({ asset: 'USDC', amount: 10, network: 'MATIC' }),
       expect.any(String)
     );
   });
 
-  it('converts a USDT-source fee to USDC via the rate', async () => {
-    const getRate = vi.fn(async () => ({ conversionRate: '1' }));
+  it('settles a USDT fee on TRC20 without converting to USDC', async () => {
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'TRC20', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('TRC20');
     findOfframpById.mockResolvedValue(
       baseOfframp({
         fees: {
@@ -307,6 +312,37 @@ describe('settleOfframpPlatformFee — source-currency fee', () => {
             type: 'PERCENTAGE',
             value: '0.01',
             amount: '10.00000000',
+            currency: 'USDT',
+            walletAddress: 'TFeeWalletxxxxxxxxxxxxxxxxxxxxxxxxx',
+            settlementCurrency: 'USDT',
+            settlementNetwork: 'TRC20',
+            settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+          },
+        },
+      })
+    );
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    expect(palremitCoinNetworks.fetchPalremitNetworksForCoin).toHaveBeenCalledWith(
+      liquidityRequest,
+      'USDT'
+    );
+    expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({ asset: 'USDT', amount: 10, network: 'TRC20' }),
+      expect.any(String)
+    );
+  });
+
+  it('converts a USDT fee to USDC at 1.02 when settlementCurrency is USDC', async () => {
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '10.20000000',
             currency: 'USDT',
             walletAddress: '0xFee',
             settlementCurrency: 'USDC',
@@ -317,12 +353,82 @@ describe('settleOfframpPlatformFee — source-currency fee', () => {
       })
     );
 
-    const res = await settleOfframpPlatformFee(repo, { liquidityRequest, getRate }, 'offramp-1');
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
     expect(res.outcome).toBe('processing');
-    expect(getRate).toHaveBeenCalledWith('USDT', 'USDC');
     expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
       liquidityRequest,
-      expect.objectContaining({ amount: 10 }),
+      expect.objectContaining({ asset: 'USDC', amount: 10, network: 'MATIC' }),
+      expect.any(String)
+    );
+  });
+
+  it('converts a USDC fee to USDT at 1.02 when settlementCurrency is USDT', async () => {
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockResolvedValue([
+      { code: 'TRC20', withdrawEnabled: true },
+    ]);
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockReturnValue('TRC20');
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '10.00000000',
+            currency: 'USDC',
+            walletAddress: 'TFeeWalletxxxxxxxxxxxxxxxxxxxxxxxxx',
+            settlementCurrency: 'USDT',
+            settlementNetwork: 'TRC20',
+            settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+          },
+        },
+      })
+    );
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    expect(palremitCoinNetworks.fetchPalremitNetworksForCoin).toHaveBeenCalledWith(
+      liquidityRequest,
+      'USDT'
+    );
+    expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({ asset: 'USDT', amount: 10.2, network: 'TRC20' }),
+      expect.any(String)
+    );
+  });
+
+  it('pays the USDT fee on the provided network when USDC is not withdrawable there', async () => {
+    vi.spyOn(palremitCoinNetworks, 'fetchPalremitNetworksForCoin').mockImplementation(
+      async (_req, coin) =>
+        coin === 'USDT'
+          ? [{ code: 'TRC20', withdrawEnabled: true }]
+          : [{ code: 'MATIC', withdrawEnabled: true }]
+    );
+    vi.spyOn(palremitCoinNetworks, 'resolvePalremitNetworkFromOptions').mockImplementation(
+      (options, raw) => (options.some((o) => o.code === raw) ? raw : null)
+    );
+    findOfframpById.mockResolvedValue(
+      baseOfframp({
+        fees: {
+          platformFee: {
+            type: 'PERCENTAGE',
+            value: '0.01',
+            amount: '10.00000000',
+            currency: 'USDT',
+            walletAddress: 'TFeeWalletxxxxxxxxxxxxxxxxxxxxxxxxx',
+            settlementCurrency: 'USDC',
+            settlementNetwork: 'TRC20',
+            settlement: { status: 'pending', attemptedAt: '2026-06-19T00:00:00.000Z' },
+          },
+        },
+      })
+    );
+
+    const res = await settleOfframpPlatformFee(repo, { liquidityRequest }, 'offramp-1');
+    expect(res.outcome).toBe('processing');
+    expect(palremitLiquidity.createPalremitWithdrawal).toHaveBeenCalledWith(
+      liquidityRequest,
+      expect.objectContaining({ asset: 'USDT', amount: 10, network: 'TRC20' }),
       expect.any(String)
     );
   });
