@@ -131,7 +131,7 @@ describe('createOfframp — quote-first only', () => {
     expect(
       (persisted.providerRefs as { palremitOrchestrator: { sourceAmountCap: string } }).palremitOrchestrator
         .sourceAmountCap
-    ).toBe('99.00000000');
+    ).toBe('99.000000');
   });
 
   it('throws QUOTE_REQUIRED when no lockedQuote is supplied', async () => {

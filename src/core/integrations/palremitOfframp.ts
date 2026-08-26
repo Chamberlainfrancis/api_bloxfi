@@ -276,6 +276,23 @@ function ensureBeneficiaryEmail(
   if (!existing) ben.email = email;
 }
 
+/** Palremit POST /v1/withdrawals allows at most 6 fractional digits on the cap. */
+const SOURCE_AMOUNT_CAP_MAX_FRAC = 6;
+
+/**
+ * Truncate a locked-quote sendNet string to Palremit's source_amount_cap
+ * precision. Truncates (does not round up) so the cap never exceeds sendNet.
+ */
+export function formatSourceAmountCap(raw: string | undefined): string | undefined {
+  const s = raw?.trim();
+  if (!s) return undefined;
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(s)) return undefined;
+  const dot = s.indexOf('.');
+  const out = dot < 0 ? s : `${s.slice(0, dot)}.${s.slice(dot + 1, dot + 1 + SOURCE_AMOUNT_CAP_MAX_FRAC)}`;
+  if (!(Number(out) > 0)) return undefined;
+  return out;
+}
+
 /** Build POST /v1/withdrawals body from account `providerPayout`. */
 export function buildWithdrawalFromAccount(
   input: WithdrawalFromAccountInput
@@ -289,6 +306,7 @@ export function buildWithdrawalFromAccount(
     input.metadata
   );
   ensureBeneficiaryEmail(destination, input.accountHolderEmail);
+  const sourceAmountCap = formatSourceAmountCap(input.sourceAmountCap);
   return {
     client_reference: input.txnRef.trim(),
     asset: pp.corridor.asset.trim().toUpperCase(),
@@ -297,7 +315,7 @@ export function buildWithdrawalFromAccount(
     destination_type: pp.corridor.destinationType,
     destination,
     ...(input.businessReference?.trim() ? { business_reference: input.businessReference.trim() } : {}),
-    ...(input.sourceAmountCap?.trim() ? { source_amount_cap: input.sourceAmountCap.trim() } : {}),
+    ...(sourceAmountCap ? { source_amount_cap: sourceAmountCap } : {}),
   };
 }
 
@@ -310,7 +328,7 @@ export function mergeSourceAmountCapIntoProviderRefs(
   refs: Record<string, unknown>,
   cap: string | undefined
 ): Record<string, unknown> {
-  const trimmed = cap?.trim();
+  const trimmed = formatSourceAmountCap(cap);
   if (!trimmed) return refs;
   const orch =
     refs.palremitOrchestrator != null &&

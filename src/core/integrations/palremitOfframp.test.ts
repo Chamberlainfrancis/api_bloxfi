@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildWithdrawalFromAccount, isAccountReadyForOfframp } from '@/core/integrations/palremitOfframp';
+import {
+  buildWithdrawalFromAccount,
+  isAccountReadyForOfframp,
+  mergeSourceAmountCapIntoProviderRefs,
+} from '@/core/integrations/palremitOfframp';
 
 describe('buildWithdrawalFromAccount', () => {
   const providerPayout = {
@@ -57,7 +61,17 @@ describe('buildWithdrawalFromAccount', () => {
       providerPayout,
       sourceAmountCap: '32138.11000000',
     });
-    expect(body?.source_amount_cap).toBe('32138.11000000');
+    expect(body?.source_amount_cap).toBe('32138.110000');
+  });
+
+  it('truncates an 8-dp sendNet cap to 6 fractional digits (Palremit POST /v1/withdrawals)', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-f1d46de782ca751e13743b7b',
+      destinationAmount: 14965.55,
+      providerPayout,
+      sourceAmountCap: '17494.82858461',
+    });
+    expect(body?.source_amount_cap).toBe('17494.828584');
   });
 
   it('omits source_amount_cap when sendNet is missing', () => {
@@ -67,6 +81,13 @@ describe('buildWithdrawalFromAccount', () => {
       providerPayout,
     });
     expect(body).not.toHaveProperty('source_amount_cap');
+  });
+
+  it('persists sourceAmountCap truncated to 6 fractional digits', () => {
+    const refs = mergeSourceAmountCapIntoProviderRefs({}, '5815.84236280');
+    expect(
+      (refs.palremitOrchestrator as { sourceAmountCap: string }).sourceAmountCap
+    ).toBe('5815.842362');
   });
 
   it('merges purposeOfPayment into extras when missing on account', () => {
