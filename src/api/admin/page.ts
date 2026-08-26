@@ -44,6 +44,10 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   button.ok { background:var(--ok); }
   button:disabled { opacity:.65; cursor:wait; }
   button.loading::after { content:" …"; }
+  .toolbar input[type="password"] { padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--txt); min-width:160px; }
+  .err { color:var(--bad); padding:8px 24px; }
+  .err.ok { color:var(--ok); }
+  .err.info { color:var(--accent); }
   .payout-retry-form { margin-top:12px; }
   .payout-retry-fields { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
   .payout-retry-fields label { font-size:12px; color:var(--mut); }
@@ -64,7 +68,6 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .badge.ok { color:var(--ok); border-color:#22c55e55; }
   .badge.fail { color:var(--bad); border-color:#ef444455; }
   .badge.pend { color:var(--warn); border-color:#f59e0b55; }
-  .err { color:var(--bad); padding:8px 24px; }
   .muted { color:var(--mut); }
   dialog { background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:12px; max-width:880px; width:94%; padding:0; }
   dialog::backdrop { background:rgba(0,0,0,.6); }
@@ -151,6 +154,8 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <label class="muted" id="statusLabel">Status</label>
   <select id="statusFilter"><option value="">All</option></select>
   <label class="muted" id="includeExpiredLabel"><input type="checkbox" id="includeExpired" /> Include expired</label>
+  <label class="muted" for="pagePasscode">Passcode</label>
+  <input type="password" id="pagePasscode" placeholder="Dashboard passcode" autocomplete="current-password" />
   <button class="ghost" id="reload">Reload</button>
 </div>
 <div class="toolbar" id="bizToolbar" style="display:none">
@@ -245,7 +250,7 @@ function payoutRetryFormHtml() {
 }
 
 function readPasscode() {
-  const candidates = [$("markPasscode"), $("retryFiatPasscode")];
+  const candidates = [$("pagePasscode"), $("markPasscode"), $("retryFiatPasscode")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     var v = el && el.value ? el.value.trim() : "";
@@ -268,19 +273,22 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["pagePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
 }
 
 function focusPasscode() {
-  const el = $("markPasscode") || $("retryFiatPasscode");
+  const detailOpen = $("detail") && $("detail").open;
+  const el = detailOpen
+    ? ($("markPasscode") || $("retryFiatPasscode") || $("pagePasscode"))
+    : ($("pagePasscode") || $("markPasscode") || $("retryFiatPasscode"));
   if (el) { el.focus(); el.select(); }
 }
 
 function clearPasscodeFields() {
-  ["retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["pagePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -305,6 +313,7 @@ function requirePasscode(actionLabel) {
   const secret = readPasscode();
   if (secret) return secret;
   showDetailMsg("Enter the dashboard passcode above, then " + actionLabel + ".", "bad");
+  showErr("Enter the dashboard passcode, then " + actionLabel + ".");
   focusPasscode();
   return "";
 }
@@ -317,7 +326,7 @@ function setTableHead(view) {
   }
 }
 
-function showErr(msg) { const e = $("err"); e.style.display = msg ? "block" : "none"; e.textContent = msg || ""; }
+function showErr(msg, kind) { const e = $("err"); e.className = kind === "ok" ? "err ok" : kind === "info" ? "err info" : "err"; e.style.display = msg ? "block" : "none"; e.textContent = msg || ""; }
 function badgeClass(s) { return OK.has(s) ? "badge ok" : FAIL.has(s) ? "badge fail" : "badge pend"; }
 
 function esc(v) {
@@ -825,7 +834,7 @@ async function retryFiatPayout(offrampId, txnRef) {
   }
 }
 
-async function approveSettlement(offrampId, platformFee) {
+async function approveSettlement(offrampId, platformFee, triggerBtn) {
   const pf = platformFee || {};
   const isRetry = pf.settlement && pf.settlement.status === "failed";
   const verb = isRetry ? "Retry sending" : "Approve sending";
@@ -837,22 +846,25 @@ async function approveSettlement(offrampId, platformFee) {
   const secret = requirePasscode("approve fee settlement");
   if (!secret) return;
   const actor = readActor();
-  const btn = $("approveFee");
+  const btn = triggerBtn || $("approveFee");
   setBtnLoading(btn, true, isRetry ? "Retrying" : "Approving");
   showDetailMsg((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
+  showErr((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
   try {
     await api("/fee-settlements/" + offrampId + "/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
       body: JSON.stringify({ actor: actor })
     });
-    $("detail").close();
+    if ($("detail") && $("detail").open) $("detail").close();
     await load(true);
+    showErr((isRetry ? "Retried" : "Approved") + " platform fee settlement.", "ok");
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
       clearPasscodeFields();
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
+      showErr("Incorrect passcode — update the field above and try again.");
       focusPasscode();
     } else {
       showDetailMsg(e.message, "bad");
@@ -1369,7 +1381,7 @@ $("rows").addEventListener("click", function (e) {
         walletAddress: tr.dataset.wallet || "",
         settlementNetwork: tr.dataset.network || "",
         settlement: { status: tr.dataset.settlementStatus || "" }
-      });
+      }, approve);
     }
     return;
   }
@@ -1382,6 +1394,7 @@ $("rows").addEventListener("click", function (e) {
 });
 
 fillStatusFilter();
+restorePasscodeField();
 load(true);
 </script>
 </body>
