@@ -48,6 +48,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .err { color:var(--bad); padding:8px 24px; }
   .err.ok { color:var(--ok); }
   .err.info { color:var(--accent); }
+  dialog.approve-fee-dialog { max-width:520px; width:94%; }
   .payout-retry-form { margin-top:12px; }
   .payout-retry-fields { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
   .payout-retry-fields label { font-size:12px; color:var(--mut); }
@@ -154,8 +155,6 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <label class="muted" id="statusLabel">Status</label>
   <select id="statusFilter"><option value="">All</option></select>
   <label class="muted" id="includeExpiredLabel"><input type="checkbox" id="includeExpired" /> Include expired</label>
-  <label class="muted" for="pagePasscode">Passcode</label>
-  <input type="password" id="pagePasscode" placeholder="Dashboard passcode" autocomplete="current-password" />
   <button class="ghost" id="reload">Reload</button>
 </div>
 <div class="toolbar" id="bizToolbar" style="display:none">
@@ -176,6 +175,24 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
   <div class="dbody" id="dBody"></div>
+</dialog>
+
+<dialog id="approveFeeModal" class="approve-fee-dialog">
+  <div class="dhead"><span class="t" id="approveFeeTitle">Approve fee settlement</span><button type="button" class="ghost" id="approveFeeCancel">Cancel</button></div>
+  <div class="dbody">
+    <p id="approveFeeSummary" class="notice"></p>
+    <div class="payout-retry-fields">
+      <label for="approveFeePasscode">Passcode</label>
+      <input type="password" id="approveFeePasscode" placeholder="Dashboard passcode" autocomplete="current-password" />
+      <label for="approveFeeActor">Your name</label>
+      <input type="text" id="approveFeeActor" placeholder="Optional" autocomplete="name" />
+    </div>
+    <div id="approveFeeMsg" class="payout-retry-msg" style="display:none"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="approveFeeDismiss">Cancel</button>
+      <button type="button" class="ok" id="approveFeeConfirm">Approve</button>
+    </div>
+  </div>
 </dialog>
 
 <dialog id="bizDetail" class="biz-dialog">
@@ -250,7 +267,7 @@ function payoutRetryFormHtml() {
 }
 
 function readPasscode() {
-  const candidates = [$("pagePasscode"), $("markPasscode"), $("retryFiatPasscode")];
+  const candidates = [$("approveFeePasscode"), $("markPasscode"), $("retryFiatPasscode")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     var v = el && el.value ? el.value.trim() : "";
@@ -263,7 +280,7 @@ function readPasscode() {
 }
 
 function readActor() {
-  const candidates = [$("markActor"), $("retryFiatActor")];
+  const candidates = [$("approveFeeActor"), $("markActor"), $("retryFiatActor")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     if (el && el.value && el.value.trim()) return el.value.trim();
@@ -273,22 +290,25 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["pagePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
 }
 
 function focusPasscode() {
+  const approveOpen = $("approveFeeModal") && $("approveFeeModal").open;
   const detailOpen = $("detail") && $("detail").open;
-  const el = detailOpen
-    ? ($("markPasscode") || $("retryFiatPasscode") || $("pagePasscode"))
-    : ($("pagePasscode") || $("markPasscode") || $("retryFiatPasscode"));
+  const el = approveOpen
+    ? $("approveFeePasscode")
+    : detailOpen
+      ? ($("markPasscode") || $("retryFiatPasscode") || $("approveFeePasscode"))
+      : ($("approveFeePasscode") || $("markPasscode") || $("retryFiatPasscode"));
   if (el) { el.focus(); el.select(); }
 }
 
 function clearPasscodeFields() {
-  ["pagePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -834,28 +854,72 @@ async function retryFiatPayout(offrampId, txnRef) {
   }
 }
 
-async function approveSettlement(offrampId, platformFee, triggerBtn) {
+let approveFeeCtx = { offrampId: "", platformFee: null, triggerBtn: null };
+
+function showApproveFeeMsg(msg, kind) {
+  const el = $("approveFeeMsg");
+  if (!el) return;
+  if (!msg) {
+    el.style.display = "none";
+    el.textContent = "";
+    el.className = "payout-retry-msg";
+    return;
+  }
+  el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function closeApproveFeeModal() {
+  const modal = $("approveFeeModal");
+  if (modal && modal.open) modal.close();
+}
+
+function openApproveFeeModal(offrampId, platformFee, triggerBtn) {
   const pf = platformFee || {};
+  approveFeeCtx = { offrampId: offrampId, platformFee: pf, triggerBtn: triggerBtn || null };
   const isRetry = pf.settlement && pf.settlement.status === "failed";
-  const verb = isRetry ? "Retry sending" : "Approve sending";
-  const msg = verb + " " +
-    (pf.amount ? pf.amount + " " + String(pf.currency || pf.settlementCurrency || "USDC").toUpperCase() : "platform fee") +
+  const amount = pf.amount
+    ? pf.amount + " " + String(pf.currency || pf.settlementCurrency || "").toUpperCase()
+    : "the platform fee";
+  const summary = (isRetry ? "Retry sending " : "Send ") + amount +
     " to " + (pf.walletAddress || "(no wallet)") +
-    " on network " + (pf.settlementNetwork || "(unknown)") + "?";
-  if (!confirm(msg)) return;
-  const secret = requirePasscode("approve fee settlement");
-  if (!secret) return;
-  const actor = readActor();
-  const btn = triggerBtn || $("approveFee");
+    " on " + (pf.settlementNetwork || "(unknown network)") + ".";
+  $("approveFeeTitle").textContent = isRetry ? "Retry fee settlement" : "Approve fee settlement";
+  $("approveFeeConfirm").textContent = isRetry ? "Retry" : "Approve";
+  $("approveFeeSummary").textContent = summary;
+  showApproveFeeMsg("", "");
+  restorePasscodeField();
+  $("approveFeeModal").showModal();
+  focusPasscode();
+}
+
+async function submitApproveFee() {
+  const offrampId = approveFeeCtx.offrampId;
+  const pf = approveFeeCtx.platformFee || {};
+  if (!offrampId) return;
+  const isRetry = pf.settlement && pf.settlement.status === "failed";
+  const passEl = $("approveFeePasscode");
+  const secret = passEl && passEl.value ? passEl.value.trim() : "";
+  if (!secret) {
+    showApproveFeeMsg("Enter the dashboard passcode, then approve.", "bad");
+    focusPasscode();
+    return;
+  }
+  sessionStorage.setItem("dashSecret", secret);
+  const actorEl = $("approveFeeActor");
+  const actor = actorEl && actorEl.value && actorEl.value.trim() ? actorEl.value.trim() : readActor();
+  const btn = $("approveFeeConfirm");
   setBtnLoading(btn, true, isRetry ? "Retrying" : "Approving");
-  showDetailMsg((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
-  showErr((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
+  if (approveFeeCtx.triggerBtn) setBtnLoading(approveFeeCtx.triggerBtn, true, isRetry ? "Retrying" : "Approving");
+  showApproveFeeMsg((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
   try {
     await api("/fee-settlements/" + offrampId + "/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
       body: JSON.stringify({ actor: actor })
     });
+    closeApproveFeeModal();
     if ($("detail") && $("detail").open) $("detail").close();
     await load(true);
     showErr((isRetry ? "Retried" : "Approved") + " platform fee settlement.", "ok");
@@ -863,16 +927,21 @@ async function approveSettlement(offrampId, platformFee, triggerBtn) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
       clearPasscodeFields();
-      showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
-      showErr("Incorrect passcode — update the field above and try again.");
+      showApproveFeeMsg("Incorrect passcode — try again.", "bad");
       focusPasscode();
     } else {
-      showDetailMsg(e.message, "bad");
-      showErr(e.message);
+      showApproveFeeMsg(e.message || "Fee settlement failed.", "bad");
     }
   } finally {
-    setBtnLoading(btn, false, isRetry ? "Retry fee settlement" : "Approve fee settlement");
+    setBtnLoading(btn, false, isRetry ? "Retry" : "Approve");
+    if (approveFeeCtx.triggerBtn) {
+      setBtnLoading(approveFeeCtx.triggerBtn, false, isRetry ? "Retry" : "Approve");
+    }
   }
+}
+
+function approveSettlement(offrampId, platformFee, triggerBtn) {
+  openApproveFeeModal(offrampId, platformFee, triggerBtn);
 }
 
 // --- businesses: provider customer ID management ----------------------------
@@ -1362,6 +1431,12 @@ $("reload").addEventListener("click", function () { load(true); });
 $("more").addEventListener("click", function () { load(false); });
 $("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
+$("approveFeeCancel").addEventListener("click", closeApproveFeeModal);
+$("approveFeeDismiss").addEventListener("click", closeApproveFeeModal);
+$("approveFeeConfirm").addEventListener("click", function () { submitApproveFee(); });
+$("approveFeePasscode").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") { e.preventDefault(); submitApproveFee(); }
+});
 $("dBody").addEventListener("click", function (e) {
   if (e.target.closest("#markFiatReceived")) { markFiatReceived(detailCtx.id); return; }
   if (e.target.closest("#markOk")) { mark(detailCtx.id, "success", detailCtx.withdrawalProcessing); return; }
