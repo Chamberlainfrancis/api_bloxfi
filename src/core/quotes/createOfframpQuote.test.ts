@@ -202,6 +202,137 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
   });
 });
 
+describe('createOfframpQuote — CNY executable floor', () => {
+  it('floors USDT → CNY at OwlPay so a WIRE quote is solvent', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('6.6956196', 'cny'),
+        marketRate: '6.703664',
+        rateCurrency: 'CNY',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [{ kind: 'SWIFT fee', amount: '25', currency: 'USDC' }],
+        totalFee: { amount: '25', currency: 'USDC' },
+        destinationAmount: '6200.00',
+        effectiveRate: '6.20',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'CNY',
+        country: 'CN',
+        destinationType: 'wire',
+      }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'cny',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'CN', destinationType: 'wire' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.2, 10);
+    expect(Number(result.baseConversionRate)).toBeLessThanOrEqual(6.2);
+    expect(Number(result.quote.receiveNet.amount)).toBeLessThanOrEqual(1000 * 6.2);
+  });
+
+  it('locks a 1000 USDT → CNY WIRE quote at today’s live OwlPay rate instead of 422ing', async () => {
+    // Live 2026-08-27: currency-api b2b 6.69527602, OwlPay WIRE at 6695 CNY
+    // effective_rate 6.533057. Before the floor this throws UNFAVORABLE_RATE.
+    const cnyRate = {
+      ...rateResponse('6.69527602', 'cny'),
+      marketRate: '6.70332',
+      rateCurrency: 'CNY',
+      perCurrency: 'USDT',
+    };
+    const options = {
+      getRateFromPalremit: vi.fn(async (from: string, to: string) => {
+        if (from === 'usdc' && to === 'usdt') {
+          return { ...rateResponse('1', 'usdt'), conversionRate: '1' };
+        }
+        return cnyRate;
+      }),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [{ kind: 'SWIFT fee', amount: '25', currency: 'USDC' }],
+        totalFee: { amount: '25', currency: 'USDC' },
+        destinationAmount: '6695.28',
+        effectiveRate: '6.53305700',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'CNY',
+        country: 'CN',
+        destinationType: 'wire',
+      }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'cny',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'CN', destinationType: 'wire' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.533057, 6);
+    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(975, 2);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(975 * 6.533057, 2);
+  });
+
+  it('keeps the CNY B2B rate when it is already at or below OwlPay', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('6.6956196', 'cny'),
+        marketRate: '6.703664',
+        rateCurrency: 'CNY',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [{ kind: 'SWIFT fee', amount: '25', currency: 'USDC' }],
+        totalFee: { amount: '25', currency: 'USDC' },
+        destinationAmount: '6700.00',
+        effectiveRate: '6.80',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'CNY',
+        country: 'CN',
+        destinationType: 'wire',
+      }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'cny',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'CN', destinationType: 'wire' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.6956196, 6);
+  });
+});
+
 describe('createOfframpQuote', () => {
   it('records rate-spread profit on the snapshot (USDC-normalized)', async () => {
     const options = {

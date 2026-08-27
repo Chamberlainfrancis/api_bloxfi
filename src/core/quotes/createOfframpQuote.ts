@@ -149,6 +149,16 @@ export async function createOfframpQuote(
     conversionRate = repriced.conversionRate;
     baseRateNum = parseFloat(conversionRate) || 0;
     if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
+  } else {
+    // No pair-markup rule (CNY, NGN, …): still cap the locked customer rate
+    // at OwlPay so solvency does not 422 a corridor we can actually fund.
+    const flooredCustomer = floorOfframpMarketRate(
+      baseRateNum,
+      executableOk ? executable : null,
+    );
+    conversionRate = String(flooredCustomer);
+    baseRateNum = flooredCustomer;
+    if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
   const feeInSendCurrency = await resolveTransferFeeInSendCurrency({

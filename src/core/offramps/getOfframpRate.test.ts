@@ -64,6 +64,27 @@ describe('getOfframpRate — pair markup', () => {
     expect(Number(result.conversionRate)).toBeLessThan(0.855);
   });
 
+  it('floors USDT → CNY at OwlPay when there is no pair markup', async () => {
+    const result = await getOfframpRate('usdt', 'cny', 'TRC20', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'usdt',
+        toCurrency: 'cny',
+        conversionRate: '6.6956196',
+        inverseRate: String(1 / 6.6956196),
+        rateValidUntil: new Date().toISOString(),
+        minimumAmount: '10',
+        maximumAmount: '100000',
+        estimatedProcessingTime: '1-3 business days',
+        marketRate: '6.703664',
+        rateCurrency: 'CNY',
+        perCurrency: 'USDT',
+      })),
+      executableRate: 6.2,
+    });
+    expect(Number(result.conversionRate)).toBeCloseTo(6.2, 10);
+    expect(Number(result.inverseRate)).toBeCloseTo(1 / 6.2, 10);
+  });
+
   it('refuses EUR when an executable rate is required but missing', async () => {
     await expect(
       getOfframpRate('usdt', 'eur', 'TRC20', {

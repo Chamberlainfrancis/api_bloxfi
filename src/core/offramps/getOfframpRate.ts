@@ -17,7 +17,7 @@ export interface GetOfframpRateOptions {
     to: string,
     fromChain?: string
   ) => Promise<GetOfframpRatesResponse | null>;
-  /** Dest-fixed provider rate (EUR per USDC). Floor the mid at this before 25 bps. */
+  /** Dest-fixed provider rate (fiat per USDC). Floor the served rate at this. */
   executableRate?: number | null;
   /** When the pair has a markup rule (EUR), refuse to quote without an executable rate. */
   requireExecutable?: boolean;
@@ -64,11 +64,22 @@ export async function getOfframpRate(
     rateCurrency: result.rateCurrency,
     perCurrency: result.perCurrency,
   });
-  if (!priced) return result;
-  const rateNum = parseFloat(priced.conversionRate);
+  if (priced) {
+    const rateNum = parseFloat(priced.conversionRate);
+    return {
+      ...result,
+      conversionRate: priced.conversionRate,
+      inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
+    };
+  }
+
+  const served = parseFloat(result.conversionRate);
+  const servedOk = Number.isFinite(served) && served > 0 ? served : apiMarket;
+  const floored = floorOfframpMarketRate(servedOk, executable);
+  if (floored === servedOk || floored <= 0) return result;
   return {
     ...result,
-    conversionRate: priced.conversionRate,
-    inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
+    conversionRate: String(floored),
+    inverseRate: String(1 / floored),
   };
 }
