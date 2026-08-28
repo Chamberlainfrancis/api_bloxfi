@@ -3,16 +3,16 @@ import { applyOnrampAccountMarkup } from '@/core/quotes/onrampAccountMarkup';
 import { findPairMarkup, applyPairMarkup } from '@/core/quotes/pairMarkup';
 
 describe('findPairMarkup', () => {
-  it('returns 25 bps buy for EUR onramp (EUR → USDT)', () => {
+  it('returns 2.4% buy for EUR onramp (EUR → USDT)', () => {
     expect(findPairMarkup('eur', 'usdt')).toEqual({
       fiat: 'EUR',
-      markup: 0.0025,
+      markup: 0.024,
       side: 'buy',
     });
   });
 
-  it('returns 25 bps buy for EUR → USD and EUR → USDC', () => {
-    expect(findPairMarkup('EUR', 'USD')?.markup).toBe(0.0025);
+  it('returns 2.4% buy for EUR → USD and EUR → USDC', () => {
+    expect(findPairMarkup('EUR', 'USD')?.markup).toBe(0.024);
     expect(findPairMarkup('eur', 'usdc')?.side).toBe('buy');
   });
 
@@ -35,18 +35,18 @@ describe('findPairMarkup', () => {
 });
 
 describe('applyPairMarkup', () => {
-  it('onramp buy: customerRate = marketRate × (1 + 25bps), less USDT out', () => {
+  it('onramp buy: customerRate = marketRate × (1 + 2.4%), less USDT out', () => {
     const priced = applyPairMarkup({
       amount: 100,
       toCurrency: 'usdt',
       marketRate: '0.87',
       rateCurrency: 'EUR',
       perCurrency: 'USDT',
-      markup: 0.0025,
+      markup: 0.024,
       side: 'buy',
     });
-    expect(Number(priced.conversionRate)).toBeCloseTo(0.87 * 1.0025, 10);
-    expect(priced.conversion).toBeCloseTo(100 / (0.87 * 1.0025), 10);
+    expect(Number(priced.conversionRate)).toBeCloseTo(0.87 * 1.024, 10);
+    expect(priced.conversion).toBeCloseTo(100 / (0.87 * 1.024), 10);
   });
 
   it('offramp sell: customerRate = marketRate × (1 − 25bps), less EUR out', () => {
@@ -70,7 +70,7 @@ describe('applyPairMarkup', () => {
       marketRate: '0.87' as const,
       rateCurrency: 'EUR',
       perCurrency: 'USDT',
-      markup: 0.0025,
+      markup: 0.024,
     };
     expect(applyPairMarkup({ ...args, side: 'buy' })).toEqual(applyOnrampAccountMarkup(args));
   });

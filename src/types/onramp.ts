@@ -109,10 +109,11 @@ export interface DepositInfo {
   ach?: DepositInfoAch;
   wire?: DepositInfoWire;
   pix?: DepositInfoPix;
-  /** GBP Clear Bank / similar local rails */
+  /** GBP Clear Bank / EUR SEPA / similar local rails */
   sortCode?: string;
   iban?: string;
   bic?: string;
+  bankAddress?: string;
   reference: string;
   depositBy: string;
   instruction: string;

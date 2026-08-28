@@ -137,7 +137,7 @@ describe('createOnrampQuote — account markup', () => {
     expect(Number(snap.quote.baseReceiveNet?.amount)).toBeCloseTo(gross * 0.99, 6);
   });
 
-  it('applies 25 bps on marketRate for EUR → USDT even without accountId', async () => {
+  it('applies 2.4% on marketRate for EUR → USDT even without accountId', async () => {
     const result = await createOnrampQuote(
       { ...quoteInput, fromCurrency: 'eur', toCurrency: 'usdt' },
       makeOptions({
@@ -150,11 +150,38 @@ describe('createOnrampQuote — account markup', () => {
         })),
       })
     );
-    const customer = 0.87 * 1.0025;
+    const customer = 0.87 * 1.024;
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
     const snap = lastSnapshot();
     expect(Number(snap.conversionRate)).toBeCloseTo(customer, 10);
     expect(snap.marketRate).toBe('0.87');
+    expect(Number(snap.quote.receiveGross.amount)).toBeCloseTo(100 / customer, 6);
+  });
+
+  it('still applies 2.4% pair markup when EUR is quoted with a Graph USD accountId', async () => {
+    const result = await createOnrampQuote(
+      { ...quoteInput, fromCurrency: 'eur', toCurrency: 'usdt', accountId: ACC },
+      makeOptions({
+        getQuoteFromPalremit: vi.fn(async () => ({
+          conversionRate: '0.871',
+          conversion: 114.81,
+          marketRate: '0.87',
+          rateCurrency: 'EUR',
+          perCurrency: 'USDT',
+        })),
+        loadOnrampAccountForMarkup: async () => ({
+          id: ACC,
+          currency: 'USD',
+          railType: 'onramp',
+          capabilities: usdNamed,
+        }),
+      })
+    );
+    const customer = 0.87 * 1.024;
+    expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
+    const snap = lastSnapshot();
+    expect(snap.accountId).toBe(ACC);
+    expect(snap.markup).toBeNull();
     expect(Number(snap.quote.receiveGross.amount)).toBeCloseTo(100 / customer, 6);
   });
 

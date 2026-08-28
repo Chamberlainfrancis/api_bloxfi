@@ -9,7 +9,7 @@ import type {
 } from '@/core/onramps/createOnramp';
 import type { CreateOnrampRequest } from '@/types/onramp';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
-import { BRIANA_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
+import { BRIANA_BUSINESS_REFERENCE, CARLSTON_BUSINESS_REFERENCE } from '@/core/integrations/palremitOnramp';
 
 const ACC = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ACC_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -296,7 +296,7 @@ describe('createOnramp — named USD markup', () => {
 });
 
 describe('createOnramp — USD↔EUR pair markup', () => {
-  it('applies 25 bps on direct create for EUR → USDT', async () => {
+  it('applies 2.4% on direct create for EUR → USDT', async () => {
     const d = makeDeps();
     d.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'EUR', status: 'approved' }]);
     d.getQuoteFromPalremit.mockResolvedValue({
@@ -324,9 +324,50 @@ describe('createOnramp — USD↔EUR pair markup', () => {
       },
       d.options
     );
-    const customer = 0.87 * 1.0025;
+    const customer = 0.87 * 1.024;
     const qi = d.created.data!.quoteInformation as { rate: string; receiveGross: { amount: string } };
     expect(Number(qi.rate)).toBeCloseTo(customer, 10);
     expect(Number(qi.receiveGross.amount)).toBeCloseTo(100 / customer, 6);
+  });
+
+  it('applies the same 2.4% for Carlston even when a Graph USD named account exists', async () => {
+    const d = makeDeps({
+      userId: CARLSTON_BUSINESS_REFERENCE,
+      listOnrampAccounts: async () => [namedAccount(ACC)],
+    });
+    d.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'EUR', status: 'approved' }]);
+    d.getQuoteFromPalremit.mockResolvedValue({
+      conversionRate: '0.871',
+      conversion: 114.81,
+      marketRate: '0.87',
+      rateCurrency: 'EUR',
+      perCurrency: 'USDT',
+    });
+    await createOnramp(
+      d.onrampRepo,
+      d.userRepo,
+      d.walletRepo,
+      d.kybRepo,
+      'ON-req-eur-carlston',
+      {
+        source: { userId: d.userId, currency: 'eur', amount: 100 },
+        destination: {
+          userId: d.userId,
+          currency: 'usdt',
+          chain: 'tron',
+          externalWalletId: 'wal_1',
+        },
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      d.options
+    );
+    const customer = 0.87 * 1.024;
+    const qi = d.created.data!.quoteInformation as { rate: string; receiveGross: { amount: string } };
+    expect(Number(qi.rate)).toBeCloseTo(customer, 10);
+    expect(d.options.createPalremitFiatDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'eur' })
+    );
+    const depositArg = vi.mocked(d.options.createPalremitFiatDeposit).mock.calls[0][0];
+    expect(depositArg).not.toHaveProperty('useGraphUsd');
   });
 });

@@ -1,6 +1,9 @@
 /**
  * Capability + currency onramp FX markup (named USD today).
  * Applied on currency-api marketRate; does not change currency-api.
+ *
+ * EUR onramp is a shared house SEPA account (every business, including
+ * Graph/Bancara-pinned ones). Its 2.4% buy markup lives in pairMarkup.config.
  */
 
 import type { AccountCapabilities } from '@/types/account';

@@ -1,8 +1,10 @@
 /**
- * Platform receiving accounts for GBP / USD / GHS / NGN onramps.
+ * Platform receiving accounts for GBP / EUR / USD / GHS / NGN onramps.
  * Ops marks fiat received manually (no provider deposit webhook).
  *
- * GBP / GHS / NGN: preferred first (skip orchestrator provision for now).
+ * GBP / EUR / GHS / NGN: preferred first (skip orchestrator provision for now).
+ *   EUR SEPA is a shared house account for every business — including
+ *   Graph/Bancara-pinned ones (Carlston, Briana, SMS Data).
  *   NGN Wema is temporary — revert to Kuda pooled VAs when ready.
  * USD: still try orchestrator first; use these only if provision fails.
  *
@@ -13,7 +15,7 @@
 
 import type { DepositInfo } from '@/types/onramp';
 
-export type StaticDepositCurrency = 'GBP' | 'USD' | 'GHS' | 'NGN';
+export type StaticDepositCurrency = 'GBP' | 'EUR' | 'USD' | 'GHS' | 'NGN';
 
 const STATIC: Record<
   StaticDepositCurrency,
@@ -21,6 +23,8 @@ const STATIC: Record<
     bankName: string;
     accountName: string;
     accountNumber: string;
+    beneficiaryAddress?: string;
+    bankAddress?: string;
     routingNumber?: string;
     sortCode?: string;
     iban?: string;
@@ -36,6 +40,17 @@ const STATIC: Record<
     iban: 'GB76CLRB04095400000094',
     bic: 'CLRBGB22436',
     country: 'GB',
+  },
+  EUR: {
+    bankName: 'RYVYL (EU) EAD',
+    accountName: 'IBERBANCO',
+    accountNumber: 'BG51TRUD40059780011849',
+    beneficiaryAddress: '4 Robert Speck Parkway, Mississauga, ON L4Z 1S1, Canada',
+    bankAddress:
+      'Triadica District, "Pozitano" 2 square, "Perform Business Center", fl. 3, 1000 Sofia, Bulgaria',
+    iban: 'BG51TRUD40059780011849',
+    bic: 'TRUDBG21',
+    country: 'BG',
   },
   USD: {
     bankName: 'Cross River Bank',
@@ -75,19 +90,20 @@ export function staticDepositNarrationRef(txnRef: string): string {
 
 function narrationLabel(asset: StaticDepositCurrency): string {
   if (asset === 'USD') return 'wire memo / narration';
+  if (asset === 'EUR') return 'SEPA payment reference';
   if (asset === 'GHS' || asset === 'NGN') return 'transfer narration / description';
   return 'payment narration / reference';
 }
 
 export function isStaticDepositCurrency(asset: string): asset is StaticDepositCurrency {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'USD' || a === 'GHS' || a === 'NGN';
+  return a === 'GBP' || a === 'EUR' || a === 'USD' || a === 'GHS' || a === 'NGN';
 }
 
 /** Currencies that should skip orchestrator and use platform accounts immediately. */
 export function isPreferredStaticDepositCurrency(asset: string): boolean {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'GHS' || a === 'NGN';
+  return a === 'GBP' || a === 'EUR' || a === 'GHS' || a === 'NGN';
 }
 
 /** Default onramp deposit window (orchestrator-provisioned rails with webhooks). */
@@ -95,7 +111,7 @@ export const DEFAULT_ONRAMP_DEPOSIT_WINDOW_MINUTES = 180;
 
 /**
  * Preferred-static rails need ops to match and mark fiat received — 3h is too
- * short for Ghana/UK/NG local transfers plus manual credit.
+ * short for Ghana/UK/NG/EUR SEPA transfers plus manual credit.
  */
 export const STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES = 24 * 60;
 
@@ -117,11 +133,15 @@ export function buildStaticFallbackDepositInfo(params: {
   const ref = staticDepositNarrationRef(params.txnRef);
   const routing = acct.routingNumber ?? acct.sortCode ?? '';
   const label = narrationLabel(asset);
+  const c2bNote =
+    asset === 'EUR'
+      ? ' SEPA C2B is not supported — send from a business account (B2B).'
+      : '';
   return {
     bankName: acct.bankName,
     beneficiary: {
       name: acct.accountName,
-      address: '',
+      address: acct.beneficiaryAddress ?? '',
       country: acct.country,
     },
     wire: {
@@ -131,12 +151,14 @@ export function buildStaticFallbackDepositInfo(params: {
     ...(acct.sortCode ? { sortCode: acct.sortCode } : {}),
     ...(acct.iban ? { iban: acct.iban } : {}),
     ...(acct.bic ? { bic: acct.bic } : {}),
+    ...(acct.bankAddress ? { bankAddress: acct.bankAddress } : {}),
     reference: ref,
     depositBy: params.depositByIso,
     instruction:
       `Deposit exactly ${params.amount} ${asset} to the account above before ${params.depositByIso}. ` +
       `IMPORTANT: add this exact reference to the ${label}: ${ref}. ` +
-      `Transfers without this narration cannot be matched. ` +
+      `Transfers without this narration cannot be matched.` +
+      `${c2bNote} ` +
       `Crypto is sent after ops confirms your fiat deposit.`,
   };
 }

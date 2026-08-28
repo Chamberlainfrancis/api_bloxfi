@@ -8,16 +8,18 @@ import {
 } from '@/core/onramps/staticDepositAccounts';
 
 describe('staticDepositAccounts', () => {
-  it('recognizes GBP / USD / GHS / NGN', () => {
+  it('recognizes GBP / EUR / USD / GHS / NGN', () => {
     expect(isStaticDepositCurrency('GBP')).toBe(true);
+    expect(isStaticDepositCurrency('EUR')).toBe(true);
     expect(isStaticDepositCurrency('usd')).toBe(true);
     expect(isStaticDepositCurrency('GHS')).toBe(true);
     expect(isStaticDepositCurrency('NGN')).toBe(true);
-    expect(isStaticDepositCurrency('EUR')).toBe(false);
+    expect(isStaticDepositCurrency('KES')).toBe(false);
   });
 
-  it('marks GBP, GHS and NGN as preferred static (not USD)', () => {
+  it('marks GBP, EUR, GHS and NGN as preferred static (not USD)', () => {
     expect(isPreferredStaticDepositCurrency('GBP')).toBe(true);
+    expect(isPreferredStaticDepositCurrency('EUR')).toBe(true);
     expect(isPreferredStaticDepositCurrency('ghs')).toBe(true);
     expect(isPreferredStaticDepositCurrency('NGN')).toBe(true);
     expect(isPreferredStaticDepositCurrency('USD')).toBe(false);
@@ -50,6 +52,33 @@ describe('staticDepositAccounts', () => {
       'add this exact reference to the payment narration / reference: ON-4e8d1ff74716a08423c1cb1b'
     );
     expect(info?.instruction).toContain('Transfers without this narration cannot be matched');
+  });
+
+  it('builds EUR SEPA Ryvyl/Iberbanco instructions with IBAN/BIC, addresses, and C2B warning', () => {
+    const info = buildStaticFallbackDepositInfo({
+      currency: 'EUR',
+      amount: 2500,
+      txnRef: 'ON-eur-sepa',
+      depositByIso: '2026-07-24T00:00:00.000Z',
+    });
+    expect(info).toMatchObject({
+      bankName: 'RYVYL (EU) EAD',
+      beneficiary: {
+        name: 'IBERBANCO',
+        address: '4 Robert Speck Parkway, Mississauga, ON L4Z 1S1, Canada',
+        country: 'BG',
+      },
+      wire: { accountNumber: 'BG51TRUD40059780011849', routingNumber: '' },
+      iban: 'BG51TRUD40059780011849',
+      bic: 'TRUDBG21',
+      bankAddress:
+        'Triadica District, "Pozitano" 2 square, "Perform Business Center", fl. 3, 1000 Sofia, Bulgaria',
+      reference: 'ON-eur-sepa',
+    });
+    expect(info?.instruction).toContain(
+      'add this exact reference to the SEPA payment reference: ON-eur-sepa'
+    );
+    expect(info?.instruction).toContain('SEPA C2B is not supported');
   });
 
   it('builds USD Cross River, GHS FBN Bank GhIPSS, and NGN Wema instructions', () => {
@@ -93,15 +122,16 @@ describe('staticDepositAccounts', () => {
   it('gives preferred-static rails 24h to deposit and others 3h', () => {
     expect(onrampDepositWindowMinutes('GHS')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('gbp')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('EUR')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('NGN')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('USD')).toBe(180);
-    expect(onrampDepositWindowMinutes('EUR')).toBe(180);
+    expect(onrampDepositWindowMinutes('KES')).toBe(180);
   });
 
   it('returns null for unsupported currencies', () => {
     expect(
       buildStaticFallbackDepositInfo({
-        currency: 'EUR',
+        currency: 'KES',
         amount: 1,
         txnRef: 'ON1',
         depositByIso: '2026-07-24T00:00:00.000Z',

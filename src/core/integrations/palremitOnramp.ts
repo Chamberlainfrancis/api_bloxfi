@@ -429,7 +429,9 @@ export async function createOnrampPalremitFiatDeposit(
     });
   };
 
-  // GBP / GHS / NGN: prefer platform receiving accounts for now (ops manual credit).
+  // GBP / EUR / GHS / NGN: prefer platform receiving accounts for now (ops manual credit).
+  // EUR is a shared house SEPA account — Graph/Bancara businesses (Carlston, Briana,
+  // SMS Data) use it too; do not provision a named EUR VA.
   // NGN Wema is temporary — remove from preferred static when Kuda VAs return.
   // Skip orchestrator provision entirely so we always return bank details.
   if (isPreferredStaticDepositCurrency(asset)) {

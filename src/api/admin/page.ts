@@ -225,7 +225,7 @@ const LABELS = {
   inverseRate:"Inverse rate", fromCurrency:"From", toCurrency:"To", fromChain:"Network", failedReason:"Failure reason",
   expiresAt:"Quote expires", createdAt:"Created", updatedAt:"Updated", provisionedAccountId:"Palremit account",
   clientReference:"Palremit reference", withdrawalAsset:"Payout asset", user:"Customer", beneficiary:"Beneficiary", reference:"Reference",
-  sortCode:"Sort code", iban:"IBAN", bic:"BIC / SWIFT"
+  sortCode:"Sort code", iban:"IBAN", bic:"BIC / SWIFT", bankAddress:"Bank address"
 };
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 

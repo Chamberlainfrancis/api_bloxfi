@@ -383,6 +383,55 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(orch.staticFallbackReason).toBe('preferred_static');
   });
 
+  it('prefers static EUR SEPA account without calling provision', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity for preferred EUR static');
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'EUR',
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).not.toBeNull();
+    expect(result?.depositInfo.iban).toBe('BG51TRUD40059780011849');
+    expect(result?.depositInfo.bic).toBe('TRUDBG21');
+    expect(result?.depositInfo.bankName).toBe('RYVYL (EU) EAD');
+    expect(result?.depositInfo.beneficiary.name).toBe('IBERBANCO');
+    expect(result?.depositInfo.beneficiary.address).toBe(
+      '4 Robert Speck Parkway, Mississauga, ON L4Z 1S1, Canada'
+    );
+    expect(result?.depositInfo.reference).toBe('ON1234567890');
+    expect(result?.depositInfo.instruction).toContain('SEPA C2B is not supported');
+    const orch = result?.providerRefs.palremitOrchestrator as Record<string, unknown>;
+    expect(orch.providerName).toBe('static_fallback');
+    expect(orch.staticFallbackReason).toBe('preferred_static');
+  });
+
+  it('gives Graph/Bancara businesses the same EUR house SEPA account (no Graph provision)', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
+      throw new Error('should not call liquidity for EUR even when useGraphUsd');
+    });
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'EUR',
+      businessReference: BRIANA_BUSINESS_REFERENCE,
+      businessName: 'BRIANA PAYMENTS LIMITED',
+      useGraphUsd: true,
+      graphKycInput: individualGraphKycInput,
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result?.depositInfo.iban).toBe('BG51TRUD40059780011849');
+    expect(result?.depositInfo.beneficiary.name).toBe('IBERBANCO');
+    expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
+      providerName: 'static_fallback',
+      staticFallbackReason: 'preferred_static',
+    });
+  });
+
   it('prefers static GHS account without calling provision', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async () => {
       throw new Error('should not call liquidity for preferred GHS static');

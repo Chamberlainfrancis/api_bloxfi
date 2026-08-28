@@ -24,6 +24,10 @@ function norm(ccy: string): string {
   return ccy.trim().toUpperCase();
 }
 
+function sidesOf(rule: { sides?: readonly PairMarkupSide[] }): readonly PairMarkupSide[] {
+  return rule.sides ?? ['buy', 'sell'];
+}
+
 export function findPairMarkup(fromCurrency: string, toCurrency: string): PairMarkupMatch | null {
   const from = norm(fromCurrency);
   const to = norm(toCurrency);
@@ -32,10 +36,11 @@ export function findPairMarkup(fromCurrency: string, toCurrency: string): PairMa
   for (const rule of PAIR_MARKUP_RULES) {
     const fiat = norm(rule.fiat);
     const crypto = new Set(rule.crypto.map(norm));
-    if (from === fiat && crypto.has(to)) {
+    const sides = sidesOf(rule);
+    if (from === fiat && crypto.has(to) && sides.includes('buy')) {
       return { fiat: rule.fiat, markup: rule.markup, side: 'buy' };
     }
-    if (crypto.has(from) && to === fiat) {
+    if (crypto.has(from) && to === fiat && sides.includes('sell')) {
       return { fiat: rule.fiat, markup: rule.markup, side: 'sell' };
     }
   }
