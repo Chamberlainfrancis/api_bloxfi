@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { getOfframpRate } from '@/core/offramps/getOfframpRate';
 
 describe('getOfframpRate — pair markup', () => {
-  it('applies 25 bps below marketRate for USDT → EUR', async () => {
+  it('applies 0.5% below marketRate for USDT → EUR', async () => {
     const result = await getOfframpRate('usdt', 'eur', 'TRC20', {
       getRateFromPalremit: vi.fn(async () => ({
         fromCurrency: 'usdt',
@@ -18,7 +18,7 @@ describe('getOfframpRate — pair markup', () => {
         perCurrency: 'USDT',
       })),
     });
-    const customer = 0.87 * 0.9975;
+    const customer = 0.87 * 0.995;
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
     expect(Number(result.inverseRate)).toBeCloseTo(1 / customer, 10);
   });
@@ -42,7 +42,7 @@ describe('getOfframpRate — pair markup', () => {
     expect(result.conversionRate).toBe('1450');
   });
 
-  it('floors EUR at OwlPay then takes 25 bps so the customer rate is below OwlPay', async () => {
+  it('floors EUR at OwlPay then takes 0.5% so the customer rate is below OwlPay', async () => {
     const result = await getOfframpRate('usdt', 'eur', 'TRC20', {
       getRateFromPalremit: vi.fn(async () => ({
         fromCurrency: 'usdt',
@@ -59,7 +59,7 @@ describe('getOfframpRate — pair markup', () => {
       })),
       executableRate: 0.855,
     });
-    const customer = 0.855 * 0.9975;
+    const customer = 0.855 * 0.995;
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
     expect(Number(result.conversionRate)).toBeLessThan(0.855);
   });

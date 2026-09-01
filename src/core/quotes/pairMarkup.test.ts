@@ -16,14 +16,14 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('eur', 'usdc')?.side).toBe('buy');
   });
 
-  it('returns 25 bps sell for USD/USDT/USDC → EUR offramp', () => {
+  it('returns 0.5% sell for USD/USDT/USDC → EUR offramp', () => {
     expect(findPairMarkup('usdt', 'eur')).toEqual({
       fiat: 'EUR',
-      markup: 0.0025,
+      markup: 0.005,
       side: 'sell',
     });
     expect(findPairMarkup('USD', 'EUR')?.side).toBe('sell');
-    expect(findPairMarkup('usdc', 'eur')?.markup).toBe(0.0025);
+    expect(findPairMarkup('usdc', 'eur')?.markup).toBe(0.005);
   });
 
   it('returns null for corridors that are not USD↔EUR', () => {
@@ -49,18 +49,18 @@ describe('applyPairMarkup', () => {
     expect(priced.conversion).toBeCloseTo(100 / (0.87 * 1.024), 10);
   });
 
-  it('offramp sell: customerRate = marketRate × (1 − 25bps), less EUR out', () => {
+  it('offramp sell: customerRate = marketRate × (1 − 0.5%), less EUR out', () => {
     const priced = applyPairMarkup({
       amount: 1000,
       toCurrency: 'eur',
       marketRate: '0.87',
       rateCurrency: 'EUR',
       perCurrency: 'USDT',
-      markup: 0.0025,
+      markup: 0.005,
       side: 'sell',
     });
-    expect(Number(priced.conversionRate)).toBeCloseTo(0.87 * 0.9975, 10);
-    expect(priced.conversion).toBeCloseTo(1000 * 0.87 * 0.9975, 10);
+    expect(Number(priced.conversionRate)).toBeCloseTo(0.87 * 0.995, 10);
+    expect(priced.conversion).toBeCloseTo(1000 * 0.87 * 0.995, 10);
   });
 
   it('buy path matches applyOnrampAccountMarkup', () => {
