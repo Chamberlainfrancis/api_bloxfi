@@ -36,6 +36,7 @@ import {
   retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote } from '@/core/quotes';
+import { findPairMarkup } from '@/core/quotes/pairMarkup';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   hydrateOfframpCreateFromQuote,
@@ -128,7 +129,7 @@ export async function getOfframpRates(
       {
         getRateFromPalremit,
         executableRate,
-        requireExecutable: corridorReady && q.toCurrency.trim().toLowerCase() === 'eur',
+        requireExecutable: corridorReady && findPairMarkup(q.fromCurrency, q.toCurrency) != null,
       }
     );
     if (q.amount != null && corridorReady) {

@@ -30,4 +30,19 @@ describe('getOnrampRate — pair markup', () => {
     });
     expect(result.conversionRate).toBe('1');
   });
+
+  it('applies 0.5% on marketRate for CAD → USDT', async () => {
+    const result = await getOnrampRate('cad', 'usdt', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'cad',
+        toCurrency: 'usdt',
+        conversionRate: '1.38',
+        marketRate: '1.375',
+        rateCurrency: 'CAD',
+        perCurrency: 'USDT',
+      })),
+    });
+    expect(Number(result.conversionRate)).toBeCloseTo(1.375 * 1.005, 10);
+    expect(result.marketRate).toBe('1.375');
+  });
 });

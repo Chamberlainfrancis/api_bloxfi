@@ -26,7 +26,22 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('usdc', 'eur')?.markup).toBe(0.005);
   });
 
-  it('returns null for corridors that are not USD↔EUR', () => {
+  it('returns 0.5% buy and sell for CAD ↔ USD/USDT/USDC', () => {
+    expect(findPairMarkup('cad', 'usdt')).toEqual({
+      fiat: 'CAD',
+      markup: 0.005,
+      side: 'buy',
+    });
+    expect(findPairMarkup('USDT', 'CAD')).toEqual({
+      fiat: 'CAD',
+      markup: 0.005,
+      side: 'sell',
+    });
+    expect(findPairMarkup('CAD', 'USD')?.markup).toBe(0.005);
+    expect(findPairMarkup('usdc', 'cad')?.side).toBe('sell');
+  });
+
+  it('returns null for corridors that are not USD↔EUR or USD↔CAD', () => {
     expect(findPairMarkup('usd', 'usdt')).toBeNull();
     expect(findPairMarkup('ngn', 'usdt')).toBeNull();
     expect(findPairMarkup('usdt', 'ngn')).toBeNull();
