@@ -253,7 +253,8 @@ function showDetailMsg(msg, kind) {
   });
 }
 
-function payoutRetryFormHtml() {
+function payoutRetryFormHtml(reissue) {
+  var label = reissue ? "Retry with new payout" : "Retry fiat payout";
   return '<div class="payout-retry-form">' +
     '<div class="payout-retry-fields">' +
     '<label for="retryFiatPasscode">Passcode</label>' +
@@ -262,7 +263,7 @@ function payoutRetryFormHtml() {
     '<input type="text" id="retryFiatActor" placeholder="Optional" autocomplete="name" />' +
     "</div>" +
     '<div id="retryFiatPayoutMsg" class="payout-retry-msg" style="display:none"></div>' +
-    '<div class="actions"><button type="button" class="ok" id="retryFiatPayout">Retry fiat payout</button></div>' +
+    '<div class="actions"><button type="button" class="ok" id="retryFiatPayout">' + label + '</button></div>' +
     "</div>";
 }
 
@@ -580,12 +581,23 @@ async function openDetail(id, forceType) {
           '<div class="notice bad">Palremit rejected the fiat payout:</div>' +
           '<div class="mono" style="font-size:12px;margin:8px 0;word-break:break-word">' + esc(t.payoutError) + "</div>" +
           payoutHint +
-          (t.canRetryFiatPayout ? payoutRetryFormHtml() : "") +
+          (t.canRetryFiatPayout ? payoutRetryFormHtml(t.canReissueFiatPayout) : "") +
+          "</div></div>";
+      } else if (t.lpWithdrawalState === "pending" || t.lpWithdrawalState === "processing" || t.withdrawalProcessing) {
+        body += '<div class="section"><h3>Fiat payout</h3><div class="card">' +
+          '<div class="notice">Palremit payout is still processing. Retry is disabled until it fails, is refunded, or completes.</div>' +
+          (t.lpWithdrawalState ? '<div class="muted" style="margin:8px 0">Palremit state: ' + esc(t.lpWithdrawalState) + "</div>" : "") +
+          "</div></div>";
+      } else if (t.canReissueFiatPayout) {
+        body += '<div class="section"><h3>Fiat payout</h3><div class="card">' +
+          '<div class="notice bad">Palremit payout failed or was refunded. Retry creates a new payout id and sends it again.</div>' +
+          (t.lpWithdrawalState ? '<div class="muted" style="margin:8px 0">Palremit state: ' + esc(t.lpWithdrawalState) + "</div>" : "") +
+          payoutRetryFormHtml(true) +
           "</div></div>";
       } else if (t.canRetryFiatPayout) {
         body += '<div class="section"><h3>Fiat payout</h3><div class="card">' +
           '<div class="notice">Crypto is confirmed but fiat payout has not been sent to Palremit yet.</div>' +
-          payoutRetryFormHtml() +
+          payoutRetryFormHtml(false) +
           "</div></div>";
       }
     }
@@ -615,9 +627,15 @@ async function openDetail(id, forceType) {
 
     if (docs.length) body += section("Documents", docsHtml(docs));
 
+    const superseded = Array.isArray(po.supersededWithdrawalIds)
+      ? po.supersededWithdrawalIds.filter(Boolean).join(", ")
+      : "";
     body += section("Liquidity provider (Palremit)", kvPairs([
       ["Payout to Palremit", pi.sent ? "Sent" : "Not sent yet"],
       ["Withdrawal status", po.withdrawalStatus || null],
+      ["Live Palremit state", t.lpWithdrawalState || null],
+      ["Palremit payout id", po.palremitWithdrawalId || t.lpReference, "mono"],
+      ["Superseded payout ids", superseded || null, "mono"],
       ["Palremit reference", po.clientReference || t.txnRef || t.lpReference, "mono"],
       ["Palremit account", po.provisionedAccountId, "mono"],
       ["Payout asset", po.withdrawalAsset ? String(po.withdrawalAsset).toUpperCase() : null],
@@ -834,7 +852,9 @@ async function retryFiatPayout(offrampId, txnRef) {
     });
     const okMsg = data.status === "already_initiated"
       ? "Fiat payout was already initiated at Palremit."
-      : "Fiat payout initiated at Palremit.";
+      : data.status === "reissued"
+        ? "New Palremit payout created. Previous failed/refunded payout was superseded."
+        : "Fiat payout initiated at Palremit.";
     showDetailMsg(okMsg, "ok");
     await openDetail(offrampId, "offramp");
     if (state.view === "transactions" && state.type === "offramp") await load(true);

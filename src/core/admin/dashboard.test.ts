@@ -187,7 +187,7 @@ describe('extractFiatPayoutError', () => {
 });
 
 describe('canRetryOfframpFiatPayout', () => {
-  it('allows retry only in CRYPTO_CONFIRMED without a withdrawal id', () => {
+  it('allows handoff retry in CRYPTO_CONFIRMED without a withdrawal id', () => {
     expect(
       canRetryOfframpFiatPayout({
         status: 'CRYPTO_CONFIRMED',
@@ -205,5 +205,54 @@ describe('canRetryOfframpFiatPayout', () => {
     expect(canRetryOfframpFiatPayout({ status: 'FIAT_PENDING', timeline: {}, providerRefs: {} })).toBe(
       false
     );
+  });
+
+  it('allows reissue when Palremit reports failed or stored status is failed', () => {
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'COMPLETED',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        lpWithdrawalState: 'failed',
+      })
+    ).toBe(true);
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'COMPLETED',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        lpWithdrawalState: 'refunded',
+      })
+    ).toBe(true);
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'FIAT_PENDING',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        providerRefs: { palremitOrchestrator: { withdrawalStatus: 'failed' } },
+      })
+    ).toBe(true);
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'COMPLETED',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        lpWithdrawalState: 'successful',
+      })
+    ).toBe(false);
+  });
+
+  it('does not allow retry while Palremit is still processing', () => {
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'FIAT_PENDING',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        providerRefs: { palremitOrchestrator: { withdrawalStatus: 'failed' } },
+        lpWithdrawalState: 'processing',
+      })
+    ).toBe(false);
+    expect(
+      canRetryOfframpFiatPayout({
+        status: 'FIAT_PENDING',
+        timeline: { fiatWithdrawalId: 'wd-1' },
+        lpWithdrawalState: 'pending',
+      })
+    ).toBe(false);
   });
 });

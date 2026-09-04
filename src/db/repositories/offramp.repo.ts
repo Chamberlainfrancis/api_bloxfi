@@ -154,7 +154,8 @@ export async function updateOfframpStatus(
     failedReason?: string | null;
     lpReference?: string | null;
     providerRefs?: object | null;
-  }
+  },
+  options?: { emitPartnerWebhook?: boolean }
 ): Promise<OfframpRow | null> {
   const existing = await prisma.offramp.findUnique({ where: { id } });
   const mergedProviderRefs =
@@ -184,7 +185,9 @@ export async function updateOfframpStatus(
     },
   });
   const eventType = shouldEmitRampEvent(existing?.status ?? null, row.status, mapOfframpStatusToEvent);
-  if (eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
+  if (eventType && options?.emitPartnerWebhook !== false) {
+    schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
+  }
   return row as OfframpRow | null;
 }
 

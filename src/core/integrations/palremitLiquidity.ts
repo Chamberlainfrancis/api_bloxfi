@@ -234,6 +234,117 @@ function parsePalremitWithdrawalBody(raw: unknown): PalremitWithdrawalCreateResu
   return { id, client_reference: clientRef, state, raw };
 }
 
+/** GET /v1/withdrawals/:id */
+export async function getPalremitWithdrawalById(
+  request: PalremitLiquidityRequestFn,
+  withdrawalId: string
+): Promise<PalremitWithdrawalCreateResult | null> {
+  const id = withdrawalId?.trim();
+  if (!id) return null;
+  try {
+    const res = await request<Record<string, unknown>>(`/v1/withdrawals/${encodeURIComponent(id)}`, {
+      method: 'GET',
+    });
+    if (res.status !== 200) return null;
+    return parsePalremitWithdrawalBody(res.data);
+  } catch (e) {
+    if (isHttpError(e) && e.status === 404) return null;
+    throw e;
+  }
+}
+
+export type PalremitReissueResult = {
+  id: string;
+  previous_id: string;
+  client_reference: string;
+  state: string;
+};
+
+export async function reissuePalremitWithdrawal(
+  request: PalremitLiquidityRequestFn,
+  withdrawalId: string,
+  idempotencyKey: string
+): Promise<
+  | ({ ok: true } & PalremitWithdrawalCreateResult & { reissue: PalremitReissueResult })
+  | PalremitWithdrawalFailure
+> {
+  const id = withdrawalId.trim();
+  const path = `/v1/withdrawals/${encodeURIComponent(id)}/reissue`;
+  const logCategory = getPalremitLogCategory({
+    api: 'liquidity',
+    method: 'POST',
+    path,
+    idempotencyKey,
+  });
+  let res: { status: number; data: Record<string, unknown> };
+  try {
+    res = await request<Record<string, unknown>>(path, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  } catch (e) {
+    if (isHttpError(e)) {
+      const message = formatPalremitWithdrawalError(e.data, e.status);
+      logger.error(
+        {
+          logCategory,
+          path,
+          operation: `POST ${path}`,
+          httpStatus: e.status,
+          palremitMessage: message,
+        },
+        buildPalremitFailureLogMsg({
+          category: logCategory,
+          responseData: e.data,
+          method: 'POST',
+          path,
+          httpStatus: e.status,
+        })
+      );
+      return { ok: false, message, httpStatus: e.status, raw: e.data };
+    }
+    throw e;
+  }
+  if (res.status !== 202) {
+    const message = formatPalremitWithdrawalError(res.data, res.status);
+    return { ok: false, message, httpStatus: res.status, raw: res.data };
+  }
+  const body = parsePalremitReissueBody(res.data);
+  if (!body) {
+    return {
+      ok: false,
+      message: 'Palremit accepted reissue but response was missing the new payout id',
+      httpStatus: res.status,
+      raw: res.data,
+    };
+  }
+  return {
+    ok: true,
+    id: body.id,
+    client_reference: body.client_reference,
+    state: body.state,
+    raw: res.data,
+    reissue: body,
+  };
+}
+
+function parsePalremitReissueBody(raw: unknown): PalremitReissueResult | null {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const wrap = raw as { data?: unknown };
+  const candidate =
+    wrap.data != null && typeof wrap.data === 'object' && !Array.isArray(wrap.data)
+      ? (wrap.data as Record<string, unknown>)
+      : (raw as Record<string, unknown>);
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  const previousId =
+    typeof candidate.previous_id === 'string' ? candidate.previous_id.trim() : '';
+  const clientRef =
+    typeof candidate.client_reference === 'string' ? candidate.client_reference.trim() : '';
+  const state = typeof candidate.state === 'string' ? candidate.state.trim() : '';
+  if (!id || !previousId || !clientRef) return null;
+  return { id, previous_id: previousId, client_reference: clientRef, state };
+}
+
 /** GET /v1/withdrawals/by-client-ref/:client_reference */
 export async function getPalremitWithdrawalByClientReference(
   request: PalremitLiquidityRequestFn,
