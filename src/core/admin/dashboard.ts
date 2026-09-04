@@ -12,6 +12,12 @@ import { AppError } from '@/types';
 import { logger } from '@/lib/logger';
 import { buildAuditTrail } from '@/core/admin/auditTrail';
 import {
+  canReissueOfframpFiatPayout,
+  canRetryOfframpHandoff,
+  offrampFiatWithdrawalId,
+  storedWithdrawalStatus,
+} from '@/core/offramps/offrampFiatRetry';
+import {
   expireOnrampIfDepositPastDue,
   expireOfframpIfDepositPastDue,
   expireStaleOnramps,
@@ -145,21 +151,19 @@ export function extractFiatPayoutError(row: {
   return fromOrch || null;
 }
 
-/** Operator may retry fiat payout when crypto is confirmed but LP handoff never started. */
+/** Operator may retry fiat payout when handoff never started, or LP failed/refunded. */
 export function canRetryOfframpFiatPayout(row: {
   status: string;
   timeline?: unknown;
   providerRefs?: unknown;
+  lpWithdrawalState?: string | null;
 }): boolean {
-  if (row.status !== 'CRYPTO_CONFIRMED') return false;
-  const timeline = asRecord(row.timeline);
-  if (timeline.fiatWithdrawalCompleted === true) return false;
-  const orch = orchRefs(row.providerRefs);
-  const wd =
-    (typeof timeline.fiatWithdrawalId === 'string' && timeline.fiatWithdrawalId.trim()) ||
-    (typeof orch.palremitWithdrawalId === 'string' && orch.palremitWithdrawalId.trim()) ||
-    '';
-  return !wd;
+  if (canRetryOfframpHandoff(row)) return true;
+  return canReissueOfframpFiatPayout({
+    withdrawalId: offrampFiatWithdrawalId(row),
+    lpState: row.lpWithdrawalState ?? null,
+    storedWithdrawalStatus: storedWithdrawalStatus(row.providerRefs),
+  });
 }
 
 export interface ListRow {
@@ -365,6 +369,21 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     }
   }
 
+  let lpWithdrawalState: string | null = null;
+  if (type === 'offramp') {
+    const wdId = offrampFiatWithdrawalId(row);
+    if (wdId) {
+      try {
+        const { createPalremitLiquidityAdapter } = await import('@/services/palremitAdapters');
+        const { getPalremitWithdrawalById } = await import('@/core/integrations/palremitLiquidity');
+        const live = await getPalremitWithdrawalById(createPalremitLiquidityAdapter(), wdId);
+        lpWithdrawalState = live?.state ? live.state.toLowerCase() : null;
+      } catch {
+        lpWithdrawalState = null;
+      }
+    }
+  }
+
   return {
     ...row,
     type,
@@ -372,7 +391,17 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     beneficiaryAccount,
     withdrawalProcessing: isWithdrawalProcessing(type, row.status, row.providerRefs),
     payoutError: type === 'offramp' ? extractFiatPayoutError(row) : null,
-    canRetryFiatPayout: type === 'offramp' ? canRetryOfframpFiatPayout(row) : false,
+    lpWithdrawalState,
+    canRetryFiatPayout:
+      type === 'offramp' ? canRetryOfframpFiatPayout({ ...row, lpWithdrawalState }) : false,
+    canReissueFiatPayout:
+      type === 'offramp'
+        ? canReissueOfframpFiatPayout({
+            withdrawalId: offrampFiatWithdrawalId(row),
+            lpState: lpWithdrawalState,
+            storedWithdrawalStatus: storedWithdrawalStatus(row.providerRefs),
+          })
+        : false,
     feeSettlementPending:
       type === 'offramp' &&
       (() => {
@@ -803,6 +832,7 @@ export async function retryOfframpFiatPayoutAdmin(
 ): Promise<{
   status: string;
   withdrawalId?: string;
+  previousWithdrawalId?: string;
   txnRef?: string;
   message?: string;
   detail: unknown;
@@ -814,10 +844,77 @@ export async function retryOfframpFiatPayoutAdmin(
     import('@/core/offramps/retryOfframpFiatPayout'),
   ]);
   const { createPalremitLiquidityAdapter } = await import('@/services/palremitAdapters');
+  const { getPalremitWithdrawalById } = await import('@/core/integrations/palremitLiquidity');
+  const { decideOfframpFiatRetry, offrampFiatWithdrawalId } = await import(
+    '@/core/offramps/offrampFiatRetry'
+  );
   const liquidityRequest = createPalremitLiquidityAdapter();
 
   const existing = await offrampRepo.findOfframpById(params.offrampId);
   if (!existing) throw new AppError('Offramp not found', 'NOT_FOUND', 404);
+
+  const existingWd = offrampFiatWithdrawalId(existing);
+  if (existingWd) {
+    let lpState: string | null = null;
+    try {
+      const live = await getPalremitWithdrawalById(liquidityRequest, existingWd);
+      lpState = live?.state ? live.state.toLowerCase() : null;
+    } catch {
+      lpState = null;
+    }
+    const decision = decideOfframpFiatRetry({ withdrawalId: existingWd, lpState });
+    if (decision.action === 'reject') {
+      throw new AppError(decision.message, decision.code, decision.statusCode);
+    }
+    if (decision.action === 'already_initiated') {
+      const detail = await getTransactionDetail('offramp', params.offrampId);
+      return {
+        status: 'already_initiated',
+        withdrawalId: decision.withdrawalId,
+        txnRef: existing.txnRef ?? undefined,
+        detail,
+      };
+    }
+    if (decision.action === 'reissue') {
+      const reissueMod = await import('@/core/offramps/reissueOfframpFiatPayout');
+      const reissued = await reissueMod.reissueOfframpFiatPayout(
+        {
+          findOfframpById: offrampRepo.findOfframpById,
+          updateOfframpStatus: offrampRepo.updateOfframpStatus,
+        },
+        liquidityRequest,
+        { offrampId: params.offrampId, withdrawalId: decision.withdrawalId }
+      );
+      if (reissued.status === 'rejected') {
+        throw new AppError(reissued.message, reissued.code, reissued.statusCode);
+      }
+      const detail = await getTransactionDetail('offramp', params.offrampId);
+      await adminActionRepo.createAdminAction({
+        txnType: 'offramp',
+        txnId: params.offrampId,
+        fromStatus: existing.status,
+        toStatus: 'FIAT_PENDING',
+        note: `Fiat payout reissued (${reissued.previousWithdrawalId} → ${reissued.withdrawalId})`,
+        actor: params.actor ?? null,
+      });
+      logger.info(
+        {
+          offrampId: params.offrampId,
+          actor: params.actor,
+          previousWithdrawalId: reissued.previousWithdrawalId,
+          withdrawalId: reissued.withdrawalId,
+        },
+        'admin reissued offramp fiat payout'
+      );
+      return {
+        status: 'reissued',
+        withdrawalId: reissued.withdrawalId,
+        previousWithdrawalId: reissued.previousWithdrawalId,
+        txnRef: reissued.txnRef,
+        detail,
+      };
+    }
+  }
 
   const outcome = await retryMod.retryOfframpFiatPayout(
     {

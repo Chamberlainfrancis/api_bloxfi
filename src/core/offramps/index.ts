@@ -5,6 +5,7 @@ export { listOfframps } from '@/core/offramps/listOfframps';
 export { cancelOfframp } from '@/core/offramps/cancelOfframp';
 export { advanceOfframpIfDepositReady } from '@/core/offramps/advanceOfframpPayout';
 export { retryOfframpFiatPayout, type RetryOfframpFiatPayoutResult } from '@/core/offramps/retryOfframpFiatPayout';
+export { reissueOfframpFiatPayout, type ReissueOfframpFiatPayoutResult } from '@/core/offramps/reissueOfframpFiatPayout';
 export {
   settleOfframpPlatformFee,
   queueOfframpPlatformFeeSettlement,
