@@ -37,6 +37,7 @@ import {
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote } from '@/core/quotes';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
+import { roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   hydrateOfframpCreateFromQuote,
@@ -111,7 +112,10 @@ export async function getOfframpRates(
     let feeQuote: PalremitWithdrawalFeeQuote | null = null;
     if (corridorReady) {
       const previewRate = parseFloat(preview.conversionRate) || parseFloat(String(preview.marketRate)) || 0;
-      const payoutFiat = q.amount != null && previewRate > 0 ? q.amount * previewRate : 10_000;
+      const payoutFiat = roundPayoutFiatAmount(
+        preview.toCurrency,
+        q.amount != null && previewRate > 0 ? q.amount * previewRate : 10_000
+      );
       feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
         asset: preview.toCurrency,
         amount: payoutFiat,
