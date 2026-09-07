@@ -19,4 +19,22 @@ describe('getLimits', () => {
     });
     expect(ghs?.offramp).toBeUndefined();
   });
+
+  it('advertises a JPY offramp rail without claiming onramp', () => {
+    const jpy = getLimits().rails.find((r) => r.rail === 'JPY');
+    expect(jpy).toMatchObject({
+      rail: 'JPY',
+      currency: 'JPY',
+      highValueSupport: true,
+      processingTime: '1-2 business days',
+    });
+    expect(jpy?.onramp).toBeUndefined();
+    expect(jpy?.offramp).toEqual({
+      minAmount: '1000',
+      maxAmount: '46853070',
+      currency: 'JPY',
+      dailyLimit: '10000000',
+      monthlyLimit: '46853070',
+    });
+  });
 });

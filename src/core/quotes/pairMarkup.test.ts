@@ -41,7 +41,22 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('usdc', 'cad')?.side).toBe('sell');
   });
 
-  it('returns null for corridors that are not USD↔EUR or USD↔CAD', () => {
+  it('returns 0.5% buy and sell for JPY ↔ USD/USDT/USDC', () => {
+    expect(findPairMarkup('jpy', 'usdt')).toEqual({
+      fiat: 'JPY',
+      markup: 0.005,
+      side: 'buy',
+    });
+    expect(findPairMarkup('USDC', 'JPY')).toEqual({
+      fiat: 'JPY',
+      markup: 0.005,
+      side: 'sell',
+    });
+    expect(findPairMarkup('JPY', 'USD')?.markup).toBe(0.005);
+    expect(findPairMarkup('usdt', 'jpy')?.side).toBe('sell');
+  });
+
+  it('returns null for corridors that are not USD↔EUR, USD↔CAD, or USD↔JPY', () => {
     expect(findPairMarkup('usd', 'usdt')).toBeNull();
     expect(findPairMarkup('ngn', 'usdt')).toBeNull();
     expect(findPairMarkup('usdt', 'ngn')).toBeNull();

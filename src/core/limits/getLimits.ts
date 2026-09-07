@@ -44,6 +44,21 @@ const DEFAULT_RAILS: RailLimits[] = [
     highValueSupport: true,
     processingTime: '1-3 business days',
   },
+  {
+    rail: 'JPY',
+    currency: 'JPY',
+    // OwlPay Zengin BANK_TRANSFER. API bound is 162 JPY; live quotes need ≥~1000.
+    // No JPY collection rail — do not advertise onramp here.
+    offramp: {
+      minAmount: '1000',
+      maxAmount: '46853070',
+      currency: 'JPY',
+      dailyLimit: '10000000',
+      monthlyLimit: '46853070',
+    },
+    highValueSupport: true,
+    processingTime: '1-2 business days',
+  },
 ];
 
 const DEFAULT_GLOBAL: GlobalLimits = {

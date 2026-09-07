@@ -1,5 +1,5 @@
 /**
- * Pair-level FX markup (USD↔EUR, USD↔CAD today).
+ * Pair-level FX markup (USD↔EUR, USD↔CAD, USD↔JPY today).
  * Applied on currency-api marketRate; does not change currency-api.
  *
  * Buy (onramp, fiat → crypto): customerRate = marketRate × (1 + markup)

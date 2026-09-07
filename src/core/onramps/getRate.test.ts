@@ -31,6 +31,21 @@ describe('getOnrampRate — pair markup', () => {
     expect(result.conversionRate).toBe('1');
   });
 
+  it('applies 0.5% on marketRate for JPY → USDT', async () => {
+    const result = await getOnrampRate('jpy', 'usdt', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'jpy',
+        toCurrency: 'usdt',
+        conversionRate: '154',
+        marketRate: '153.89',
+        rateCurrency: 'JPY',
+        perCurrency: 'USDT',
+      })),
+    });
+    expect(Number(result.conversionRate)).toBeCloseTo(153.89 * 1.005, 10);
+    expect(result.marketRate).toBe('153.89');
+  });
+
   it('applies 0.5% on marketRate for CAD → USDT', async () => {
     const result = await getOnrampRate('cad', 'usdt', {
       getRateFromPalremit: vi.fn(async () => ({
