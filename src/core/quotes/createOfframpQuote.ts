@@ -16,6 +16,7 @@ import {
   formatOfframpConversionRate,
   formatOfframpInverseRate,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
+import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import {
@@ -116,7 +117,12 @@ export async function createOfframpQuote(
   // Platform fee is taken from the source crypto (gross). The provider fee is
   // quoted on the fiat that remains AFTER the platform fee, matching the math.
   const platformApplied = applyOfframpPlatformFee(input.amount, input.platformFee);
-  const afterPlatformFiat = platformApplied.netAmount * baseRateNum;
+  // OwlPay JPY BANK-TRANSFER 400s fractional yen. Round to ISO minor units
+  // before the dest-fixed provider quote.
+  const afterPlatformFiat = roundPayoutFiatAmount(
+    toCurrency,
+    platformApplied.netAmount * baseRateNum
+  );
 
   const feeQuote = await options.getProviderWithdrawalFeeQuote({
     asset: toCurrency,
@@ -174,6 +180,23 @@ export async function createOfframpQuote(
     platformFee: input.platformFee,
   });
 
+  const receiveDecimals = payoutFiatDecimals(toCurrency);
+  // Zero-decimal fiats (JPY): snap dest to whole units so execution does not
+  // 400 at OwlPay. Two-decimal fiats keep full precision — rounding 2dp can
+  // push receiveNet / OwlPay rate above sendNet (UNFAVORABLE_RATE).
+  const receiveNet =
+    receiveDecimals === 0
+      ? roundPayoutFiatAmount(toCurrency, amounts.receiveNet)
+      : amounts.receiveNet;
+  const receiveGross =
+    receiveDecimals === 0
+      ? roundPayoutFiatAmount(toCurrency, amounts.receiveGross)
+      : amounts.receiveGross;
+  const baseReceiveNet =
+    receiveDecimals === 0
+      ? roundPayoutFiatAmount(toCurrency, amounts.baseReceiveNet)
+      : amounts.baseReceiveNet;
+
   if (amounts.sendNet <= 0) {
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
@@ -181,7 +204,7 @@ export async function createOfframpQuote(
   if (
     offrampImpliedSourceExceedsSendNet({
       sendNet: amounts.sendNet,
-      receiveNet: amounts.receiveNet,
+      receiveNet,
       effectiveRate: executableOk ? executable : null,
     })
   ) {
@@ -205,9 +228,9 @@ export async function createOfframpQuote(
   const quote: RampFeePreview = {
     sendGross: { amount: String(input.amount), currency: fromCurrency },
     sendNet: { amount: amounts.sendNet.toFixed(8), currency: fromCurrency },
-    receiveGross: { amount: amounts.receiveGross.toFixed(2), currency: toCurrency },
-    baseReceiveNet: { amount: amounts.baseReceiveNet.toFixed(2), currency: toCurrency },
-    receiveNet: { amount: amounts.receiveNet.toFixed(2), currency: toCurrency },
+    receiveGross: { amount: receiveGross.toFixed(receiveDecimals), currency: toCurrency },
+    baseReceiveNet: { amount: baseReceiveNet.toFixed(receiveDecimals), currency: toCurrency },
+    receiveNet: { amount: receiveNet.toFixed(receiveDecimals), currency: toCurrency },
     platformFee: {
       type: input.platformFee.type,
       value: input.platformFee.value,
@@ -267,7 +290,7 @@ export async function createOfframpQuote(
     conversionRate: allInRate,
     inverseRate: rateInformation.inverseRate,
     rateValidUntil: rateResponse.rateValidUntil,
-    destinationAmount: amounts.receiveNet,
+    destinationAmount: receiveNet,
     quote,
     fees,
     profit,

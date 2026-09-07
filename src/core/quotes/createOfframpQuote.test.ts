@@ -202,6 +202,56 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
   });
 });
 
+describe('createOfframpQuote — JPY whole yen', () => {
+  it('quotes OwlPay with a whole-yen dest amount (Harbor 400s fractional JPY)', async () => {
+    const getProviderWithdrawalFeeQuote = vi.fn(async () => ({
+      feeUnavailable: false,
+      fees: [{ kind: 'transfer fee', amount: '10', currency: 'USDC' }],
+      totalFee: { amount: '10', currency: 'USDC' },
+      destinationAmount: '1534322',
+      effectiveRate: '154.13072400',
+      expiresAt: null,
+    }));
+    const options = {
+      getRateFromPalremit: vi.fn(async (from: string, to: string) => {
+        if (from === 'usdc' && to === 'usdt') {
+          return { ...rateResponse('1', 'usdt'), conversionRate: '1' };
+        }
+        return {
+          ...rateResponse('153.43223873', 'jpy'),
+          marketRate: '154.203255',
+          rateCurrency: 'JPY',
+          perCurrency: 'USDT',
+        };
+      }),
+      resolvePalremitNetwork: vi.fn(async () => 'BEP20'),
+      getProviderWithdrawalFeeQuote,
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'JPY',
+        country: 'JP',
+        destinationType: 'local_bank',
+        beneficiaryType: 'business',
+      }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'jpy',
+        fromChain: 'BEP20',
+        amount: 10000,
+        corridor: { country: 'JP', destinationType: 'local_bank', beneficiaryType: 'business' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    const quoted = getProviderWithdrawalFeeQuote.mock.calls[0]?.[0] as { amount: number };
+    expect(quoted.amount).toBe(1534322);
+    expect(result.quote.receiveNet.amount).not.toMatch(/\./);
+  });
+});
+
 describe('createOfframpQuote — CNY executable floor', () => {
   it('floors USDT → CNY at OwlPay so a WIRE quote is solvent', async () => {
     const options = {
