@@ -167,7 +167,10 @@ export const createOfframpQuoteBodySchema = z
     fromCurrency: z.string().min(1),
     toCurrency: z.string().min(1),
     fromChain: z.string().min(1),
-    amount: z.number().positive(),
+    /** Crypto the customer sends. Mutually exclusive with destinationAmount. */
+    amount: z.number().positive().optional(),
+    /** Fiat the beneficiary receives. Mutually exclusive with amount. */
+    destinationAmount: z.number().positive().optional(),
     country: z.string().length(2).optional(),
     destinationType: z.string().min(1).optional(),
     beneficiaryType: z.enum(['individual', 'business']).optional(),
@@ -197,11 +200,23 @@ export const createOfframpQuoteBodySchema = z
       }
     }),
   })
+  .superRefine((val, ctx) => {
+    const hasSend = val.amount != null;
+    const hasDest = val.destinationAmount != null;
+    if (hasSend === hasDest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: hasDest ? ['destinationAmount'] : ['amount'],
+        message: 'Send exactly one of amount (crypto send) or destinationAmount (fiat receive)',
+      });
+    }
+  })
   .transform((val) => ({
     fromCurrency: val.fromCurrency.trim().toLowerCase(),
     toCurrency: val.toCurrency.trim().toLowerCase(),
     fromChain: val.fromChain.trim(),
     amount: val.amount,
+    destinationAmount: val.destinationAmount,
     corridor: {
       ...(val.country?.trim() ? { country: val.country.trim().toUpperCase() } : {}),
       ...(val.destinationType?.trim() ? { destinationType: val.destinationType.trim() } : {}),
@@ -211,17 +226,28 @@ export const createOfframpQuoteBodySchema = z
     platformFee: val.platformFee,
   }));
 
-export const getOfframpRatesQuerySchema = z.object({
-  fromCurrency: z.string().min(1),
-  toCurrency: z.string().min(1),
-  fromChain: z.string().optional(),
-  // Optional fee preview: when amount + country + destinationType are supplied,
-  // the response includes a `quote` with the Palremit payout fee deducted.
-  amount: z.coerce.number().positive().optional(),
-  country: z.string().length(2).optional(),
-  destinationType: z.string().min(1).optional(),
-  beneficiaryType: z.enum(['individual', 'business']).optional(),
-});
+export const getOfframpRatesQuerySchema = z
+  .object({
+    fromCurrency: z.string().min(1),
+    toCurrency: z.string().min(1),
+    fromChain: z.string().optional(),
+    // Optional fee preview: amount is crypto send; destinationAmount is fiat
+    // receive. Send at most one. With country + destinationType → `quote`.
+    amount: z.coerce.number().positive().optional(),
+    destinationAmount: z.coerce.number().positive().optional(),
+    country: z.string().length(2).optional(),
+    destinationType: z.string().min(1).optional(),
+    beneficiaryType: z.enum(['individual', 'business']).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.amount != null && val.destinationAmount != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destinationAmount'],
+        message: 'Send only one of amount (crypto send) or destinationAmount (fiat receive)',
+      });
+    }
+  });
 
 export const listOfframpsQuerySchema = z.object({
   userId: z.string().uuid().optional(),

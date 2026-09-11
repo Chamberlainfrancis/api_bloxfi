@@ -15,6 +15,7 @@ import {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
   formatOfframpInverseRate,
+  solveOfframpSendFromDest,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
@@ -38,7 +39,10 @@ export interface CreateOfframpQuoteInput {
   fromCurrency: string;
   toCurrency: string;
   fromChain: string;
-  amount: number;
+  /** Crypto send. Required unless destinationAmount is set. */
+  amount?: number;
+  /** Fiat receive. Required unless amount is set. Locks the bank credit. */
+  destinationAmount?: number;
   corridor: OfframpQuoteCorridor | OfframpQuoteCorridorBody;
   platformFee: PlatformFee;
   accountId: string;
@@ -100,11 +104,20 @@ export async function createOfframpQuote(
   const rateResponse = await options.getRateFromPalremit(fromCurrency, toCurrency, resolvedChain);
   if (!rateResponse) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
+  const destLocked =
+    input.destinationAmount != null
+      ? roundPayoutFiatAmount(toCurrency, input.destinationAmount)
+      : null;
+  if (input.destinationAmount != null && !(destLocked! > 0)) {
+    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
+  const sendHint = input.amount ?? destLocked ?? 1;
+
   let conversionRate = rateResponse.conversionRate;
   const pairPriced = applyPairMarkupIfMatched({
     fromCurrency,
     toCurrency,
-    amount: input.amount,
+    amount: sendHint,
     marketRate: rateResponse.marketRate,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
@@ -114,15 +127,15 @@ export async function createOfframpQuote(
   let baseRateNum = parseFloat(conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
-  // Platform fee is taken from the source crypto (gross). The provider fee is
-  // quoted on the fiat that remains AFTER the platform fee, matching the math.
-  const platformApplied = applyOfframpPlatformFee(input.amount, input.platformFee);
-  // OwlPay JPY BANK-TRANSFER 400s fractional yen. Round to ISO minor units
-  // before the dest-fixed provider quote.
-  const afterPlatformFiat = roundPayoutFiatAmount(
-    toCurrency,
-    platformApplied.netAmount * baseRateNum
-  );
+  // Dest-fixed: quote OwlPay for the exact fiat the bank must receive.
+  // Source-fixed: quote on the fiat that remains after the platform fee.
+  const afterPlatformFiat =
+    destLocked != null
+      ? destLocked
+      : roundPayoutFiatAmount(
+          toCurrency,
+          applyOfframpPlatformFee(input.amount!, input.platformFee).netAmount * baseRateNum
+        );
 
   const feeQuote = await options.getProviderWithdrawalFeeQuote({
     asset: toCurrency,
@@ -146,7 +159,7 @@ export async function createOfframpQuote(
   const repriced = applyPairMarkupIfMatched({
     fromCurrency,
     toCurrency,
-    amount: input.amount,
+    amount: sendHint,
     marketRate: flooredMarket,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
@@ -173,21 +186,32 @@ export async function createOfframpQuote(
     getRate: (from, to, chain) => options.getRateFromPalremit(from, to, chain),
   });
 
+  const sendAmount =
+    destLocked != null
+      ? solveOfframpSendFromDest({
+          destinationAmount: destLocked,
+          baseConversionRate: baseRateNum,
+          feeInSendCurrency,
+          platformFee: input.platformFee,
+        }).sendGross
+      : input.amount!;
+
   const amounts = computeOfframpQuoteAmounts({
-    sendAmount: input.amount,
+    sendAmount,
     baseConversionRate: baseRateNum,
     feeInSendCurrency,
     platformFee: input.platformFee,
   });
 
   const receiveDecimals = payoutFiatDecimals(toCurrency);
-  // Zero-decimal fiats (JPY): snap dest to whole units so execution does not
-  // 400 at OwlPay. Two-decimal fiats keep full precision — rounding 2dp can
-  // push receiveNet / OwlPay rate above sendNet (UNFAVORABLE_RATE).
+  // Dest-fixed: receive is the requested fiat. Source-fixed JPY snaps to
+  // whole yen. Other source-fixed fiats keep full precision.
   const receiveNet =
-    receiveDecimals === 0
-      ? roundPayoutFiatAmount(toCurrency, amounts.receiveNet)
-      : amounts.receiveNet;
+    destLocked != null
+      ? destLocked
+      : receiveDecimals === 0
+        ? roundPayoutFiatAmount(toCurrency, amounts.receiveNet)
+        : amounts.receiveNet;
   const receiveGross =
     receiveDecimals === 0
       ? roundPayoutFiatAmount(toCurrency, amounts.receiveGross)
@@ -212,7 +236,7 @@ export async function createOfframpQuote(
   }
 
   const profit = await buildPalremitProfit({
-    sourceAmount: input.amount,
+    sourceAmount: sendAmount,
     toCurrency,
     rate: conversionRate,
     marketRate: flooredMarket,
@@ -225,8 +249,14 @@ export async function createOfframpQuote(
   const usable =
     feeInSendCurrency != null && Number.isFinite(feeInSendCurrency);
 
+  const allInForRate =
+    destLocked != null && sendAmount > 0 ? destLocked / sendAmount : amounts.allInConversionRate;
+
   const quote: RampFeePreview = {
-    sendGross: { amount: String(input.amount), currency: fromCurrency },
+    sendGross: {
+      amount: destLocked != null ? sendAmount.toFixed(8) : String(input.amount),
+      currency: fromCurrency,
+    },
     sendNet: { amount: amounts.sendNet.toFixed(8), currency: fromCurrency },
     receiveGross: { amount: receiveGross.toFixed(receiveDecimals), currency: toCurrency },
     baseReceiveNet: { amount: baseReceiveNet.toFixed(receiveDecimals), currency: toCurrency },
@@ -246,13 +276,13 @@ export async function createOfframpQuote(
     },
   };
 
-  const allInRate = formatOfframpConversionRate(amounts.allInConversionRate);
+  const allInRate = formatOfframpConversionRate(allInForRate);
   const expiresAt = parseQuoteExpiry(rateResponse.rateValidUntil);
 
   const rateInformation: RateInformation = {
     rate: allInRate,
     conversionRate: allInRate,
-    inverseRate: formatOfframpInverseRate(amounts.allInConversionRate),
+    inverseRate: formatOfframpInverseRate(allInForRate),
     fromCurrency,
     toCurrency,
     fromChain: resolvedChain,
@@ -283,7 +313,7 @@ export async function createOfframpQuote(
     toCurrency,
     fromChain: resolvedChain,
     clientFromChain,
-    sendAmount: input.amount,
+    sendAmount,
     corridor,
     platformFee: input.platformFee,
     baseConversionRate: conversionRate,

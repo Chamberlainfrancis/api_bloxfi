@@ -575,3 +575,129 @@ describe('createOfframpQuote', () => {
     ).rejects.toThrow('OFFRAMP_ACCOUNT_NOT_FOUND');
   });
 });
+
+describe('createOfframpQuote — dest-fixed receive amount', () => {
+  it('locks receiveNet and the OwlPay dest to the requested fiat (no cent drift)', async () => {
+    const getProviderWithdrawalFeeQuote = vi.fn(async () => ({
+      feeUnavailable: false,
+      fees: [],
+      totalFee: { amount: '0', currency: 'USDC' },
+      destinationAmount: '1000.00',
+      effectiveRate: '0.87',
+      expiresAt: null,
+    }));
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.871'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote,
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'DE' }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        fromChain: 'TRC20',
+        destinationAmount: 1000,
+        corridor: { country: 'DE', destinationType: 'local_bank' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    const quoted = getProviderWithdrawalFeeQuote.mock.calls[0]?.[0] as { amount: number };
+    expect(quoted.amount).toBe(1000);
+    expect(result.quote.receiveNet.amount).toBe('1000.00');
+    expect(result.quote.receiveNet.currency).toBe('eur');
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { destinationAmount: number; sendAmount: number };
+    expect(snapshot.destinationAmount).toBe(1000);
+    expect(snapshot.sendAmount).toBeGreaterThan(1000);
+    const customer = 0.87 * 0.995;
+    expect(Number(result.quote.sendNet.amount) * customer).toBeGreaterThanOrEqual(1000 - 1e-6);
+  });
+
+  it('does not change a source-fixed quote when only amount is sent', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.871'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: '865.65',
+        effectiveRate: '0.87',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'DE' }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'DE', destinationType: 'local_bank' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    const customer = 0.87 * 0.995;
+    expect(Number(result.quote.sendGross.amount)).toBe(1000);
+    expect(Number(result.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 8);
+  });
+
+  it('keeps fractional dest cents (1000.50 stays 1000.50)', async () => {
+    const getProviderWithdrawalFeeQuote = vi.fn(async () => ({
+      feeUnavailable: false,
+      fees: [],
+      totalFee: { amount: '0', currency: 'USDC' },
+      destinationAmount: '1000.50',
+      effectiveRate: '0.87',
+      expiresAt: null,
+    }));
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.871'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote,
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'eur',
+        fromChain: 'TRC20',
+        destinationAmount: 1000.5,
+        corridor: { country: 'FR', destinationType: 'local_bank' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0.0175, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(result.quote.receiveNet.amount).toBe('1000.50');
+    expect(
+      (getProviderWithdrawalFeeQuote.mock.calls[0]?.[0] as { amount: number }).amount
+    ).toBe(1000.5);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { destinationAmount: number };
+    expect(snapshot.destinationAmount).toBe(1000.5);
+  });
+});

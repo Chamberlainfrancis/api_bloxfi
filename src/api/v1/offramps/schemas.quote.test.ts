@@ -45,6 +45,27 @@ describe('createOfframpQuoteBodySchema platformFee.network', () => {
     }
   });
 
+  it('accepts destinationAmount instead of amount for dest-fixed quotes', () => {
+    const { amount: _amount, ...rest } = base;
+    const r = createOfframpQuoteBodySchema.safeParse({ ...rest, destinationAmount: 1000.5 });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.destinationAmount).toBe(1000.5);
+      expect(r.data.amount).toBeUndefined();
+    }
+  });
+
+  it('rejects when both amount and destinationAmount are sent', () => {
+    const r = createOfframpQuoteBodySchema.safeParse({ ...base, destinationAmount: 1000 });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects when neither amount nor destinationAmount is sent', () => {
+    const { amount: _amount, ...rest } = base;
+    const r = createOfframpQuoteBodySchema.safeParse(rest);
+    expect(r.success).toBe(false);
+  });
+
   it('rejects a quote without accountId even when country and destinationType are sent', () => {
     const r = createOfframpQuoteBodySchema.safeParse({
       fromCurrency: 'usdt',

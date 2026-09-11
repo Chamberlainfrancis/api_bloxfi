@@ -35,9 +35,9 @@ import {
   listOfframpsQuerySchema,
   retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
-import { createOfframpQuote } from '@/core/quotes';
+import { createOfframpQuote, solveOfframpSendFromDest } from '@/core/quotes';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
-import { roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
+import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   hydrateOfframpCreateFromQuote,
@@ -112,10 +112,13 @@ export async function getOfframpRates(
     let feeQuote: PalremitWithdrawalFeeQuote | null = null;
     if (corridorReady) {
       const previewRate = parseFloat(preview.conversionRate) || parseFloat(String(preview.marketRate)) || 0;
-      const payoutFiat = roundPayoutFiatAmount(
-        preview.toCurrency,
-        q.amount != null && previewRate > 0 ? q.amount * previewRate : 10_000
-      );
+      const destHint =
+        q.destinationAmount != null
+          ? roundPayoutFiatAmount(preview.toCurrency, q.destinationAmount)
+          : q.amount != null && previewRate > 0
+            ? q.amount * previewRate
+            : 10_000;
+      const payoutFiat = roundPayoutFiatAmount(preview.toCurrency, destHint);
       feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
         asset: preview.toCurrency,
         amount: payoutFiat,
@@ -136,14 +139,41 @@ export async function getOfframpRates(
         requireExecutable: corridorReady && findPairMarkup(q.fromCurrency, q.toCurrency) != null,
       }
     );
-    if (q.amount != null && corridorReady) {
-      const rateNum = parseFloat(result.conversionRate) || 0;
-      const grossReceive = q.amount * rateNum;
-      const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
-        feeQuote,
-        sendCurrency: result.fromCurrency,
-        getRate: getRateFromPalremit,
+    const rateNum = parseFloat(result.conversionRate) || 0;
+    const needsPreview =
+      corridorReady && (q.destinationAmount != null || q.amount != null);
+    const feeInSendCurrency = needsPreview
+      ? await resolveTransferFeeInSendCurrency({
+          feeQuote,
+          sendCurrency: result.fromCurrency,
+          getRate: getRateFromPalremit,
+        })
+      : null;
+    if (q.destinationAmount != null && corridorReady && rateNum > 0) {
+      const dest = roundPayoutFiatAmount(result.toCurrency, q.destinationAmount);
+      const receiveDecimals = payoutFiatDecimals(result.toCurrency);
+      const solved = solveOfframpSendFromDest({
+        destinationAmount: dest,
+        baseConversionRate: rateNum,
+        feeInSendCurrency,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xRates' },
       });
+      const previewQuote = buildOfframpFeePreview({
+        sendAmount: solved.sendGross,
+        sendCurrency: result.fromCurrency,
+        receiveCurrency: result.toCurrency,
+        grossReceive: solved.sendGross * rateNum,
+        receiveDecimals,
+        sendDecimals: 8,
+        feeInSendCurrency,
+        feeQuote,
+      });
+      result.quote = {
+        ...previewQuote,
+        receiveNet: { amount: dest.toFixed(receiveDecimals), currency: result.toCurrency },
+      };
+    } else if (q.amount != null && corridorReady) {
+      const grossReceive = q.amount * rateNum;
       result.quote = buildOfframpFeePreview({
         sendAmount: q.amount,
         sendCurrency: result.fromCurrency,

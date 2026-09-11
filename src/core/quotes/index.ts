@@ -16,4 +16,5 @@ export {
   computeOfframpQuoteAmounts,
   formatOfframpConversionRate,
   formatOfframpInverseRate,
+  solveOfframpSendFromDest,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
