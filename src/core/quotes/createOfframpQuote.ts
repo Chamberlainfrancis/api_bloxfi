@@ -117,8 +117,8 @@ export async function createOfframpQuote(
   // Platform fee is taken from the source crypto (gross). The provider fee is
   // quoted on the fiat that remains AFTER the platform fee, matching the math.
   const platformApplied = applyOfframpPlatformFee(input.amount, input.platformFee);
-  // BloxFi ceils EUR to whole euros; OwlPay JPY BANK-TRANSFER 400s fractional
-  // yen. Round to the payout's dest units before the dest-fixed provider quote.
+  // OwlPay JPY BANK-TRANSFER 400s fractional yen. Round to ISO minor units
+  // before the dest-fixed provider quote.
   const afterPlatformFiat = roundPayoutFiatAmount(
     toCurrency,
     platformApplied.netAmount * baseRateNum
@@ -181,10 +181,9 @@ export async function createOfframpQuote(
   });
 
   const receiveDecimals = payoutFiatDecimals(toCurrency);
-  // Whole-unit dest (JPY ISO-0, EUR product ceil): snap before lock so the
-  // Palremit withdrawal amount matches what we quoted. Other two-decimal
-  // fiats keep full precision — rounding 2dp can push receiveNet / OwlPay
-  // rate above sendNet (UNFAVORABLE_RATE).
+  // Zero-decimal fiats (JPY): snap dest to whole units so execution does not
+  // 400 at OwlPay. Two-decimal fiats keep full precision — rounding 2dp can
+  // push receiveNet / OwlPay rate above sendNet (UNFAVORABLE_RATE).
   const receiveNet =
     receiveDecimals === 0
       ? roundPayoutFiatAmount(toCurrency, amounts.receiveNet)
