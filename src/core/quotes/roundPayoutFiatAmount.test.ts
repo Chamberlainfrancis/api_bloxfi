@@ -8,6 +8,18 @@ describe('roundPayoutFiatAmount', () => {
   });
 
   it('keeps two-decimal fiats', () => {
-    expect(roundPayoutFiatAmount('eur', 870.556)).toBe(870.56);
+    expect(roundPayoutFiatAmount('usd', 870.556)).toBe(870.56);
+    expect(roundPayoutFiatAmount('cad', 100.994)).toBe(100.99);
+  });
+
+  it('ceils EUR offramp receive to a whole euro (no cents)', () => {
+    expect(payoutFiatDecimals('eur')).toBe(0);
+    expect(roundPayoutFiatAmount('EUR', 870.01)).toBe(871);
+    expect(roundPayoutFiatAmount('eur', 870.556)).toBe(871);
+    expect(roundPayoutFiatAmount('EUR', 870)).toBe(870);
+  });
+
+  it('does not ceil EUR up from floating-point dust below a cent', () => {
+    expect(roundPayoutFiatAmount('EUR', 870.0000001)).toBe(870);
   });
 });

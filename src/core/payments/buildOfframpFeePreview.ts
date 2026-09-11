@@ -21,6 +21,7 @@
 
 import type { RampFeePreview } from '@/types/offramp';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
+import { roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 
 export function buildOfframpFeePreview(params: {
   /** Crypto the customer sends (e.g. 100 USDT). Fixed — the fee comes out of it. */
@@ -52,12 +53,13 @@ export function buildOfframpFeePreview(params: {
   // applied here — the tenant has already marked up the rate they quote, so the
   // commission is baked into the rate, not a separate deduction.
   const sendNet = Math.max(0, sendAmount - transferFee);
-  const receiveNet = sendNet * rate;
+  const receiveGross = roundPayoutFiatAmount(params.receiveCurrency, grossReceive);
+  const receiveNet = roundPayoutFiatAmount(params.receiveCurrency, sendNet * rate);
 
   return {
     sendGross: { amount: String(sendAmount), currency: params.sendCurrency },
     sendNet: { amount: sendNet.toFixed(params.sendDecimals), currency: params.sendCurrency },
-    receiveGross: { amount: grossReceive.toFixed(params.receiveDecimals), currency: params.receiveCurrency },
+    receiveGross: { amount: receiveGross.toFixed(params.receiveDecimals), currency: params.receiveCurrency },
     receiveNet: { amount: receiveNet.toFixed(params.receiveDecimals), currency: params.receiveCurrency },
     transferFee: {
       fees: params.feeQuote?.fees ?? [],

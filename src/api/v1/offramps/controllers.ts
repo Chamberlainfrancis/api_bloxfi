@@ -37,7 +37,7 @@ import {
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote } from '@/core/quotes';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
-import { roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
+import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
   hydrateOfframpCreateFromQuote,
@@ -144,12 +144,13 @@ export async function getOfframpRates(
         sendCurrency: result.fromCurrency,
         getRate: getRateFromPalremit,
       });
+      const receiveDecimals = payoutFiatDecimals(result.toCurrency);
       result.quote = buildOfframpFeePreview({
         sendAmount: q.amount,
         sendCurrency: result.fromCurrency,
         receiveCurrency: result.toCurrency,
         grossReceive,
-        receiveDecimals: 2,
+        receiveDecimals,
         sendDecimals: 8,
         feeInSendCurrency,
         feeQuote,
