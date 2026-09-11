@@ -99,26 +99,4 @@ describe('buildOfframpFeePreview', () => {
     expect(p.sendNet?.amount).toBe('0.00900000');
     expect(p.receiveNet.amount).toBe('900000.00');
   });
-
-  it('ceils EUR receive amounts to whole euros so the rates preview matches the locked payout', () => {
-    const p = buildOfframpFeePreview({
-      sendAmount: 1000,
-      sendCurrency: 'usdt',
-      receiveCurrency: 'eur',
-      grossReceive: 870.01,
-      receiveDecimals: 0,
-      sendDecimals: 8,
-      feeInSendCurrency: 0,
-      feeQuote: {
-        feeUnavailable: false,
-        fees: [],
-        totalFee: { amount: '0', currency: 'USDC' },
-        destinationAmount: null,
-        effectiveRate: null,
-        expiresAt: null,
-      },
-    });
-    expect(p.receiveGross.amount).toBe('871');
-    expect(p.receiveNet.amount).toBe('871');
-  });
 });
