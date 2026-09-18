@@ -174,7 +174,7 @@ export interface GetOnrampRatesResponse {
   toCurrency: string;
   conversionRate: string;
   conversionRates?: ConversionRateByTransfer[];
-  /** Fee preview, present only when amount + chain inputs are supplied. */
+  /** Fee preview, present when `amount`+`chain` or `destinationAmount`+`chain` are supplied. */
   quote?: RampFeePreview;
   /** Currency API mid/main rate (pre-markup). */
   marketRate?: string;

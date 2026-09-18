@@ -145,7 +145,10 @@ export const createOnrampQuoteBodySchema = z
   .object({
     fromCurrency: z.string().min(1),
     toCurrency: z.string().min(1),
-    amount: z.number().positive(),
+    /** Fiat the customer sends. Mutually exclusive with destinationAmount. */
+    amount: z.number().positive().optional(),
+    /** Crypto the customer receives. Mutually exclusive with amount. */
+    destinationAmount: z.number().positive().optional(),
     chain: z.string().min(1),
     /** Prisma Account.id — optional; named-USD markup only when the Account hits config. */
     accountId: z.string().uuid().optional(),
@@ -158,23 +161,46 @@ export const createOnrampQuoteBodySchema = z
       }
     }),
   })
+  .superRefine((val, ctx) => {
+    const hasSend = val.amount != null;
+    const hasDest = val.destinationAmount != null;
+    if (hasSend === hasDest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: hasDest ? ['destinationAmount'] : ['amount'],
+        message: 'Send exactly one of amount (fiat send) or destinationAmount (crypto receive)',
+      });
+    }
+  })
   .transform((val) => ({
     fromCurrency: val.fromCurrency.trim().toLowerCase(),
     toCurrency: val.toCurrency.trim().toLowerCase(),
     amount: val.amount,
+    destinationAmount: val.destinationAmount,
     destinationChain: val.chain.trim(),
     platformFee: val.platformFee,
     ...(val.accountId ? { accountId: val.accountId } : {}),
   }));
 
-export const getOnrampRatesQuerySchema = z.object({
-  fromCurrency: z.string().min(1),
-  toCurrency: z.string().min(1),
-  // Optional fee preview: when amount + chain are supplied, the response
-  // includes a `quote` with the Palremit payout fee deducted from receive.
-  amount: z.coerce.number().positive().optional(),
-  chain: z.string().min(1).optional(),
-});
+export const getOnrampRatesQuerySchema = z
+  .object({
+    fromCurrency: z.string().min(1),
+    toCurrency: z.string().min(1),
+    // Optional fee preview: amount is fiat send; destinationAmount is crypto
+    // receive. Send at most one. With chain → `quote`.
+    amount: z.coerce.number().positive().optional(),
+    destinationAmount: z.coerce.number().positive().optional(),
+    chain: z.string().min(1).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.amount != null && val.destinationAmount != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destinationAmount'],
+        message: 'Send only one of amount (fiat send) or destinationAmount (crypto receive)',
+      });
+    }
+  });
 
 export const listOnrampsQuerySchema = z.object({
   userId: z.string().uuid().optional(),

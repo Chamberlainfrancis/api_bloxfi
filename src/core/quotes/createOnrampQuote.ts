@@ -9,6 +9,8 @@ import {
   resolveOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
+import { solveOnrampSendFromDest } from '@/core/quotes/computeOnrampQuoteAmounts';
+import { payoutFiatDecimals, ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import type { PlatformFee, RampFeePreview } from '@/types/offramp';
 import type { OnrampFees, QuoteInformation } from '@/types/onramp';
@@ -20,7 +22,10 @@ import { onrampDepositWindowMinutes } from '@/core/onramps/staticDepositAccounts
 export interface CreateOnrampQuoteInput {
   fromCurrency: string;
   toCurrency: string;
-  amount: number;
+  /** Fiat send. Required unless destinationAmount is set. */
+  amount?: number;
+  /** Crypto receive. Required unless amount is set. Locks wallet credit. */
+  destinationAmount?: number;
   destinationChain: string;
   platformFee: PlatformFee;
   accountId?: string;
@@ -79,10 +84,17 @@ export async function createOnrampQuote(
     'destination.chain'
   );
 
+  const destLocked =
+    input.destinationAmount != null ? input.destinationAmount : null;
+  if (input.destinationAmount != null && !(destLocked! > 0)) {
+    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  }
+  const sendHint = input.amount ?? 1;
+
   const palremitQuote = await options.getQuoteFromPalremit(
     fromCurrency,
     toCurrency,
-    input.amount
+    sendHint
   );
   if (!palremitQuote?.conversionRate || typeof palremitQuote.conversion !== 'number') {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
@@ -109,7 +121,7 @@ export async function createOnrampQuote(
     });
     if (rule) {
       const priced = applyOnrampAccountMarkup({
-        amount: input.amount,
+        amount: sendHint,
         toCurrency,
         marketRate: palremitQuote.marketRate,
         rateCurrency: palremitQuote.rateCurrency,
@@ -132,7 +144,7 @@ export async function createOnrampQuote(
     const priced = applyPairMarkupIfMatched({
       fromCurrency,
       toCurrency,
-      amount: input.amount,
+      amount: sendHint,
       marketRate: palremitQuote.marketRate,
       rateCurrency: palremitQuote.rateCurrency,
       perCurrency: palremitQuote.perCurrency,
@@ -143,12 +155,12 @@ export async function createOnrampQuote(
     }
   }
 
-  const { feeAmount: platformFeeAmount, netAmount: receiveAfterPlatformFee } =
-    applyOfframpPlatformFee(receiveGross, input.platformFee);
+  const feeQuoteAmount =
+    destLocked != null ? destLocked : applyOfframpPlatformFee(receiveGross, input.platformFee).netAmount;
 
   const feeQuote = await options.getProviderWithdrawalFeeQuote({
     asset: toCurrency,
-    amount: receiveAfterPlatformFee,
+    amount: feeQuoteAmount,
     destinationType: 'crypto_address',
     network: resolvedChain,
   });
@@ -165,15 +177,47 @@ export async function createOnrampQuote(
     if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeCrypto = parsedFee;
   }
 
-  if (transferFeeCrypto >= receiveAfterPlatformFee) {
-    throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+  let sendAmount: number;
+  let platformFeeAmount: number;
+  let receiveAfterPlatformFee: number;
+  let receiveNet: number;
+
+  if (destLocked != null) {
+    const rateNum = parseFloat(conversionRate) || 0;
+    if (!(rateNum > 0)) throw new Error('PALREMIT_RATES_UNAVAILABLE');
+    const solved = solveOnrampSendFromDest({
+      destinationAmount: destLocked,
+      conversionRate: rateNum,
+      transferFeeCrypto,
+      platformFee: input.platformFee,
+      toCurrency,
+      rateCurrency: palremitQuote.rateCurrency,
+      perCurrency: palremitQuote.perCurrency,
+    });
+    sendAmount = ceilPayoutFiatAmount(fromCurrency, solved.sendGross);
+    if (!(sendAmount > 0) || !(solved.receiveGross > 0)) {
+      throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+    }
+    receiveGross = solved.receiveGross;
+    platformFeeAmount = solved.platformFeeAmount;
+    receiveAfterPlatformFee = solved.receiveAfterPlatformFee;
+    receiveNet = destLocked;
+  } else {
+    sendAmount = input.amount!;
+    const applied = applyOfframpPlatformFee(receiveGross, input.platformFee);
+    platformFeeAmount = applied.feeAmount;
+    receiveAfterPlatformFee = applied.netAmount;
+    if (transferFeeCrypto >= receiveAfterPlatformFee) {
+      throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
+    }
+    receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
   }
 
-  const receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
   const expiresAt = parseQuoteExpiry(fromCurrency);
+  const sendDecimals = destLocked != null ? payoutFiatDecimals(fromCurrency) : 2;
 
   const quote: RampFeePreview = {
-    sendGross: { amount: input.amount.toFixed(2), currency: fromCurrency },
+    sendGross: { amount: sendAmount.toFixed(sendDecimals), currency: fromCurrency },
     receiveGross: { amount: receiveGross.toFixed(8), currency: toCurrency },
     baseReceiveNet: { amount: receiveAfterPlatformFee.toFixed(8), currency: toCurrency },
     receiveNet: { amount: receiveNet.toFixed(8), currency: toCurrency },
@@ -220,7 +264,7 @@ export async function createOnrampQuote(
   };
 
   const profit = await buildPalremitProfit({
-    sourceAmount: input.amount,
+    sourceAmount: sendAmount,
     toCurrency,
     rate: conversionRate,
     marketRate: palremitQuote.marketRate ?? undefined,
@@ -236,7 +280,8 @@ export async function createOnrampQuote(
     toCurrency,
     destinationChain: resolvedChain,
     clientDestinationChain,
-    sendAmount: input.amount,
+    sendAmount,
+    destinationAmount: receiveNet,
     platformFee: input.platformFee,
     conversionRate,
     rateValidUntil: expiresAt.toISOString(),

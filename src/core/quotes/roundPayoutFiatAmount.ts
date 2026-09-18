@@ -18,3 +18,11 @@ export function roundPayoutFiatAmount(asset: string, amount: number): number {
   const f = 10 ** decimals;
   return Math.round(amount * f) / f;
 }
+
+/** Ceil to ISO minor units so dest-fixed send cannot undershoot receive. */
+export function ceilPayoutFiatAmount(asset: string, amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) return amount;
+  const decimals = payoutFiatDecimals(asset);
+  const f = 10 ** decimals;
+  return Math.ceil(amount * f - 1e-9) / f;
+}

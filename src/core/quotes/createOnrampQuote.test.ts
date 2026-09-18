@@ -231,3 +231,91 @@ describe('createOnrampQuote — deposit window', () => {
     expect(usdMs).toBeLessThan(180 * 60 * 1000 + 5000);
   });
 });
+
+describe('createOnrampQuote — dest-fixed receive amount', () => {
+  it('locks receiveNet to the requested crypto (no 8dp drift)', async () => {
+    const getProviderWithdrawalFeeQuote = vi.fn(async () => ({
+      feeUnavailable: false,
+      fees: [],
+      totalFee: { amount: '0', currency: 'USDT' },
+      destinationAmount: '100.00',
+      effectiveRate: null,
+      expiresAt: null,
+    }));
+    const result = await createOnrampQuote(
+      {
+        fromCurrency: 'usd',
+        toCurrency: 'usdt',
+        destinationAmount: 100,
+        destinationChain: 'MATIC',
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      makeOptions({ getProviderWithdrawalFeeQuote })
+    );
+    expect(result.quote.receiveNet.amount).toBe('100.00000000');
+    expect(result.quote.receiveNet.currency).toBe('usdt');
+    const quoted = getProviderWithdrawalFeeQuote.mock.calls[0]?.[0] as { amount: number };
+    expect(quoted.amount).toBe(100);
+    const snap = lastSnapshot();
+    expect(snap.destinationAmount).toBe(100);
+    expect(snap.receiveNet).toBe(100);
+    expect(snap.sendAmount).toBeGreaterThan(0);
+  });
+
+  it('does not change a source-fixed quote when only amount is sent', async () => {
+    const result = await createOnrampQuote(quoteInput, makeOptions());
+    expect(Number(result.quote.sendGross.amount)).toBe(100);
+    expect(result.quote.receiveGross.amount).toBe('100.00000000');
+    expect(lastSnapshot().sendAmount).toBe(100);
+  });
+
+  it('keeps fractional dest (100.5 stays 100.5)', async () => {
+    const result = await createOnrampQuote(
+      {
+        fromCurrency: 'usd',
+        toCurrency: 'usdt',
+        destinationAmount: 100.5,
+        destinationChain: 'MATIC',
+        platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee' },
+      },
+      makeOptions({
+        getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+          feeUnavailable: false,
+          fees: [],
+          totalFee: { amount: '0', currency: 'USDT' },
+          destinationAmount: '100.50',
+          effectiveRate: null,
+          expiresAt: null,
+        })),
+      })
+    );
+    expect(result.quote.receiveNet.amount).toBe('100.50000000');
+    const snap = lastSnapshot();
+    expect(snap.destinationAmount).toBe(100.5);
+    expect(snap.sendAmount).toBeGreaterThan(100.5);
+  });
+
+  it('back-solves fiat send through EUR pair markup so dest still locks', async () => {
+    const result = await createOnrampQuote(
+      {
+        fromCurrency: 'eur',
+        toCurrency: 'usdt',
+        destinationAmount: 100,
+        destinationChain: 'MATIC',
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      makeOptions({
+        getQuoteFromPalremit: vi.fn(async () => ({
+          conversionRate: '0.871',
+          conversion: 1.148,
+          marketRate: '0.87',
+          rateCurrency: 'EUR',
+          perCurrency: 'USDT',
+        })),
+      })
+    );
+    const customer = 0.87 * 1.024;
+    expect(result.quote.receiveNet.amount).toBe('100.00000000');
+    expect(Number(result.quote.sendGross.amount)).toBeCloseTo(100 * customer, 2);
+  });
+});

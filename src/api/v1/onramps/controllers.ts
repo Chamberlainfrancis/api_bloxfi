@@ -28,9 +28,10 @@ import {
   UnsupportedPalremitNetworkError,
 } from '@/core/integrations/palremitCoinNetworks';
 import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSourceInput } from '@/types/onramp';
-import { createOnrampQuote } from '@/core/quotes';
+import { createOnrampQuote, solveOnrampSendFromDest } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
+import { ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 import { findOnrampAccountsByUser, findAccountById } from '@/db/repositories/account.repo';
 import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
@@ -133,7 +134,51 @@ export async function getOnrampRates(
     // (like createOnramp) rather than rate*amount, since conversionRate is
     // fiat-per-crypto and would invert the math.
     const q = parsed.data;
-    if (q.amount != null && q.chain) {
+    if (q.destinationAmount != null && q.chain) {
+      const dest = q.destinationAmount;
+      const feeQuote = await fetchPalremitWithdrawalFeeQuote(palremitLiquidity, {
+        asset: result.toCurrency,
+        amount: dest,
+        destinationType: 'crypto_address',
+        network: q.chain,
+      });
+      const usable =
+        feeQuote != null &&
+        !feeQuote.feeUnavailable &&
+        feeQuote.totalFee != null &&
+        feeQuote.totalFee.currency.toUpperCase() === result.toCurrency.toUpperCase();
+      let transferFeeCrypto = 0;
+      if (usable && feeQuote) {
+        const parsedFee = Number(feeQuote.totalFee!.amount);
+        if (Number.isFinite(parsedFee) && parsedFee > 0) transferFeeCrypto = parsedFee;
+      }
+      const rateNum = parseFloat(result.conversionRate) || 0;
+      const solved =
+        rateNum > 0
+          ? solveOnrampSendFromDest({
+              destinationAmount: dest,
+              conversionRate: rateNum,
+              transferFeeCrypto,
+              platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xRates' },
+              toCurrency: result.toCurrency,
+              rateCurrency: result.rateCurrency,
+              perCurrency: result.perCurrency,
+            })
+          : null;
+      const sendAmount = solved ? ceilPayoutFiatAmount(result.fromCurrency, solved.sendGross) : 0;
+      const previewQuote = buildRampFeePreview({
+        sendAmount,
+        sendCurrency: result.fromCurrency,
+        receiveCurrency: result.toCurrency,
+        grossReceive: solved?.receiveGross ?? dest,
+        receiveDecimals: 8,
+        feeQuote,
+      });
+      result.quote = {
+        ...previewQuote,
+        receiveNet: { amount: dest.toFixed(8), currency: result.toCurrency },
+      };
+    } else if (q.amount != null && q.chain) {
       const oq = await getPalremitOnrampQuote(
         palremitCurrency,
         result.fromCurrency,

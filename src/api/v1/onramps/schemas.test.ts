@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { createOnrampBodySchema, createOnrampQuoteBodySchema } from '@/api/v1/onramps/schemas';
+import {
+  createOnrampBodySchema,
+  createOnrampQuoteBodySchema,
+  getOnrampRatesQuerySchema,
+} from '@/api/v1/onramps/schemas';
 
 const baseBody = {
   requestId: '11111111-1111-4111-8111-111111111111',
@@ -95,6 +99,65 @@ describe('createOnrampBodySchema', () => {
     expect(r.success).toBe(false);
   });
 
+  const quoteBase = {
+    fromCurrency: 'USD',
+    toCurrency: 'USDT',
+    chain: 'POLYGON',
+    platformFee: baseBody.platformFee,
+  };
+
+  it('accepts destinationAmount instead of amount for dest-fixed quotes', () => {
+    const r = createOnrampQuoteBodySchema.safeParse({ ...quoteBase, destinationAmount: 100.5 });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.destinationAmount).toBe(100.5);
+      expect(r.data.amount).toBeUndefined();
+    }
+  });
+
+  it('rejects when both amount and destinationAmount are sent', () => {
+    const r = createOnrampQuoteBodySchema.safeParse({
+      ...quoteBase,
+      amount: 100,
+      destinationAmount: 100,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects when neither amount nor destinationAmount is sent', () => {
+    const r = createOnrampQuoteBodySchema.safeParse(quoteBase);
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('getOnrampRatesQuerySchema dest-fixed', () => {
+  it('accepts destinationAmount instead of amount', () => {
+    const r = getOnrampRatesQuerySchema.safeParse({
+      fromCurrency: 'usd',
+      toCurrency: 'usdt',
+      destinationAmount: '100.5',
+      chain: 'TRC20',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.destinationAmount).toBe(100.5);
+      expect(r.data.amount).toBeUndefined();
+    }
+  });
+
+  it('rejects when both amount and destinationAmount are sent', () => {
+    const r = getOnrampRatesQuerySchema.safeParse({
+      fromCurrency: 'usd',
+      toCurrency: 'usdt',
+      amount: '100',
+      destinationAmount: '90',
+      chain: 'TRC20',
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('createOnrampBodySchema platformFee extras', () => {
   it('accepts optional platformFee.currency and platformFee.network', () => {
     const r = createOnrampBodySchema.safeParse({
       ...baseBody,

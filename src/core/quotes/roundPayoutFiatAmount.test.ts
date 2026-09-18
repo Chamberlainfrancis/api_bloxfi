@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
+import { payoutFiatDecimals, roundPayoutFiatAmount, ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 
 describe('roundPayoutFiatAmount', () => {
   it('rounds JPY to whole yen so OwlPay dest-fixed quotes do not 400', () => {
@@ -9,5 +9,10 @@ describe('roundPayoutFiatAmount', () => {
 
   it('keeps two-decimal fiats', () => {
     expect(roundPayoutFiatAmount('eur', 870.556)).toBe(870.56);
+  });
+
+  it('ceils dest-fixed send so fiat cannot undershoot', () => {
+    expect(ceilPayoutFiatAmount('usd', 100.001)).toBe(100.01);
+    expect(ceilPayoutFiatAmount('jpy', 1534322.01)).toBe(1534323);
   });
 });

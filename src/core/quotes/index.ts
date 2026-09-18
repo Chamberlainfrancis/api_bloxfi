@@ -18,3 +18,4 @@ export {
   formatOfframpInverseRate,
   solveOfframpSendFromDest,
 } from '@/core/quotes/computeOfframpQuoteAmounts';
+export { solveOnrampSendFromDest, fiatFromCrypto } from '@/core/quotes/computeOnrampQuoteAmounts';

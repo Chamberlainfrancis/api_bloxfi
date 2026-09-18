@@ -73,6 +73,8 @@ export interface OnrampQuoteSnapshot {
   destinationChain: string;
   clientDestinationChain: string;
   sendAmount: number;
+  /** Crypto the customer receives (receiveNet). Set for dest-fixed and source-fixed. */
+  destinationAmount?: number;
   platformFee: PlatformFee;
   conversionRate: string;
   rateValidUntil: string;
