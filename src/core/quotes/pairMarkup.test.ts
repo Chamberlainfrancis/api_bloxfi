@@ -56,7 +56,23 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('usdt', 'jpy')?.side).toBe('sell');
   });
 
-  it('returns null for corridors that are not USD↔EUR, USD↔CAD, or USD↔JPY', () => {
+  it('returns 45 bps buy for GBP onramp only (GBP → USD/USDT/USDC)', () => {
+    expect(findPairMarkup('gbp', 'usdt')).toEqual({
+      fiat: 'GBP',
+      markup: 0.0045,
+      side: 'buy',
+    });
+    expect(findPairMarkup('GBP', 'USD')?.markup).toBe(0.0045);
+    expect(findPairMarkup('gbp', 'usdc')?.side).toBe('buy');
+  });
+
+  it('does not mark up GBP offramp (USDT/USD/USDC → GBP stays on currency-api B2B)', () => {
+    expect(findPairMarkup('usdt', 'gbp')).toBeNull();
+    expect(findPairMarkup('USD', 'GBP')).toBeNull();
+    expect(findPairMarkup('usdc', 'gbp')).toBeNull();
+  });
+
+  it('returns null for corridors that are not USD↔EUR, USD↔CAD, USD↔JPY, or GBP onramp', () => {
     expect(findPairMarkup('usd', 'usdt')).toBeNull();
     expect(findPairMarkup('ngn', 'usdt')).toBeNull();
     expect(findPairMarkup('usdt', 'ngn')).toBeNull();

@@ -7,6 +7,9 @@
  * including Graph/Bancara-pinned users. EUR offramp sell is 0.5%.
  * CAD buy and sell are 50 bps (OwlPay EFT, 2026-09-03).
  * JPY buy and sell are 50 bps (OwlPay Zengin BANK_TRANSFER, 2026-09-07).
+ * GBP onramp buy is 45 bps (Noones, 2026-09-21). Offramp sell stays on
+ * currency-api 12 bps — a sell rule would also require an OwlPay executable
+ * rate, and GBP OwlPay is ~12% below mid.
  */
 export interface PairMarkupRule {
   fiat: string;
@@ -20,4 +23,5 @@ export const PAIR_MARKUP_RULES: readonly PairMarkupRule[] = [
   { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005, sides: ['sell'] },
   { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
   { fiat: 'JPY', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
+  { fiat: 'GBP', crypto: ['USD', 'USDT', 'USDC'], markup: 0.0045, sides: ['buy'] },
 ];

@@ -60,4 +60,19 @@ describe('getOnrampRate — pair markup', () => {
     expect(Number(result.conversionRate)).toBeCloseTo(1.375 * 1.005, 10);
     expect(result.marketRate).toBe('1.375');
   });
+
+  it('applies 45 bps on marketRate for GBP → USDT', async () => {
+    const result = await getOnrampRate('gbp', 'usdt', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'gbp',
+        toCurrency: 'usdt',
+        conversionRate: '0.74766112',
+        marketRate: '0.746765',
+        rateCurrency: 'GBP',
+        perCurrency: 'USDT',
+      })),
+    });
+    expect(Number(result.conversionRate)).toBeCloseTo(0.746765 * 1.0045, 10);
+    expect(result.marketRate).toBe('0.746765');
+  });
 });
