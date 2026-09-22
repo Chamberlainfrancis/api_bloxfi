@@ -263,7 +263,8 @@ export type PalremitReissueResult = {
 export async function reissuePalremitWithdrawal(
   request: PalremitLiquidityRequestFn,
   withdrawalId: string,
-  idempotencyKey: string
+  idempotencyKey: string,
+  overlay?: { destination?: { beneficiary?: { dob?: string } } }
 ): Promise<
   | ({ ok: true } & PalremitWithdrawalCreateResult & { reissue: PalremitReissueResult })
   | PalremitWithdrawalFailure
@@ -281,6 +282,7 @@ export async function reissuePalremitWithdrawal(
     res = await request<Record<string, unknown>>(path, {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey },
+      ...(overlay ? { body: overlay } : {}),
     });
   } catch (e) {
     if (isHttpError(e)) {

@@ -230,8 +230,44 @@ export interface WithdrawalFromAccountInput {
   businessReference?: string;
   /** Fallback for destination.beneficiary.email when providerPayout omitted it. */
   accountHolderEmail?: string;
+  /** Fallback for destination.beneficiary.dob when providerPayout omitted it. */
+  beneficiaryDob?: string;
   /** Locked quote sendNet — Palremit's max funding-leg spend. */
   sourceAmountCap?: string;
+}
+
+const DOB_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Normalize a stored DOB to YYYY-MM-DD. */
+export function normalizeBeneficiaryDob(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const day = raw.trim().slice(0, 10);
+  return DOB_DAY.test(day) ? day : undefined;
+}
+
+/** Prefer payout-account DOB, then the Bloxfi customer's legal representative. */
+export function beneficiaryDobFromCustomer(input: {
+  accountHolder?: unknown;
+  legalRepresentative?: unknown;
+}): string | undefined {
+  const holder =
+    input.accountHolder != null &&
+    typeof input.accountHolder === 'object' &&
+    !Array.isArray(input.accountHolder)
+      ? (input.accountHolder as Record<string, unknown>)
+      : {};
+  const lr =
+    input.legalRepresentative != null &&
+    typeof input.legalRepresentative === 'object' &&
+    !Array.isArray(input.legalRepresentative)
+      ? (input.legalRepresentative as Record<string, unknown>)
+      : {};
+  return (
+    normalizeBeneficiaryDob(holder.dateOfBirth) ??
+    normalizeBeneficiaryDob(holder.dob) ??
+    normalizeBeneficiaryDob(lr.dateOfBirth) ??
+    normalizeBeneficiaryDob(lr.dob)
+  );
 }
 
 function mergeOfframpExtrasIntoDestination(
@@ -259,21 +295,36 @@ function mergeOfframpExtrasIntoDestination(
   return out;
 }
 
+function beneficiaryRecord(destination: Record<string, unknown>): Record<string, unknown> | null {
+  if (
+    destination.beneficiary != null &&
+    typeof destination.beneficiary === 'object' &&
+    !Array.isArray(destination.beneficiary)
+  ) {
+    return destination.beneficiary as Record<string, unknown>;
+  }
+  return null;
+}
+
 function ensureBeneficiaryEmail(
   destination: Record<string, unknown>,
   accountHolderEmail?: string
 ): void {
   const email = accountHolderEmail?.trim();
   if (!email) return;
-  const ben =
-    destination.beneficiary != null &&
-    typeof destination.beneficiary === 'object' &&
-    !Array.isArray(destination.beneficiary)
-      ? (destination.beneficiary as Record<string, unknown>)
-      : null;
+  const ben = beneficiaryRecord(destination);
   if (!ben) return;
   const existing = typeof ben.email === 'string' ? ben.email.trim() : '';
   if (!existing) ben.email = email;
+}
+
+function ensureBeneficiaryDob(destination: Record<string, unknown>, dob?: string): void {
+  const normalized = normalizeBeneficiaryDob(dob);
+  if (!normalized) return;
+  const ben = beneficiaryRecord(destination);
+  if (!ben) return;
+  const existing = normalizeBeneficiaryDob(ben.dob);
+  if (!existing) ben.dob = normalized;
 }
 
 /** Palremit POST /v1/withdrawals allows at most 6 fractional digits on the cap. */
@@ -306,6 +357,7 @@ export function buildWithdrawalFromAccount(
     input.metadata
   );
   ensureBeneficiaryEmail(destination, input.accountHolderEmail);
+  ensureBeneficiaryDob(destination, input.beneficiaryDob);
   const sourceAmountCap = formatSourceAmountCap(input.sourceAmountCap);
   return {
     client_reference: input.txnRef.trim(),

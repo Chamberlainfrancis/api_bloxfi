@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  beneficiaryDobFromCustomer,
   buildWithdrawalFromAccount,
   isAccountReadyForOfframp,
   mergeSourceAmountCapIntoProviderRefs,
@@ -195,6 +196,35 @@ describe('buildWithdrawalFromAccount', () => {
     expect(ben.email).toBe('ops@example.com');
   });
 
+  it('backfills beneficiary.dob from the Bloxfi customer when missing', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-dob',
+      destinationAmount: 100,
+      providerPayout,
+      beneficiaryDob: '1980-05-15',
+    });
+    const ben = (body?.destination as { beneficiary: { dob?: string } }).beneficiary;
+    expect(ben.dob).toBe('1980-05-15');
+  });
+
+  it('does not overwrite an existing beneficiary.dob', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        ...providerPayout.destination,
+        beneficiary: { ...providerPayout.destination.beneficiary, dob: '1991-02-03' },
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-dob-keep',
+      destinationAmount: 100,
+      providerPayout: pp,
+      beneficiaryDob: '1980-05-15',
+    });
+    const ben = (body?.destination as { beneficiary: { dob?: string } }).beneficiary;
+    expect(ben.dob).toBe('1991-02-03');
+  });
+
   it('does not overwrite an existing beneficiary.email', () => {
     const pp = {
       ...providerPayout,
@@ -211,6 +241,26 @@ describe('buildWithdrawalFromAccount', () => {
     });
     const ben = (body?.destination as { beneficiary: { email?: string } }).beneficiary;
     expect(ben.email).toBe('keep@example.com');
+  });
+});
+
+describe('beneficiaryDobFromCustomer', () => {
+  it('prefers account-holder DOB over the legal representative', () => {
+    expect(
+      beneficiaryDobFromCustomer({
+        accountHolder: { dateOfBirth: '1991-02-03' },
+        legalRepresentative: { dateOfBirth: '1980-05-15' },
+      })
+    ).toBe('1991-02-03');
+  });
+
+  it('falls back to the customer legal representative', () => {
+    expect(
+      beneficiaryDobFromCustomer({
+        accountHolder: { name: 'Aureas Consulting LTD', type: 'business' },
+        legalRepresentative: { dateOfBirth: '1980-05-15T00:00:00.000Z' },
+      })
+    ).toBe('1980-05-15');
   });
 });
 

@@ -5,6 +5,9 @@
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import { reissuePalremitWithdrawal } from '@/core/integrations/palremitLiquidity';
+import { beneficiaryDobFromCustomer } from '@/core/integrations/palremitOfframp';
+import { findOfframpAccountByIdAndUser } from '@/db/repositories/account.repo';
+import { findUserById } from '@/db/repositories/user.repo';
 import type { OfframpStatus } from '@/types/offramp';
 import { offrampFiatWithdrawalId } from '@/core/offramps/offrampFiatRetry';
 
@@ -12,7 +15,9 @@ export interface OfframpRepoReissue {
   findOfframpById(id: string): Promise<{
     id: string;
     txnRef: string | null;
+    userId?: string;
     status: string;
+    destination?: unknown;
     timeline: unknown;
     providerRefs: unknown;
   } | null>;
@@ -68,10 +73,28 @@ export async function reissueOfframpFiatPayout(
     };
   }
 
+  const dest =
+    row.destination != null && typeof row.destination === 'object' && !Array.isArray(row.destination)
+      ? (row.destination as { accountId?: unknown })
+      : {};
+  const accountId = typeof dest.accountId === 'string' ? dest.accountId : '';
+  const userId = typeof row.userId === 'string' ? row.userId : '';
+  let accountHolder: unknown;
+  if (accountId && userId) {
+    const account = await findOfframpAccountByIdAndUser(accountId, userId);
+    accountHolder = account?.accountHolder;
+  }
+  const user = userId ? await findUserById(userId) : null;
+  const beneficiaryDob = beneficiaryDobFromCustomer({
+    accountHolder,
+    legalRepresentative: user?.legalRepresentative,
+  });
+
   const created = await reissuePalremitWithdrawal(
     liquidityRequest,
     params.withdrawalId,
-    `offramp-fiat-reissue:${row.txnRef}:${params.withdrawalId}`
+    `offramp-fiat-reissue:${row.txnRef}:${params.withdrawalId}`,
+    beneficiaryDob ? { destination: { beneficiary: { dob: beneficiaryDob } } } : undefined
   );
   if (!created.ok) {
     return {

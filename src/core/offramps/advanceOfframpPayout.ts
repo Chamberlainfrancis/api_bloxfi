@@ -5,10 +5,12 @@
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
+  beneficiaryDobFromCustomer,
   buildWithdrawalFromAccount,
   createPalremitOfframpFiatWithdrawal,
   sourceAmountCapFromProviderRefs,
 } from '@/core/integrations/palremitOfframp';
+import { findUserById } from '@/db/repositories/user.repo';
 import type { OfframpStatus } from '@/types/offramp';
 
 export interface OfframpRepoAdvance {
@@ -87,6 +89,12 @@ export async function advanceOfframpIfDepositReady(
       ? (account.accountHolder as { email: string }).email
       : undefined;
 
+  const user = await findUserById(userId);
+  const beneficiaryDob = beneficiaryDobFromCustomer({
+    accountHolder: account.accountHolder,
+    legalRepresentative: user?.legalRepresentative,
+  });
+
   // Prisma User.id — always populated, unlike palremitChannelUserId (defined
   // but never actually written by anything today). Stable per business.
   const withdrawalBody = buildWithdrawalFromAccount({
@@ -97,6 +105,7 @@ export async function advanceOfframpIfDepositReady(
     metadata: destination.metadata,
     businessReference: userId,
     accountHolderEmail: holderEmail,
+    beneficiaryDob,
     sourceAmountCap: sourceAmountCapFromProviderRefs(row.providerRefs),
   });
   if (!withdrawalBody) return;
