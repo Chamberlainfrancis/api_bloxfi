@@ -19,6 +19,7 @@ import {
 } from '@/core/quotes/computeOfframpQuoteAmounts';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
+import { knownPayoutTransferFeeUsdc } from '@/core/quotes/knownPayoutTransferFee';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
 import {
   resolveOfframpQuoteCorridor,
@@ -76,6 +77,61 @@ function parseQuoteExpiry(rateValidUntil: string): Date {
   const parsed = Date.parse(rateValidUntil);
   if (Number.isFinite(parsed)) return new Date(parsed);
   return new Date(Date.now() + 30 * 60 * 1000);
+}
+
+function knownPayoutFeeQuote(
+  amountUsdc: number,
+  from: PalremitWithdrawalFeeQuote | null,
+  kind: string,
+): PalremitWithdrawalFeeQuote {
+  const amount = String(amountUsdc);
+  return {
+    feeUnavailable: false,
+    fees: [{ kind, amount, currency: 'USDC' }],
+    totalFee: { amount, currency: 'USDC' },
+    destinationAmount: from?.destinationAmount ?? null,
+    effectiveRate: from?.effectiveRate ?? null,
+    expiresAt: from?.expiresAt ?? null,
+  };
+}
+
+async function resolveOfframpPayoutFee(params: {
+  feeQuote: PalremitWithdrawalFeeQuote | null;
+  destinationType: string;
+  toCurrency: string;
+  sendCurrency: string;
+  getRate: (
+    from: string,
+    to: string,
+    fromChain?: string
+  ) => Promise<GetOfframpRatesResponse | null>;
+}): Promise<{
+  feeInSendCurrency: number | null;
+  feeQuote: PalremitWithdrawalFeeQuote | null;
+}> {
+  const priced = await resolveTransferFeeInSendCurrency({
+    feeQuote: params.feeQuote,
+    sendCurrency: params.sendCurrency,
+    getRate: params.getRate,
+  });
+  if (priced != null) {
+    return { feeInSendCurrency: priced, feeQuote: params.feeQuote };
+  }
+  const known = knownPayoutTransferFeeUsdc({
+    destinationType: params.destinationType,
+    toCurrency: params.toCurrency,
+  });
+  if (known == null) {
+    return { feeInSendCurrency: null, feeQuote: params.feeQuote };
+  }
+  const kind = known > 0 ? 'SWIFT fee' : 'transfer fee';
+  const fallback = knownPayoutFeeQuote(known, params.feeQuote, kind);
+  const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
+    feeQuote: fallback,
+    sendCurrency: params.sendCurrency,
+    getRate: params.getRate,
+  });
+  return { feeInSendCurrency, feeQuote: fallback };
 }
 
 export async function createOfframpQuote(
@@ -180,11 +236,18 @@ export async function createOfframpQuote(
     if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
-  const feeInSendCurrency = await resolveTransferFeeInSendCurrency({
+  const pricedFee = await resolveOfframpPayoutFee({
     feeQuote,
+    destinationType: corridor.destinationType,
+    toCurrency,
     sendCurrency: fromCurrency,
     getRate: (from, to, chain) => options.getRateFromPalremit(from, to, chain),
   });
+  if (pricedFee.feeInSendCurrency == null) {
+    throw new Error('UNFAVORABLE_RATE');
+  }
+  const feeInSendCurrency = pricedFee.feeInSendCurrency;
+  const displayFeeQuote = pricedFee.feeQuote;
 
   const sendAmount =
     destLocked != null
@@ -270,8 +333,8 @@ export async function createOfframpQuote(
       amount: amounts.platformFeeAmount.toFixed(8),
     },
     transferFee: {
-      fees: feeQuote?.fees ?? [],
-      total: feeQuote?.totalFee ?? null,
+      fees: displayFeeQuote?.fees ?? [],
+      total: displayFeeQuote?.totalFee ?? null,
       unavailable: !usable,
     },
   };

@@ -72,8 +72,22 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('usdc', 'gbp')).toBeNull();
   });
 
-  it('returns null for corridors that are not USD↔EUR, USD↔CAD, USD↔JPY, or GBP onramp', () => {
+  it('returns 20 bps sell for USDT/USDC → USD offramp only', () => {
+    expect(findPairMarkup('usdt', 'usd')).toEqual({
+      fiat: 'USD',
+      markup: 0.002,
+      side: 'sell',
+    });
+    expect(findPairMarkup('usdc', 'USD')?.markup).toBe(0.002);
+    expect(findPairMarkup('USDC', 'usd')?.side).toBe('sell');
+  });
+
+  it('does not mark up USD onramp (USD → USDT/USDC stays on named-deposit / B2B)', () => {
     expect(findPairMarkup('usd', 'usdt')).toBeNull();
+    expect(findPairMarkup('USD', 'USDC')).toBeNull();
+  });
+
+  it('returns null for corridors that are not USD↔EUR, USDT/USDC→USD, USD↔CAD, USD↔JPY, or GBP onramp', () => {
     expect(findPairMarkup('ngn', 'usdt')).toBeNull();
     expect(findPairMarkup('usdt', 'ngn')).toBeNull();
     expect(findPairMarkup('eur', 'ngn')).toBeNull();

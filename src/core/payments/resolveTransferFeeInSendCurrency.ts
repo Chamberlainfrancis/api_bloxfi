@@ -16,12 +16,13 @@
  * other corridors — the payout fiat). This converts it into the send currency
  * via the same Palremit conversion API used for the offramp rate. Same-currency
  * fees skip the lookup. Returns null when the fee is unknown or cannot be
- * priced — callers MUST fail soft (no deduction) rather than guess, so the
- * customer is never quoted less than the provider will actually deliver.
+ * priced — callers must not invent a fee except the known WIRE $25 SWIFT
+ * policy applied at quote time.
  */
 
 import type { GetOfframpRatesResponse } from '@/types/offramp';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
+import { parseStableFeeAsset } from '@/core/offramps/stablecoinFee';
 
 export type GetRateFn = (
   from: string,
@@ -51,6 +52,12 @@ export async function resolveTransferFeeInSendCurrency(params: {
   const feeCurrency = feeQuote.totalFee.currency.trim().toUpperCase();
   const sendCcy = sendCurrency.trim().toUpperCase();
   if (feeCurrency === sendCcy) return feeAmount;
+
+  // Palremit's WIRE SWIFT fee is USDC; offramp send is often USDT. Execution
+  // treats USDT/USDC 1:1 on the funding cap — do not fail-soft a known $25.
+  const feeStable = parseStableFeeAsset(feeCurrency);
+  const sendStable = parseStableFeeAsset(sendCcy);
+  if (feeStable && sendStable) return feeAmount;
 
   const rateRes = await getRate(feeCurrency.toLowerCase(), sendCcy.toLowerCase());
   if (!rateRes) return null;

@@ -41,7 +41,14 @@ function makeOptions(
   return {
     getRateFromPalremit: vi.fn(async () => rateResponse('1450', 'ngn')),
     resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
-    getProviderWithdrawalFeeQuote: vi.fn(async () => null),
+    getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+      feeUnavailable: false,
+      fees: [],
+      totalFee: { amount: '0', currency: 'USDC' },
+      destinationAmount: null,
+      effectiveRate: null,
+      expiresAt: null,
+    })),
     convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
     loadOfframpAccountCorridor: vi.fn(async () => ({
       asset: account.asset,
@@ -51,6 +58,191 @@ function makeOptions(
     })),
   };
 }
+
+describe('createOfframpQuote — wire SWIFT fee fallback', () => {
+  it('deducts the $25 WIRE fee when Palremit marks the fee unavailable', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.9988', 'usd'),
+        marketRate: '1',
+        rateCurrency: 'USD',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: true,
+        fees: [],
+        totalFee: null,
+        destinationAmount: '998.00',
+        effectiveRate: '1',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'USD',
+        country: 'CA',
+        destinationType: 'wire',
+      }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'usd',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'CA', destinationType: 'wire' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(975, 6);
+    expect(result.quote.transferFee.unavailable).toBe(false);
+    expect(result.quote.transferFee.total).toEqual({ amount: '25', currency: 'USDC' });
+  });
+
+  it('does not quote GBP wire when Palremit did not return a fee', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.74', 'gbp'),
+        marketRate: '0.74',
+        rateCurrency: 'GBP',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: true,
+        fees: [],
+        totalFee: null,
+        destinationAmount: null,
+        effectiveRate: null,
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'GBP',
+        country: 'GB',
+        destinationType: 'wire',
+      }).loadOfframpAccountCorridor,
+    };
+    await expect(
+      createOfframpQuote(
+        {
+          fromCurrency: 'usdt',
+          toCurrency: 'gbp',
+          fromChain: 'TRC20',
+          amount: 1000,
+          corridor: { country: 'GB', destinationType: 'wire' },
+          accountId: ACC,
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+        },
+        options as never
+      )
+    ).rejects.toThrow('UNFAVORABLE_RATE');
+  });
+
+  it('does not quote EUR SEPA when Palremit did not return a fee', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.87'),
+        marketRate: '0.87',
+        rateCurrency: 'EUR',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: true,
+        fees: [],
+        totalFee: null,
+        destinationAmount: '870.00',
+        effectiveRate: '0.87',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'EUR', country: 'FR' }).loadOfframpAccountCorridor,
+    };
+    await expect(
+      createOfframpQuote(
+        {
+          fromCurrency: 'usdt',
+          toCurrency: 'eur',
+          fromChain: 'TRC20',
+          amount: 1000,
+          corridor: { country: 'FR', destinationType: 'local_bank' },
+          accountId: ACC,
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+        },
+        options as never
+      )
+    ).rejects.toThrow('UNFAVORABLE_RATE');
+  });
+
+  it('rejects a quote when the transfer fee is unknown and the rail is not WIRE', async () => {
+    const options = {
+      ...makeOptions({ asset: 'NGN', country: 'NG' }),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => null),
+    };
+    await expect(
+      createOfframpQuote(
+        {
+          fromCurrency: 'usdt',
+          toCurrency: 'ngn',
+          fromChain: 'TRC20',
+          amount: 1000,
+          corridor: { country: 'NG', destinationType: 'local_bank' },
+          accountId: ACC,
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+        },
+        options as never
+      )
+    ).rejects.toThrow('UNFAVORABLE_RATE');
+  });
+});
+
+describe('createOfframpQuote — USDT→USD pair markup', () => {
+  it('applies 20 bps below marketRate on USDT → USD', async () => {
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.9988', 'usd'),
+        marketRate: '1',
+        rateCurrency: 'USD',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: '1000.00',
+        effectiveRate: '1',
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'USD', country: 'US' }).loadOfframpAccountCorridor,
+    };
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'usd',
+        fromChain: 'TRC20',
+        amount: 1000,
+        corridor: { country: 'US', destinationType: 'local_bank' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    const customer = 1 * 0.998;
+    expect(Number(result.baseConversionRate)).toBeCloseTo(customer, 10);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as {
+      baseConversionRate: string;
+      quote: { receiveGross: { amount: string } };
+    };
+    expect(Number(snapshot.baseConversionRate)).toBeCloseTo(customer, 10);
+    expect(Number(snapshot.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 2);
+  });
+});
 
 describe('createOfframpQuote — USD→EUR pair markup', () => {
   it('applies 25 bps below marketRate on USDT → EUR', async () => {
@@ -390,7 +582,14 @@ describe('createOfframpQuote', () => {
         ...rateResponse('1450', 'ngn'), marketRate: '1460', rateCurrency: 'NGN', perCurrency: 'USDT',
       })),
       resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
-      getProviderWithdrawalFeeQuote: vi.fn(async () => null),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [],
+        totalFee: { amount: '0', currency: 'USDC' },
+        destinationAmount: null,
+        effectiveRate: null,
+        expiresAt: null,
+      })),
       convertToUsdc: vi.fn(async (_from: string, amount: number) => amount * 1.1),
       loadOfframpAccountCorridor: makeOptions({ asset: 'NGN', country: 'NG' }).loadOfframpAccountCorridor,
     };

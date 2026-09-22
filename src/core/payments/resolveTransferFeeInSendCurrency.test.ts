@@ -30,15 +30,15 @@ describe('resolveTransferFeeInSendCurrency', () => {
     expect(getRate).not.toHaveBeenCalled();
   });
 
-  it('converts a funding-asset fee (USDC) into the send crypto (USDT) via the rate', async () => {
-    const getRate = vi.fn(async () => rate('1')); // 1 USDT per USDC
+  it('treats USDC and USDT as 1:1 so a SWIFT fee deducts without a conversion lookup', async () => {
+    const getRate = vi.fn();
     const r = await resolveTransferFeeInSendCurrency({
       feeQuote: quote({ amount: '25', currency: 'USDC' }),
       sendCurrency: 'usdt',
       getRate,
     });
     expect(r).toBe(25);
-    expect(getRate).toHaveBeenCalledWith('usdc', 'usdt');
+    expect(getRate).not.toHaveBeenCalled();
   });
 
   it('converts into a non-stablecoin send currency (NGN) at the looked-up rate', async () => {
