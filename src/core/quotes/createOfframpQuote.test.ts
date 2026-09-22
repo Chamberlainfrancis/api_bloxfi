@@ -53,7 +53,7 @@ function makeOptions(
 }
 
 describe('createOfframpQuote — USD→EUR pair markup', () => {
-  it('applies 0.5% below marketRate on USDT → EUR', async () => {
+  it('applies 25 bps below marketRate on USDT → EUR', async () => {
     const options = {
       getRateFromPalremit: vi.fn(async () => ({
         ...rateResponse('0.871'),
@@ -85,7 +85,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
       },
       options as never
     );
-    const customer = 0.87 * 0.995;
+    const customer = 0.87 * 0.9975;
     expect(Number(result.baseConversionRate)).toBeCloseTo(customer, 10);
     const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
       .payload as {
@@ -96,7 +96,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
     expect(Number(snapshot.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 2);
   });
 
-  it('floors EUR conversion at the live OwlPay effective_rate, then 0.5%', async () => {
+  it('floors EUR conversion at the live OwlPay effective_rate, then 25 bps', async () => {
     const options = {
       getRateFromPalremit: vi.fn(async () => ({
         ...rateResponse('0.8681172675'),
@@ -128,7 +128,7 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
       },
       options as never
     );
-    const customer = 0.855861 * 0.995;
+    const customer = 0.855861 * 0.9975;
     expect(Number(result.baseConversionRate)).toBeCloseTo(customer, 8);
     expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(1000 * customer, 2);
   });
@@ -166,10 +166,10 @@ describe('createOfframpQuote — USD→EUR pair markup', () => {
       options as never
     );
     const owlpay = 0.855;
-    const customer = owlpay * 0.995;
+    const customer = owlpay * 0.9975;
     expect(Number(result.baseConversionRate)).toBeCloseTo(customer, 8);
     expect(Number(result.baseConversionRate)).toBeLessThan(owlpay);
-    expect(Number(result.baseConversionRate)).not.toBeCloseTo(0.85846 * 0.995, 5);
+    expect(Number(result.baseConversionRate)).not.toBeCloseTo(0.85846 * 0.9975, 5);
   });
 
   it('rejects EUR quotes when OwlPay effective_rate is missing', async () => {
@@ -548,7 +548,7 @@ describe('createOfframpQuote', () => {
         beneficiaryType: 'business',
       })
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(0.87 * 0.995, 8);
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.87 * 0.9975, 8);
     const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
       .payload as { corridor: { country: string; destinationType: string } };
     expect(snapshot.corridor).toEqual({
@@ -618,7 +618,7 @@ describe('createOfframpQuote — dest-fixed receive amount', () => {
       .payload as { destinationAmount: number; sendAmount: number };
     expect(snapshot.destinationAmount).toBe(1000);
     expect(snapshot.sendAmount).toBeGreaterThan(1000);
-    const customer = 0.87 * 0.995;
+    const customer = 0.87 * 0.9975;
     expect(Number(result.quote.sendNet.amount) * customer).toBeGreaterThanOrEqual(1000 - 1e-6);
   });
 
@@ -654,9 +654,9 @@ describe('createOfframpQuote — dest-fixed receive amount', () => {
       },
       options as never
     );
-    const customer = 0.87 * 0.995;
+    const customer = 0.87 * 0.9975;
     expect(Number(result.quote.sendGross.amount)).toBe(1000);
-    expect(Number(result.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 8);
+    expect(Number(result.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 2);
   });
 
   it('keeps fractional dest cents (1000.50 stays 1000.50)', async () => {
