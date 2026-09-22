@@ -174,6 +174,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
+  <div id="dInlineMsg" class="d-inline-msg" style="display:none"></div>
   <div class="dbody" id="dBody"></div>
 </dialog>
 
@@ -540,8 +541,9 @@ function payoutInfo(t) {
   return { po: po, sent: sent };
 }
 
-async function openDetail(id, forceType) {
+async function openDetail(id, forceType, flash) {
   showErr("");
+  showDetailMsg("");
   const detailType = forceType || state.type;
   try {
     const t = await api("/transactions/" + detailType + "/" + id);
@@ -748,6 +750,7 @@ async function openDetail(id, forceType) {
     restorePasscodeField();
     $("detail").showModal();
     $("dBody").scrollTop = 0;
+    if (flash && flash.msg) showDetailMsg(flash.msg, flash.kind);
   } catch (e) { showErr(e.message); }
 }
 
@@ -855,9 +858,9 @@ async function retryFiatPayout(offrampId, txnRef) {
       : data.status === "reissued"
         ? "New Palremit payout created. Previous failed/refunded payout was superseded."
         : "Fiat payout initiated at Palremit.";
-    showDetailMsg(okMsg, "ok");
-    await openDetail(offrampId, "offramp");
+    await openDetail(offrampId, "offramp", { msg: okMsg, kind: "ok" });
     if (state.view === "transactions" && state.type === "offramp") await load(true);
+    showDetailMsg(okMsg, "ok");
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
@@ -865,9 +868,9 @@ async function retryFiatPayout(offrampId, txnRef) {
       showDetailMsg("Incorrect passcode — update the field above and try again.", "bad");
       focusPasscode();
     } else {
-      showDetailMsg(e.message || "Retry failed.", "bad");
-      showErr(e.message);
-      await openDetail(offrampId, "offramp");
+      var errMsg = e.message || "Retry failed.";
+      showDetailMsg(errMsg, "bad");
+      showErr(errMsg);
     }
   } finally {
     setBtnLoading(btn, false, "Retry fiat payout");
