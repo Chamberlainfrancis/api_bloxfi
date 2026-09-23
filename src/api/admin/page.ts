@@ -150,6 +150,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
   <div class="tab" data-view="settlements">Fee settlements</div>
   <div class="tab" data-view="businesses">Businesses</div>
+  <div class="tab" data-view="dakota">Dakota KYB</div>
 </div>
 <div class="toolbar" id="txnToolbar">
   <label class="muted" id="statusLabel">Status</label>
@@ -163,6 +164,10 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <button id="bizSearch">Search</button>
   <button class="ghost" id="bizReload">Reload</button>
 </div>
+<div class="toolbar" id="dakToolbar" style="display:none">
+  <span class="muted">Dakota applications that still need legal attestations</span>
+  <button class="ghost" id="dakReload">Reload</button>
+</div>
 <div id="err" class="err" style="display:none"></div>
 <table id="txnTable">
   <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
@@ -171,6 +176,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div id="txnMoreWrap" style="padding:16px 24px"><button class="ghost" id="more" style="display:none">Load more</button></div>
 <div id="bizResults" class="biz-results"></div>
 <div id="bizMoreWrap" class="biz-more" style="display:none"><button class="ghost" id="bizMore" style="display:none">Load more</button></div>
+<div id="dakResults" class="biz-results" style="display:none"></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
@@ -292,7 +298,7 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["approveFeePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
@@ -304,13 +310,13 @@ function focusPasscode() {
   const el = approveOpen
     ? $("approveFeePasscode")
     : detailOpen
-      ? ($("markPasscode") || $("retryFiatPasscode") || $("approveFeePasscode"))
+      ? ($("markPasscode") || $("retryFiatPasscode") || $("dakAttestPasscode") || $("approveFeePasscode"))
       : ($("approveFeePasscode") || $("markPasscode") || $("retryFiatPasscode"));
   if (el) { el.focus(); el.select(); }
 }
 
 function clearPasscodeFields() {
-  ["approveFeePasscode", "retryFiatPasscode", "markPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -1409,7 +1415,131 @@ $("bizDetail").addEventListener("click", function (e) {
   if (removeBtn) { removeBusinessProvider(removeBtn.dataset.provider); return; }
 });
 
-// --- wiring -----------------------------------------------------------------
+var dakState = { items: [], selectedId: null };
+
+async function loadDakotaList() {
+  var el = $("dakResults");
+  el.style.display = "block";
+  el.innerHTML = '<div class="biz-results-empty">Loading Dakota applications…</div>';
+  try {
+    var res = await api("/dakota/applications");
+    dakState.items = (res && res.items) ? res.items : [];
+    renderDakotaList();
+  } catch (err) {
+    el.innerHTML = '<div class="biz-results-empty">' + esc(err.message || "Failed to load Dakota applications") + "</div>";
+  }
+}
+
+function renderDakotaList() {
+  var el = $("dakResults");
+  if (state.view !== "dakota") { el.style.display = "none"; return; }
+  if (!dakState.items.length) {
+    el.innerHTML = '<div class="biz-results-empty">No Dakota applications are waiting on attestations.</div>';
+    el.style.display = "block";
+    return;
+  }
+  el.innerHTML = '<table><thead><tr><th>Applicant</th><th>Type</th><th>KYB</th><th>Application</th><th>Missing attestations</th></tr></thead><tbody>' +
+    dakState.items.map(dakotaRowHtml).join("") +
+    "</tbody></table>";
+  el.style.display = "block";
+}
+
+function dakotaRowHtml(row) {
+  var missing = (row.missing_attestations || []).join(", ");
+  return '<tr class="dak-row" data-application-id="' + esc(row.application_id) + '">' +
+    "<td><div>" + esc(row.name || "") + '</div><div class="biz-id">' + esc(row.customer_id || "") + "</div></td>" +
+    "<td>" + esc(row.customer_type || "") + "</td>" +
+    "<td>" + kybBadge(row.kyb_status) + "</td>" +
+    "<td>" + esc(row.application_status || "") + "</td>" +
+    "<td>" + (missing ? esc(missing) : '<span class="muted">—</span>') + "</td>" +
+    "</tr>";
+}
+
+async function openDakotaDetail(applicationId) {
+  dakState.selectedId = applicationId;
+  $("dTitle").textContent = "Dakota KYB attestation";
+  $("dBody").innerHTML = '<p class="muted">Loading…</p>';
+  $("detail").showModal();
+  try {
+    var row = await api("/dakota/applications/" + encodeURIComponent(applicationId));
+    renderDakotaDetail(row);
+  } catch (err) {
+    $("dBody").innerHTML = '<p class="err">' + esc(err.message || "Failed to load application") + "</p>";
+  }
+}
+
+function renderDakotaDetail(row) {
+  var agreements = row.agreements || [];
+  var boxes = agreements.map(function (a) {
+    var id = "dak-agree-" + a.type;
+    var ver = a.version ? " (v" + a.version + ")" : "";
+    return '<label style="display:flex;gap:10px;align-items:flex-start;margin:8px 0">' +
+      '<input type="checkbox" class="dak-agree" data-type="' + esc(a.type) + '" id="' + esc(id) + '" />' +
+      '<span><strong>' + esc(a.title || a.type) + '</strong>' + esc(ver) + '<br><span class="muted">' + esc(a.description || "") + '</span></span>' +
+      "</label>";
+  }).join("");
+  var applicant = row.applicant_name ? esc(row.applicant_name) : esc(row.name || "");
+  $("dBody").innerHTML =
+    '<div class="summary"><div><div class="muted">Applicant</div><div>' + applicant + "</div></div>" +
+    '<div><div class="muted">Application</div><div>' + esc(row.application_id) + "</div></div>" +
+    '<div><div class="muted">Status</div><div>' + esc(row.status_message || row.application_status || "") + "</div></div></div>" +
+    "<p>Read each Dakota agreement, then confirm. Palremit will POST attestations only after every required box is checked.</p>" +
+    boxes +
+    '<div class="payout-retry-fields" style="margin-top:16px">' +
+    '<label for="dakAttestPasscode">Passcode</label>' +
+    '<input type="password" id="dakAttestPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+    "</div>" +
+    '<p id="dakAttestMsg" class="payout-retry-msg" style="display:none"></p>' +
+    '<button type="button" class="ok" id="dakAttestBtn" data-application-id="' + esc(row.application_id) + '">Accept and attest</button>';
+}
+
+function showDakMsg(text, kind) {
+  var el = $("dakAttestMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.className = "payout-retry-msg" + (kind ? " " + kind : "");
+  el.textContent = text || "";
+}
+
+async function submitDakotaAttest(applicationId) {
+  var boxes = $("dBody").querySelectorAll(".dak-agree");
+  var accepted = [];
+  var missing = [];
+  boxes.forEach(function (box) {
+    if (box.checked) accepted.push(box.dataset.type);
+    else missing.push(box.dataset.type);
+  });
+  if (missing.length) {
+    showDakMsg("Check every agreement before attesting (" + missing.join(", ") + ").", "bad");
+    return;
+  }
+  var secret = $("dakAttestPasscode") ? $("dakAttestPasscode").value : "";
+  if (!secret) {
+    showDakMsg("Enter the dashboard passcode, then attest.", "bad");
+    return;
+  }
+  var btn = $("dakAttestBtn");
+  if (btn) btn.disabled = true;
+  showDakMsg("Submitting attestations…", "info");
+  try {
+    var res = await api("/dakota/applications/" + encodeURIComponent(applicationId) + "/attestations", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ accepted_types: accepted, secret: secret })
+    });
+    var extra = "";
+    if (res.submitted) extra = " Application submitted to Dakota.";
+    else if (res.status_message) extra = " " + res.status_message;
+    if (res.missing_fields && res.missing_fields.length) extra += " Still missing fields: " + res.missing_fields.join(", ") + ".";
+    if (res.missing_documents && res.missing_documents.length) extra += " Still missing documents: " + res.missing_documents.join("; ") + ".";
+    showDakMsg("Attested " + (res.attested || []).join(", ") + "." + extra, res.submitted ? "ok" : "info");
+    loadDakotaList();
+  } catch (err) {
+    showDakMsg(err.message || "Attest failed", "bad");
+  }
+  if (btn) btn.disabled = false;
+  if ($("dakAttestPasscode")) $("dakAttestPasscode").value = "";
+}
 
 document.querySelectorAll(".tab").forEach(function (el) {
   el.addEventListener("click", function () {
@@ -1425,18 +1555,26 @@ document.querySelectorAll(".tab").forEach(function (el) {
     showErr("");
 
     var isBusinesses = state.view === "businesses";
-    $("txnToolbar").style.display = isBusinesses ? "none" : "flex";
+    var isDakota = state.view === "dakota";
+    var hideTxns = isBusinesses || isDakota;
+    $("txnToolbar").style.display = hideTxns ? "none" : "flex";
     $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
-    $("txnTable").style.display = isBusinesses ? "none" : "table";
-    $("txnMoreWrap").style.display = isBusinesses ? "none" : "block";
+    $("dakToolbar").style.display = isDakota ? "flex" : "none";
+    $("txnTable").style.display = hideTxns ? "none" : "table";
+    $("txnMoreWrap").style.display = hideTxns ? "none" : "block";
     $("more").style.display = "none";
     $("bizResults").style.display = isBusinesses ? "block" : "none";
+    $("dakResults").style.display = isDakota ? "block" : "none";
     if (isBusinesses) {
       if (!bizState.results.length) loadBusinessList(true);
       else {
         renderBusinessResults();
         updateBizMore();
       }
+      return;
+    }
+    if (isDakota) {
+      loadDakotaList();
       return;
     }
 
@@ -1451,6 +1589,11 @@ document.querySelectorAll(".tab").forEach(function (el) {
 $("statusFilter").addEventListener("change", function (e) { state.status = e.target.value; load(true); });
 $("includeExpired").addEventListener("change", function (e) { state.includeExpired = e.target.checked; load(true); });
 $("reload").addEventListener("click", function () { load(true); });
+$("dakReload").addEventListener("click", function () { loadDakotaList(); });
+$("dakResults").addEventListener("click", function (e) {
+  var tr = e.target.closest("tr.dak-row");
+  if (tr) openDakotaDetail(tr.dataset.applicationId);
+});
 $("more").addEventListener("click", function () { load(false); });
 $("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
@@ -1466,6 +1609,11 @@ $("dBody").addEventListener("click", function (e) {
   if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.platformFee); return; }
   if (e.target.closest("#retryFiatPayout")) { retryFiatPayout(detailCtx.id, detailCtx.txnRef); return; }
+  if (e.target.closest("#dakAttestBtn")) {
+    var dakBtn = e.target.closest("#dakAttestBtn");
+    submitDakotaAttest(dakBtn.dataset.applicationId);
+    return;
+  }
 });
 $("rows").addEventListener("click", function (e) {
   const approve = e.target.closest(".approve-btn");

@@ -629,7 +629,7 @@ describe('createAccount — onramp', () => {
     errorSpy.mockRestore();
   });
 
-  it('provisions Graph named VA for USD Briana accounts and skips SwipeLux import', async () => {
+  it('provisions Dakota named VA for USD Briana accounts and skips SwipeLux import', async () => {
     const { accountRepo, userRepo, kybRepo, importKyc, copySourceOfFundsDocument } = makeOnrampDeps(null);
     userRepo.findUserById.mockResolvedValue({
       id: BRIANA_BUSINESS_REFERENCE,
@@ -710,7 +710,7 @@ describe('createAccount — onramp', () => {
     expect(result.depositDetails?.accountNumber).toBe('9992740191426913');
     expect(result.capabilities?.usdNamedDeposit.status).toBe('active');
     expect(provisionCalls[0]?.body?.client_reference).toBe('acc-onramp-1');
-    expect(provisionCalls[0]?.body?.preferred_provider).toBe('graph');
+    expect(provisionCalls[0]?.body?.preferred_provider).toBe('dakota');
     expect(schedulePartnerWebhook).toHaveBeenCalledWith(
       'account.created',
       expect.objectContaining({

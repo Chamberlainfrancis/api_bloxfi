@@ -110,7 +110,11 @@ export type GraphIssuanceAccountSource = {
 export async function issueGraphNamedDepositAccount(
   liquidityRequest: PalremitLiquidityRequestFn,
   account: GraphIssuanceAccountSource,
-  options?: { idempotencyKey?: string; providerExtras?: Record<string, unknown> }
+  options?: {
+    idempotencyKey?: string;
+    providerExtras?: Record<string, unknown>;
+    preferredProvider?: 'graph' | 'dakota';
+  }
 ): Promise<GraphIssuanceResult> {
   const meta = account.metadata as AccountMetadata | null | undefined;
   const kycInput = buildGraphIndividualKycInput({
@@ -119,13 +123,14 @@ export async function issueGraphNamedDepositAccount(
     documents: meta?.documents,
   });
 
+  const preferredProvider = options?.preferredProvider ?? 'graph';
   const body: Record<string, unknown> = {
     asset: 'USD',
     mode: 'FIAT_DEPOSIT_KYC',
     client_reference: account.id,
     business_reference: account.userId,
     account_reference: account.id,
-    preferred_provider: 'graph',
+    preferred_provider: preferredProvider,
     allow_provider_failover: false,
     kyc_input: kycInput,
   };
