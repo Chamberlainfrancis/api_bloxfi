@@ -21,7 +21,7 @@ import {
   isUsAddressCountry,
   sanitizeGraphPersonName,
 } from '@/core/integrations/graphOnrampKyc';
-import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
+import { isDakotaUsdBusiness, isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { importSwipeluxBeneficiaryKyc } from '@/core/integrations/palremitSwipeluxKycImport';
 import type {
   findAccountByCreationRequestId,
@@ -199,10 +199,15 @@ export async function createAccount(
     if (data.accountHolder.type !== 'individual') {
       throw new Error('INVALID_ACCOUNT: onramp accounts support customer_type individual only in v1');
     }
+    const useDakota =
+      data.type.trim().toLowerCase() === 'usd' && isDakotaUsdBusiness(userId, user.metadata);
     const useGraph =
-      data.type.trim().toLowerCase() === 'usd' && isGraphUsdBusiness(userId, user.metadata);
+      !useDakota &&
+      data.type.trim().toLowerCase() === 'usd' &&
+      isGraphUsdBusiness(userId, user.metadata);
+    const useNamedUsd = useGraph || useDakota;
     const kycImportEnabled =
-      !useGraph && isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
+      !useNamedUsd && isSwipeluxBeneficiaryKycImportEnabled(user.metadata);
     const addressCountry = data.accountHolder.address?.country;
     if (
       (kycImportEnabled || isUsAddressCountry(addressCountry)) &&
@@ -215,8 +220,8 @@ export async function createAccount(
       );
     }
 
-    // Fail closed before persist when Graph KYC is incomplete / payload invalid.
-    if (useGraph) {
+    // Fail closed before persist when named-USD KYC is incomplete / payload invalid.
+    if (useNamedUsd) {
       assertGraphUsdAccountCreatePayload({
         accountHolder: data.accountHolder,
         sofQuestionnaire: data.sofQuestionnaire,
@@ -244,7 +249,7 @@ export async function createAccount(
         status: 'ACTIVE',
         message: 'Account already exists',
         id: existing.id,
-        ...(useGraph ? issuanceResponseFields(existing) : {}),
+        ...(useNamedUsd ? issuanceResponseFields(existing) : {}),
       };
     }
 
@@ -294,7 +299,7 @@ export async function createAccount(
         status: 'ACTIVE',
         message: 'Account already exists',
         id: raced.id,
-        ...(useGraph ? issuanceResponseFields(raced) : {}),
+        ...(useNamedUsd ? issuanceResponseFields(raced) : {}),
       };
     }
 
@@ -305,14 +310,18 @@ export async function createAccount(
       type: data.type,
     });
 
-    if (useGraph) {
-      const issued = await issueGraphNamedDepositAccount(options.palremitLiquidityRequest, {
-        id: created.id,
-        userId,
-        accountHolder,
-        sofQuestionnaire: data.sofQuestionnaire,
-        metadata: data.metadata as AccountMetadata | undefined,
-      });
+    if (useNamedUsd) {
+      const issued = await issueGraphNamedDepositAccount(
+        options.palremitLiquidityRequest,
+        {
+          id: created.id,
+          userId,
+          accountHolder,
+          sofQuestionnaire: data.sofQuestionnaire,
+          metadata: data.metadata as AccountMetadata | undefined,
+        },
+        { preferredProvider: 'dakota' }
+      );
       const updated = await accountRepo.updateProviderIssuance(created.id, {
         providerIssuanceStatus: issued.providerIssuanceStatus,
         provisionedAccountId: issued.provisionedAccountId,

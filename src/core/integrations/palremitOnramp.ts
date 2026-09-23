@@ -47,6 +47,19 @@ export function isGraphUsdBusiness(userId: string, metadata: unknown): boolean {
   return false;
 }
 
+/**
+ * New named USD deposits for this business go to Dakota.
+ * Covers Briana, Carlston, SMS Data, `graphUsdNamedDeposits`, and
+ * `dakotaUsdNamedDeposits`. Existing Graph accounts are reused by id.
+ */
+export function isDakotaUsdBusiness(userId: string, metadata: unknown): boolean {
+  if (isGraphUsdBusiness(userId, metadata)) return true;
+  if (metadata != null && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    return (metadata as Record<string, unknown>).dakotaUsdNamedDeposits === true;
+  }
+  return false;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -314,6 +327,8 @@ export async function createOnrampPalremitFiatDeposit(
     graphKycInput?: Record<string, unknown>;
     /** Pin preferred_provider=graph + FIAT_DEPOSIT_KYC (Briana or metadata opt-in). */
     useGraphUsd?: boolean;
+    /** Pin preferred_provider=dakota + FIAT_DEPOSIT_KYC (metadata.dakotaUsdNamedDeposits). */
+    useDakotaUsd?: boolean;
     /**
      * When Account already has Graph named-VA issuance from create time,
      * reuse it instead of provisioning a second VA under the onramp txnRef.
@@ -328,8 +343,10 @@ export async function createOnrampPalremitFiatDeposit(
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
   const isGraphUsd = asset === 'USD' && params.useGraphUsd === true;
+  const isDakotaUsd = asset === 'USD' && params.useDakotaUsd === true;
+  const isNamedUsd = isGraphUsd || isDakotaUsd;
 
-  if (isGraphUsd && params.existingGraphIssuance) {
+  if (isNamedUsd && params.existingGraphIssuance) {
     const issuance = params.existingGraphIssuance;
     const status = (issuance.providerIssuanceStatus ?? '').toLowerCase();
     if (status === 'failed') {
@@ -352,7 +369,7 @@ export async function createOnrampPalremitFiatDeposit(
             clientReference: params.accountReference ?? params.txnRef.trim(),
             asset,
             mode: 'FIAT_DEPOSIT_KYC',
-            providerName: 'graph',
+            providerName: isDakotaUsd ? 'dakota' : 'graph',
             depositAsset: asset,
             withdrawalAsset: null,
             network: null,
@@ -400,7 +417,9 @@ export async function createOnrampPalremitFiatDeposit(
             providerName:
               typeof polled.account.provider_name === 'string'
                 ? polled.account.provider_name
-                : 'graph',
+                : isDakotaUsd
+                  ? 'dakota'
+                  : 'graph',
             depositAsset: asset,
             withdrawalAsset: null,
             network: null,
@@ -417,7 +436,7 @@ export async function createOnrampPalremitFiatDeposit(
 
   const fallback = (reason: string) => {
     // Graph path: never silent OwlPay/SwipeLux/static house fallback.
-    if (isGraphUsd) {
+    if (isNamedUsd) {
       throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
     }
     return staticFallbackDepositResult({
@@ -441,7 +460,7 @@ export async function createOnrampPalremitFiatDeposit(
   // NGN (Kuda) and non-Graph USD (SwipeLux) onboard identity out of band.
   // Graph USD uses named VA via FIAT_DEPOSIT_KYC. Other currencies still use
   // the orchestrator-driven KYC path.
-  const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' = isGraphUsd
+  const mode: 'FIAT_DEPOSIT_NO_KYC' | 'FIAT_DEPOSIT_KYC' = isNamedUsd
     ? 'FIAT_DEPOSIT_KYC'
     : asset === 'NGN' || asset === 'USD'
       ? 'FIAT_DEPOSIT_NO_KYC'
@@ -461,7 +480,7 @@ export async function createOnrampPalremitFiatDeposit(
   // - Graph USD: named VA — no amount extras; full kyc_input below.
   if (asset === 'NGN') {
     body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
-  } else if (asset === 'USD' && !isGraphUsd) {
+  } else if (asset === 'USD' && !isNamedUsd) {
     const providerExtras: Record<string, unknown> = { amount: String(params.amount) };
     // Per-account SwipeLux identity. account_reference switches the
     // orchestrator from per-business to per-account resolution; contact_email
@@ -474,20 +493,19 @@ export async function createOnrampPalremitFiatDeposit(
       if (params.customerType) providerExtras.customer_type = params.customerType;
     }
     body.provider_extras = providerExtras;
-  } else if (isGraphUsd) {
+  } else if (isNamedUsd) {
     if (!params.graphKycInput) {
       throw new GraphOnrampKycError(['kyc_input']);
     }
-    // Graph only — no SwipeLux/OwlPay/static fallthrough.
     body.allow_provider_failover = false;
-    body.preferred_provider = 'graph';
+    body.preferred_provider = isDakotaUsd ? 'dakota' : 'graph';
     body.kyc_input = params.graphKycInput;
     if (params.accountReference) {
       body.account_reference = params.accountReference;
     }
   }
 
-  if (mode === 'FIAT_DEPOSIT_KYC' && !isGraphUsd) {
+  if (mode === 'FIAT_DEPOSIT_KYC' && !isNamedUsd) {
     body.kyc_input = {
       first_name: params.firstName,
       last_name: params.lastName,
@@ -504,7 +522,7 @@ export async function createOnrampPalremitFiatDeposit(
     // Graph: fail closed (no static/OwlPay house). Non-Graph rethrows so existing
     // HTTP-adapter → null → static-fallback behavior is unchanged when
     // provisionPalremitDepositAccount surfaces a non-HTTP error.
-    if (isGraphUsd) throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
+    if (isNamedUsd) throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
     throw e;
   }
   if (!prov) return fallback('provision_failed');

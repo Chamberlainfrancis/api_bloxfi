@@ -31,4 +31,8 @@ router.delete(
   controllers.deleteBusinessProviderCustomer
 );
 
+router.get('/dakota/applications', controllers.listDakotaKybApplicants);
+router.get('/dakota/applications/:applicationId', controllers.getDakotaKybApplicant);
+router.post('/dakota/applications/:applicationId/attestations', controllers.postDakotaKybAttestations);
+
 export const adminRouter = router;

@@ -33,7 +33,10 @@ import {
   buildGraphIndividualKycInput,
   GraphOnrampKycError,
 } from '@/core/integrations/graphOnrampKyc';
-import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
+import {
+  isDakotaUsdBusiness,
+  isGraphUsdBusiness,
+} from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
 
 export interface CreateOnrampOptions {
@@ -88,6 +91,7 @@ export interface CreateOnrampOptions {
     graphKycInput?: Record<string, unknown>;
     /** Pin Graph USD named deposit path. */
     useGraphUsd?: boolean;
+    useDakotaUsd?: boolean;
     /** Reuse Graph VA issued at Account create time when present. */
     existingGraphIssuance?: {
       providerIssuanceStatus: string | null;
@@ -584,9 +588,14 @@ export async function createOnramp(
         }
       : {};
 
+  const useDakotaUsd =
+    fromCurrency.trim().toUpperCase() === 'USD' &&
+    isDakotaUsdBusiness(userId, user.metadata);
   const useGraphUsd =
     fromCurrency.trim().toUpperCase() === 'USD' &&
+    !useDakotaUsd &&
     isGraphUsdBusiness(userId, user.metadata);
+  const useNamedUsd = useGraphUsd || useDakotaUsd;
 
   let graphKycInput: Record<string, unknown> | undefined;
   let existingGraphIssuance:
@@ -597,7 +606,7 @@ export async function createOnramp(
         providerIssuanceFailureReason?: string | null;
       }
     | undefined;
-  if (useGraphUsd) {
+  if (useNamedUsd) {
     if (inferred.kind !== 'resolved') {
       throw new GraphOnrampKycError([
         inferred.kind === 'ambiguous'
@@ -660,8 +669,13 @@ export async function createOnramp(
     businessReference: userId,
     businessName: userDisplayInfo.businessName,
     ...accountFields,
-    ...(useGraphUsd
-      ? { useGraphUsd: true, graphKycInput, existingGraphIssuance }
+    ...(useNamedUsd
+      ? {
+          useGraphUsd,
+          useDakotaUsd,
+          graphKycInput,
+          existingGraphIssuance,
+        }
       : {}),
   });
   if (!fiatResult) {

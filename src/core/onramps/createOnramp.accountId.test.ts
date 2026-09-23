@@ -164,7 +164,8 @@ describe('createOnramp — source.accountId', () => {
     expect(d.createPalremitFiatDeposit).toHaveBeenCalledWith(
       expect.objectContaining({
         accountReference: ACC_B,
-        useGraphUsd: true,
+        useDakotaUsd: true,
+        useGraphUsd: false,
       })
     );
     expect(d.created.data?.source).toMatchObject({ accountId: ACC_B });

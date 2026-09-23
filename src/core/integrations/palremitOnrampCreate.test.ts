@@ -144,6 +144,27 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.reference).toBe('GRAPH-BRIANA-1');
   });
 
+  it('routes Dakota USD to FIAT_DEPOSIT_KYC with the same kyc_input', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const request = provisionStub(calls);
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      useDakotaUsd: true,
+      graphKycInput: individualGraphKycInput,
+      accountReference: 'acct-onramp-1',
+    });
+
+    expect(result).not.toBeNull();
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.mode).toBe('FIAT_DEPOSIT_KYC');
+    expect(body.preferred_provider).toBe('dakota');
+    expect(body.allow_provider_failover).toBe(false);
+    expect(body.kyc_input).toEqual(individualGraphKycInput);
+    expect(body.provider_extras).toBeUndefined();
+  });
+
   it('keeps non-Briana USD on FIAT_DEPOSIT_NO_KYC (SwipeLux) as today', async () => {
     const calls: { path: string; body: unknown }[] = [];
     const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {

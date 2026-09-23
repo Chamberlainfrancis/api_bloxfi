@@ -9,6 +9,7 @@ import { AppError } from '@/types';
 import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
 import * as providerCustomer from '@/core/admin/providerCustomer';
+import * as dakotaKyb from '@/core/admin/dakotaKyb';
 import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
@@ -421,6 +422,78 @@ export async function deleteBusinessProviderCustomer(
       throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
     }
     res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listDakotaKybApplicants(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const result = await dakotaKyb.listDakotaKybApplicants(palremitLiquidity);
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    sendSuccess(res, result.value);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getDakotaKybApplicant(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const applicationId = req.params.applicationId;
+    const result = await dakotaKyb.getDakotaKybApplicant(palremitLiquidity, applicationId);
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    sendSuccess(res, result.value);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function postDakotaKybAttestations(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const applicationId = req.params.applicationId;
+    const body = (req.body ?? {}) as {
+      accepted_types?: unknown;
+      secret?: unknown;
+    };
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (!env.DASHBOARD_MARK_SECRET || provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    const acceptedTypes = Array.isArray(body.accepted_types)
+      ? body.accepted_types.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      : [];
+    if (acceptedTypes.length === 0) {
+      throw new AppError('accepted_types is required', 'INVALID_REQUEST', 400);
+    }
+    const idempotencyKey = `dakotaattest-${applicationId}-${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, '');
+    const result = await dakotaKyb.attestDakotaKybApplicant(palremitLiquidity, {
+      applicationId,
+      acceptedTypes,
+      idempotencyKey,
+    });
+    if (!result.ok) {
+      throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
+    }
+    sendSuccess(res, result.value);
   } catch (e) {
     next(e);
   }
