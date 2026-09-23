@@ -694,12 +694,23 @@ export function buildGraphIndividualKycInput(source: GraphIndividualKycSource): 
 
   const validDocs: GraphOnrampKycDocument[] = [];
   for (const [mappedType, candidates] of candidatesByType) {
-    // Graph rejects duplicate document types — one URL per type; prefer front.
-    const preferred = candidates.find((c) => c.side === 'front') ?? candidates[0]!;
-    const out: GraphOnrampKycDocument = { type: mappedType, url: preferred.url };
-    if (preferred.issue_date) out.issue_date = preferred.issue_date;
-    if (preferred.expiry_date) out.expiry_date = preferred.expiry_date;
-    validDocs.push(out);
+    const front = candidates.find((c) => c.side === 'front');
+    const back = candidates.find((c) => c.side === 'back');
+    const preferred = front ?? candidates[0]!;
+    const push = (type: string, candidate: DocCandidate) => {
+      const out: GraphOnrampKycDocument = { type, url: candidate.url };
+      if (candidate.issue_date) out.issue_date = candidate.issue_date;
+      if (candidate.expiry_date) out.expiry_date = candidate.expiry_date;
+      validDocs.push(out);
+    };
+    // Dakota needs drivers_license_front + drivers_license_back. Graph used to
+    // collapse to one URL; new named-USD issuance is Dakota.
+    if (mappedType === 'drivers_license') {
+      push('drivers_license', preferred);
+      if (front && back) push('drivers_license_back', back);
+    } else {
+      push(mappedType, preferred);
+    }
   }
   if (!validDocs.some((d) => IDENTITY_DOC_TYPES.has(d.type))) {
     issues.push(issueRequired('documents'));

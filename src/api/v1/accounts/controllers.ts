@@ -14,7 +14,7 @@ import type { CreateAccountRequest } from "@/types/account";
 import { createAccountBodySchema, listAccountsQuerySchema, updateAccountBodySchema } from "@/api/v1/accounts/schemas";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import { GraphOnrampKycError } from "@/core/integrations/graphOnrampKyc";
-import { isGraphUsdBusiness } from "@/core/integrations/palremitOnramp";
+import { isDakotaUsdBusiness } from "@/core/integrations/palremitOnramp";
 import { importSwipeluxBeneficiaryKyc } from "@/core/integrations/palremitSwipeluxKycImport";
 
 const REQUEST_ID_HEADER = "requestid";
@@ -139,7 +139,7 @@ export async function listAccounts(req: Request<{ userId: string }>, res: Respon
       return;
     }
     const result = await accountCore.listAccounts(repos.account, userId, queryParsed.data, {
-      graphUsdEligible: isGraphUsdBusiness(userId, user.metadata),
+      usdNamedDepositEligible: isDakotaUsdBusiness(userId, user.metadata),
     });
     sendSuccess(res, result);
   } catch (e) {
@@ -160,7 +160,7 @@ export async function getAccount(req: Request<{ userId: string; accountId: strin
       return;
     }
     const result = await accountCore.getAccount(repos.account, userId, accountId, {
-      graphUsdEligible: isGraphUsdBusiness(userId, user.metadata),
+      usdNamedDepositEligible: isDakotaUsdBusiness(userId, user.metadata),
     });
     if (!result) {
       next(new AppError("Account not found", "NOT_FOUND", 404));

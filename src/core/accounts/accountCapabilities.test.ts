@@ -67,10 +67,10 @@ describe('mapUsdNamedDepositCapability', () => {
 });
 
 describe('buildAccountCapabilities', () => {
-  it('omits capabilities when not Graph-eligible', () => {
+  it('omits capabilities when not named-USD eligible', () => {
     expect(
       buildAccountCapabilities({
-        graphUsdEligible: false,
+        usdNamedDepositEligible: false,
         railType: 'onramp',
         providerIssuanceStatus: 'active',
         depositDetails: {
@@ -87,16 +87,16 @@ describe('buildAccountCapabilities', () => {
   it('omits capabilities for offramp', () => {
     expect(
       buildAccountCapabilities({
-        graphUsdEligible: true,
+        usdNamedDepositEligible: true,
         railType: 'offramp',
         providerIssuanceStatus: 'pending',
       })
     ).toBeUndefined();
   });
 
-  it('includes usdNamedDeposit for Graph-eligible onramp', () => {
+  it('includes usdNamedDeposit for named-USD onramp', () => {
     const caps = buildAccountCapabilities({
-      graphUsdEligible: true,
+      usdNamedDepositEligible: true,
       railType: 'onramp',
       providerIssuanceStatus: 'pending',
     });

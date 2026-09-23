@@ -356,6 +356,7 @@ describe('buildGraphIndividualKycInput', () => {
     });
     expect(kyc.documents).toEqual([
       { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+      { type: 'drivers_license_back', url: 'https://cdn.example.com/dl-back.jpg' },
       { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
     ]);
   });
@@ -466,6 +467,7 @@ describe('assertGraphUsdAccountCreatePayload', () => {
     });
     expect(kyc.documents).toEqual([
       { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+      { type: 'drivers_license_back', url: 'https://cdn.example.com/dl-back.jpg' },
       { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
     ]);
   });
@@ -481,6 +483,7 @@ describe('assertGraphUsdAccountCreatePayload', () => {
     });
     expect(kyc.documents).toEqual([
       { type: 'drivers_license', url: 'https://cdn.example.com/dl-front.jpg' },
+      { type: 'drivers_license_back', url: 'https://cdn.example.com/dl-back.jpg' },
       { type: 'utility_bill', url: 'https://cdn.example.com/poa.pdf' },
     ]);
   });

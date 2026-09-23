@@ -96,18 +96,18 @@ describe('mapAccountRowToApi', () => {
     expect(result.kycImportStatus).toBe('pending_import');
   });
 
-  it('omits capabilities when graphUsdEligible is false', () => {
+  it('omits capabilities when usdNamedDepositEligible is false', () => {
     const result = mapAccountRowToApi(
       {
         ...onrampRow,
         providerIssuanceStatus: 'pending',
       },
-      { mask: false, graphUsdEligible: false }
+      { mask: false, usdNamedDepositEligible: false }
     );
     expect(result.capabilities).toBeUndefined();
   });
 
-  it('exposes capabilities.usdNamedDeposit for Graph-eligible onramp', () => {
+  it('exposes capabilities.usdNamedDeposit for named-USD onramp', () => {
     const ready = mapAccountRowToApi(
       {
         ...onrampRow,
@@ -120,7 +120,7 @@ describe('mapAccountRowToApi', () => {
           reference: null,
         },
       },
-      { mask: false, graphUsdEligible: true }
+      { mask: false, usdNamedDepositEligible: true }
     );
     expect(ready.capabilities?.usdNamedDeposit.status).toBe('active');
 
@@ -130,7 +130,7 @@ describe('mapAccountRowToApi', () => {
         providerIssuanceStatus: 'failed',
         providerIssuanceFailureReason: 'GRAPH_PROVISION_STATE_FAILED',
       },
-      { mask: false, graphUsdEligible: true }
+      { mask: false, usdNamedDepositEligible: true }
     );
     expect(failed.capabilities?.usdNamedDeposit).toEqual({
       status: 'failed',
@@ -139,7 +139,7 @@ describe('mapAccountRowToApi', () => {
 
     const notStarted = mapAccountRowToApi(onrampRow, {
       mask: false,
-      graphUsdEligible: true,
+      usdNamedDepositEligible: true,
     });
     expect(notStarted.capabilities?.usdNamedDeposit.status).toBe('not_started');
   });

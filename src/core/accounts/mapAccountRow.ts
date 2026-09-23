@@ -45,7 +45,7 @@ export interface AccountRowLike {
 
 export function mapAccountRowToApi(
   row: AccountRowLike,
-  options: { mask: boolean; graphUsdEligible?: boolean }
+  options: { mask: boolean; usdNamedDepositEligible?: boolean }
 ): Account {
   if (row.railType === 'onramp') {
     // Onramp rows are Sumsub share-token KYC imports (Task 6/7) — no Palremit payout corridor,
@@ -57,7 +57,7 @@ export function mapAccountRowToApi(
         ? (row.depositDetails as AccountDepositDetails)
         : null;
     const capabilities = buildAccountCapabilities({
-      graphUsdEligible: options.graphUsdEligible === true,
+      usdNamedDepositEligible: options.usdNamedDepositEligible === true,
       railType: row.railType,
       providerIssuanceStatus: row.providerIssuanceStatus,
       depositDetails,

@@ -53,15 +53,15 @@ export function mapUsdNamedDepositCapability(input: {
   };
 }
 
-/** Build capabilities for Graph-eligible onramp Accounts; omit otherwise. */
+/** Build capabilities for named-USD onramp Accounts; omit otherwise. */
 export function buildAccountCapabilities(input: {
-  graphUsdEligible: boolean;
+  usdNamedDepositEligible: boolean;
   railType: string;
   providerIssuanceStatus?: string | null;
   depositDetails?: AccountDepositDetails | null;
   providerIssuanceFailureReason?: string | null;
 }): AccountCapabilities | undefined {
-  if (!input.graphUsdEligible || input.railType !== 'onramp') return undefined;
+  if (!input.usdNamedDepositEligible || input.railType !== 'onramp') return undefined;
   return {
     usdNamedDeposit: mapUsdNamedDepositCapability({
       providerIssuanceStatus: input.providerIssuanceStatus,

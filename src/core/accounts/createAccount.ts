@@ -95,7 +95,7 @@ function issuanceResponseFields(row: {
 > {
   const depositDetails = (row.depositDetails as AccountDepositDetails | null) ?? null;
   const capabilities = buildAccountCapabilities({
-    graphUsdEligible: true,
+    usdNamedDepositEligible: true,
     railType: 'onramp',
     providerIssuanceStatus: row.providerIssuanceStatus,
     depositDetails,

@@ -224,7 +224,7 @@ function listedAccountMarkupRule(
       : null;
   const railType = account.railType ?? 'onramp';
   const capabilities = buildAccountCapabilities({
-    graphUsdEligible: isGraphUsdBusiness(userId, userMetadata),
+    usdNamedDepositEligible: isDakotaUsdBusiness(userId, userMetadata),
     railType,
     providerIssuanceStatus: account.providerIssuanceStatus,
     depositDetails: details,

@@ -35,7 +35,7 @@ import { ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 import { findOnrampAccountsByUser, findAccountById } from '@/db/repositories/account.repo';
 import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
-import { isGraphUsdBusiness } from '@/core/integrations/palremitOnramp';
+import { isDakotaUsdBusiness } from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails } from '@/types/account';
 import type { OnrampQuoteSnapshot } from '@/types/quote';
 import {
@@ -105,7 +105,7 @@ async function loadOnrampAccountForMarkup(accountId: string) {
     railType: acc.railType,
     accountType: acc.accountType,
     capabilities: buildAccountCapabilities({
-      graphUsdEligible: isGraphUsdBusiness(acc.userId, user?.metadata),
+      usdNamedDepositEligible: isDakotaUsdBusiness(acc.userId, user?.metadata),
       railType: acc.railType,
       providerIssuanceStatus: acc.providerIssuanceStatus,
       depositDetails: details,

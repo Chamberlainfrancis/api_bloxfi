@@ -16,12 +16,12 @@ export async function getAccount(
   repo: AccountRepoGet,
   userId: string,
   accountId: string,
-  options?: { graphUsdEligible?: boolean }
+  options?: { usdNamedDepositEligible?: boolean }
 ): Promise<GetAccountResponse | null> {
   const account = await repo.findAccountByIdAndUser(accountId, userId);
   if (!account) return null;
   return mapAccountRowToApi(account, {
     mask: false,
-    graphUsdEligible: options?.graphUsdEligible === true,
+    usdNamedDepositEligible: options?.usdNamedDepositEligible === true,
   });
 }
