@@ -4,7 +4,6 @@ import {
   createOnrampPalremitFiatDeposit,
 } from '@/core/integrations/palremitOnramp';
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
-import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 
 const baseParams = {
   firstName: 'Adaeze',
@@ -43,78 +42,57 @@ const individualGraphKycInput = {
   documents: [{ type: 'passport', url: 'https://cdn.example.test/passport.png' }],
 };
 
-function provisionStub(
-  calls: { path: string; body: unknown }[],
-  depositOverrides: Record<string, unknown> = {}
-): PalremitLiquidityRequestFn {
-  return vi.fn(async (path, options) => {
-    calls.push({ path, body: options?.body });
-    if (path === '/v1/provisioned-accounts') {
-      return {
-        status: 201,
-        data: {
-          id: 'acct_briana_graph',
-          state: 'pending',
-          provider_name: 'graph',
-          deposit_instructions: {
-            kind: 'fiat_account',
-            account_number: '9992740191426913',
-            bank_code: '084106768',
-            bank_name: 'Oval Bank',
-            account_holder_name: 'BRIANA PAYMENTS LIMITED',
-            reference: 'GRAPH-BRIANA-1',
-            ...depositOverrides,
-          },
-        },
-      };
-    }
-    throw new Error(`unexpected path ${path}`);
+const COASTAL_USD = {
+  bankName: 'Coastal Community Bank',
+  beneficiary: {
+    name: 'Palremit Corporation',
+    address: '2309 Melhorn Dr, Alhambra, CA, 91803',
+    country: 'US',
+  },
+  wire: { accountNumber: '875110901746', routingNumber: '125109019' },
+  reference: 'ON1234567890',
+};
+
+function expectCoastalStatic(
+  result: Awaited<ReturnType<typeof createOnrampPalremitFiatDeposit>>
+): void {
+  expect(result).toMatchObject({
+    depositInfo: COASTAL_USD,
+    providerRefs: {
+      palremitOrchestrator: {
+        providerName: 'static_fallback',
+        mode: 'STATIC_FALLBACK',
+        depositStatus: 'awaiting_manual_credit',
+        provisionedAccountId: null,
+        staticFallbackReason: 'preferred_static',
+      },
+    },
+  });
+}
+
+function noLiquidity(): PalremitLiquidityRequestFn {
+  return vi.fn(async () => {
+    throw new Error('USD onramps must not call liquidity');
   });
 }
 
 describe('createOnrampPalremitFiatDeposit', () => {
-  it('selects FIAT_DEPOSIT_NO_KYC and sends business_reference for USD (SwipeLux) — not kyc_input', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
-      calls.push({ path, body: options?.body });
-      if (path === '/v1/provisioned-accounts') {
-        return {
-          status: 201,
-          data: {
-            id: 'acct_1',
-            state: 'active',
-            deposit_instructions: {
-              kind: 'fiat_account',
-              account_number: '9988776655',
-              bank_code: '021000021',
-              bank_name: 'Pooled Bank',
-              account_holder_name: 'Pooled Account',
-              reference: 'SWX-REF-1',
-            },
-          },
-        };
-      }
-      throw new Error(`unexpected path ${path}`);
+  it('gives plain USD the Coastal house account without provisioning (no SwipeLux/OwlPay)', async () => {
+    const request = noLiquidity();
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      accountReference: 'acct-onramp-1',
     });
 
-    const result = await createOnrampPalremitFiatDeposit(request, { ...baseParams, currency: 'USD' });
-
-    expect(result).not.toBeNull();
-    expect(calls).toHaveLength(1);
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
-    expect(body.business_reference).toBe('user-prisma-id-1');
-    expect(body.kyc_input).toBeUndefined();
-    expect(body.provider_extras).toEqual({ amount: '250' });
-    expect(body.allow_provider_failover).toBeUndefined();
-    expect(result?.depositInfo.reference).toBe('SWX-REF-1');
-    // Real orchestrator holder wins over person/business KYC display.
-    expect(result?.depositInfo.beneficiary.name).toBe('Pooled Account');
+    expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
+    expect(result?.depositInfo.instruction).toContain('wire memo / narration: ON1234567890');
   });
 
-  it('routes Graph USD to FIAT_DEPOSIT_KYC with individual kyc_input (no amount extras)', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const request = provisionStub(calls);
+  it('gives Graph USD (Briana) the Coastal house account instead of a named VA', async () => {
+    const request = noLiquidity();
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
@@ -126,27 +104,12 @@ describe('createOnrampPalremitFiatDeposit', () => {
       accountReference: 'acct-onramp-1',
     });
 
-    expect(result).not.toBeNull();
-    expect(calls).toHaveLength(1);
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.mode).toBe('FIAT_DEPOSIT_KYC');
-    expect(body.allow_provider_failover).toBe(false);
-    expect(body.preferred_provider).toBe('graph');
-    expect(body.provider_extras).toBeUndefined();
-    expect(body.account_reference).toBe('acct-onramp-1');
-
-    const kyc = body.kyc_input as Record<string, unknown>;
-    expect(kyc.customer_type).toBe('individual');
-    expect(kyc.first_name).toBe('Gilles');
-    expect(kyc.last_name).toBe('Eykelberg');
-    expect(kyc.documents).toEqual(individualGraphKycInput.documents);
-    expect(kyc.background_information).toEqual(individualGraphKycInput.background_information);
-    expect(result?.depositInfo.reference).toBe('GRAPH-BRIANA-1');
+    expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
-  it('routes Dakota USD to FIAT_DEPOSIT_KYC with the same kyc_input', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const request = provisionStub(calls);
+  it('gives Dakota USD the Coastal house account instead of a named VA', async () => {
+    const request = noLiquidity();
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
@@ -156,68 +119,26 @@ describe('createOnrampPalremitFiatDeposit', () => {
       accountReference: 'acct-onramp-1',
     });
 
-    expect(result).not.toBeNull();
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.mode).toBe('FIAT_DEPOSIT_KYC');
-    expect(body.preferred_provider).toBe('dakota');
-    expect(body.allow_provider_failover).toBe(false);
-    expect(body.kyc_input).toEqual(individualGraphKycInput);
-    expect(body.provider_extras).toBeUndefined();
+    expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
-  it('keeps non-Briana USD on FIAT_DEPOSIT_NO_KYC (SwipeLux) as today', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
-      calls.push({ path, body: options?.body });
-      if (path === '/v1/provisioned-accounts') {
-        return {
-          status: 201,
-          data: {
-            id: 'acct_1',
-            state: 'active',
-            deposit_instructions: {
-              kind: 'fiat_account',
-              account_number: '9988776655',
-              bank_code: '021000021',
-              bank_name: 'Pooled Bank',
-              account_holder_name: 'Pooled Account',
-              reference: 'SWX-REF-1',
-            },
-          },
-        };
-      }
-      throw new Error(`unexpected path ${path}`);
+  it('does not require Graph KYC input for Graph USD anymore', async () => {
+    const request = noLiquidity();
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      businessReference: BRIANA_BUSINESS_REFERENCE,
+      useGraphUsd: true,
     });
-
-    await createOnrampPalremitFiatDeposit(request, { ...baseParams, currency: 'USD' });
-
-    const body = calls[0]?.body as Record<string, unknown>;
-    expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
-    expect(body.kyc_input).toBeUndefined();
-    expect(body.provider_extras).toEqual({ amount: '250' });
-  });
-
-  it('fails closed for Graph USD when graphKycInput is missing', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      throw new Error('should not provision when Graph KYC is incomplete');
-    });
-
-    await expect(
-      createOnrampPalremitFiatDeposit(request, {
-        ...baseParams,
-        currency: 'USD',
-        businessReference: BRIANA_BUSINESS_REFERENCE,
-        useGraphUsd: true,
-      })
-    ).rejects.toThrow(GraphOnrampKycError);
 
     expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
-  it('reuses active Account Graph depositDetails without provisioning again', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      throw new Error('should not call liquidity when Account issuance is active');
-    });
+  it('ignores an active Account Graph issuance and returns Coastal', async () => {
+    const request = noLiquidity();
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
@@ -240,75 +161,31 @@ describe('createOnrampPalremitFiatDeposit', () => {
     });
 
     expect(request).not.toHaveBeenCalled();
-    expect(result?.depositInfo.wire?.accountNumber).toBe('9992740191426913');
-    expect(result?.depositInfo.reference).toBe('GRAPH-REUSE');
-    expect(
-      (result?.providerRefs.palremitOrchestrator as { reusedAccountIssuance?: boolean })
-        ?.reusedAccountIssuance
-    ).toBe(true);
+    expectCoastalStatic(result);
+    expect(result?.depositInfo.wire?.accountNumber).not.toBe('9992740191426913');
   });
 
-  it('fails closed when Account Graph issuance already failed', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      throw new Error('should not provision after failed Account issuance');
-    });
+  it('does not fail USD when Account Graph issuance previously failed', async () => {
+    const request = noLiquidity();
 
-    await expect(
-      createOnrampPalremitFiatDeposit(request, {
-        ...baseParams,
-        currency: 'USD',
-        useGraphUsd: true,
-        existingGraphIssuance: {
-          providerIssuanceStatus: 'failed',
-          provisionedAccountId: 'prov-fail-1',
-          depositDetails: null,
-          providerIssuanceFailureReason: 'GRAPH_PROVISION_STATE_FAILED',
-        },
-      })
-    ).rejects.toThrow('GRAPH_PROVISION_STATE_FAILED');
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'USD',
+      useGraphUsd: true,
+      existingGraphIssuance: {
+        providerIssuanceStatus: 'failed',
+        provisionedAccountId: 'prov-fail-1',
+        depositDetails: null,
+        providerIssuanceFailureReason: 'GRAPH_PROVISION_STATE_FAILED',
+      },
+    });
 
     expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
-  it('does not static-fallback Briana USD when orchestrator provision fails', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      const err = new Error('HTTP 500') as Error & { status: number };
-      err.status = 500;
-      throw err;
-    });
-
-    await expect(
-      createOnrampPalremitFiatDeposit(request, {
-        ...baseParams,
-        currency: 'USD',
-        businessReference: BRIANA_BUSINESS_REFERENCE,
-        useGraphUsd: true,
-        graphKycInput: individualGraphKycInput,
-      })
-    ).rejects.toThrow('PALREMIT_FIAT_DEPOSIT_FAILED');
-  });
-
-  it('shows liquidity account_holder_name even when businessName is provided', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async (path) => {
-      if (path === '/v1/provisioned-accounts') {
-        return {
-          status: 201,
-          data: {
-            id: 'acct_biz',
-            state: 'pending',
-            deposit_instructions: {
-              kind: 'fiat_account',
-              account_number: '9988776655',
-              bank_code: '021000021',
-              bank_name: 'Pooled Bank',
-              account_holder_name: 'Veem',
-              reference: 'SWX-REF-biz',
-            },
-          },
-        };
-      }
-      throw new Error(`unexpected path ${path}`);
-    });
+  it('shows Palremit Corporation as USD beneficiary even when businessName is provided', async () => {
+    const request = noLiquidity();
 
     const result = await createOnrampPalremitFiatDeposit(request, {
       ...baseParams,
@@ -316,7 +193,7 @@ describe('createOnrampPalremitFiatDeposit', () => {
       businessName: 'BRIANA PAYMENTS LIMITED',
     });
 
-    expect(result?.depositInfo.beneficiary.name).toBe('Veem');
+    expect(result?.depositInfo.beneficiary.name).toBe('Palremit Corporation');
   });
 
   // TEMP: NGN uses preferred Wema static — restore Kuda pooled VA tests when removed.
@@ -348,37 +225,13 @@ describe('createOnrampPalremitFiatDeposit', () => {
     });
   });
 
-  it('accepts deposit instructions on a still-pending account without waiting for active (the polling-gate fix)', async () => {
-    let getCallCount = 0;
-    const request: PalremitLiquidityRequestFn = vi.fn(async (path) => {
-      if (path === '/v1/provisioned-accounts') {
-        // Fast path: instructions issued synchronously, but state stays
-        // pending until real settlement — must not be treated as failure.
-        return {
-          status: 202,
-          data: {
-            id: 'acct_3',
-            state: 'pending',
-            deposit_instructions: {
-              kind: 'fiat_account',
-              account_number: '111',
-              bank_code: '222',
-              bank_name: 'Pooled Bank',
-              account_holder_name: 'Pooled Account',
-              reference: 'SWX-REF-3',
-            },
-          },
-        };
-      }
-      getCallCount += 1;
-      throw new Error('should not need to poll GET when instructions are already present');
-    });
+  it('returns Coastal instructions synchronously for USD (no provision, no polling)', async () => {
+    const request = noLiquidity();
 
     const result = await createOnrampPalremitFiatDeposit(request, { ...baseParams, currency: 'USD' });
 
-    expect(result).not.toBeNull();
-    expect(getCallCount).toBe(0);
-    expect(result?.depositInfo.reference).toBe('SWX-REF-3');
+    expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
   it('prefers static GBP account without calling provision', async () => {
@@ -477,19 +330,10 @@ describe('createOnrampPalremitFiatDeposit', () => {
     });
   });
 
-  it('falls back when the HTTP adapter throws on non-2xx for USD (live client behavior)', async () => {
+  it('uses Coastal for USD without touching a failing liquidity client', async () => {
     const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      const err = new Error('HTTP 400: Bad Request') as Error & {
-        status: number;
-        statusCode: number;
-        data: unknown;
-      };
+      const err = new Error('HTTP 400: Bad Request') as Error & { status: number };
       err.status = 400;
-      err.statusCode = 400;
-      err.data = {
-        error: 'validation_failed',
-        message: 'no KYC schema registered for this (asset, mode)',
-      };
       throw err;
     });
 
@@ -498,11 +342,8 @@ describe('createOnrampPalremitFiatDeposit', () => {
       currency: 'USD',
     });
 
-    expect(result?.depositInfo.wire?.accountNumber).toBe('387199357253');
-    expect(result?.providerRefs.palremitOrchestrator).toMatchObject({
-      providerName: 'static_fallback',
-      staticFallbackReason: 'provision_failed',
-    });
+    expect(request).not.toHaveBeenCalled();
+    expectCoastalStatic(result);
   });
 
 });

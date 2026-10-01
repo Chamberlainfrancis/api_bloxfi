@@ -346,6 +346,22 @@ export async function createOnrampPalremitFiatDeposit(
   const isDakotaUsd = asset === 'USD' && params.useDakotaUsd === true;
   const isNamedUsd = isGraphUsd || isDakotaUsd;
 
+  // GBP / EUR / USD / GHS / NGN: platform receiving accounts (ops manual credit).
+  // Checked before the named-USD path so Graph/Dakota businesses also get the
+  // shared Coastal USD account — no provider VA is issued per onramp.
+  // EUR is a shared house SEPA account — Graph/Bancara businesses (Carlston, Briana,
+  // SMS Data) use it too; do not provision a named EUR VA.
+  // NGN Wema is temporary — remove from preferred static when Kuda VAs return.
+  if (isPreferredStaticDepositCurrency(asset)) {
+    return staticFallbackDepositResult({
+      currency: asset,
+      amount: params.amount,
+      txnRef: params.txnRef,
+      depositByIso: params.depositByIso,
+      reason: 'preferred_static',
+    });
+  }
+
   if (isNamedUsd && params.existingGraphIssuance) {
     const issuance = params.existingGraphIssuance;
     const status = (issuance.providerIssuanceStatus ?? '').toLowerCase();
@@ -447,15 +463,6 @@ export async function createOnrampPalremitFiatDeposit(
       reason,
     });
   };
-
-  // GBP / EUR / GHS / NGN: prefer platform receiving accounts for now (ops manual credit).
-  // EUR is a shared house SEPA account — Graph/Bancara businesses (Carlston, Briana,
-  // SMS Data) use it too; do not provision a named EUR VA.
-  // NGN Wema is temporary — remove from preferred static when Kuda VAs return.
-  // Skip orchestrator provision entirely so we always return bank details.
-  if (isPreferredStaticDepositCurrency(asset)) {
-    return fallback('preferred_static');
-  }
 
   // NGN (Kuda) and non-Graph USD (SwipeLux) onboard identity out of band.
   // Graph USD uses named VA via FIAT_DEPOSIT_KYC. Other currencies still use
