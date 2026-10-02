@@ -402,27 +402,7 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
             storedWithdrawalStatus: storedWithdrawalStatus(row.providerRefs),
           })
         : false,
-    feeSettlementPending:
-      type === 'offramp' &&
-      (() => {
-        const fees =
-          row.fees != null && typeof row.fees === 'object' && !Array.isArray(row.fees)
-            ? (row.fees as Record<string, unknown>)
-            : {};
-        const pf =
-          fees.platformFee != null &&
-          typeof fees.platformFee === 'object' &&
-          !Array.isArray(fees.platformFee)
-            ? (fees.platformFee as Record<string, unknown>)
-            : {};
-        const settlement =
-          pf.settlement != null &&
-          typeof pf.settlement === 'object' &&
-          !Array.isArray(pf.settlement)
-            ? (pf.settlement as Record<string, unknown>)
-            : {};
-        return settlement.status === 'pending';
-      })(),
+    feeSettlementPending: platformFeeSettlementStatus(row.fees) === 'pending',
     auditTrail: buildAuditTrail(type, row, adminActions),
   };
 }
@@ -491,6 +471,10 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
         receipt,
         providerRefs: { ...prevRefs, palremitOrchestrator },
       });
+      const { scheduleOnrampPlatformFeeSettlement } = await import(
+        '@/core/onramps/triggerOnrampPlatformFeeSettlement'
+      );
+      scheduleOnrampPlatformFeeSettlement(id);
     } else {
       const prevTimeline =
         ex.timeline && typeof ex.timeline === 'object' && !Array.isArray(ex.timeline)
@@ -658,8 +642,23 @@ export async function markOnrampFiatReceived(
   return getTransactionDetail('onramp', params.id);
 }
 
+function platformFeeOf(fees: unknown): Record<string, unknown> {
+  const f = asRecord(fees);
+  return asRecord(f.platformFee);
+}
+
+function platformFeeSettlementOf(fees: unknown): Record<string, unknown> {
+  return asRecord(platformFeeOf(fees).settlement);
+}
+
+export function platformFeeSettlementStatus(fees: unknown): string | null {
+  const status = platformFeeSettlementOf(fees).status;
+  return typeof status === 'string' ? status : null;
+}
+
 export interface PendingFeeSettlementRow {
-  offrampId: string;
+  id: string;
+  type: TxnType;
   txnRef: string | null;
   settlementStatus: string | null;
   feeAmount: string | null;
@@ -675,34 +674,24 @@ export interface PendingFeeSettlementRow {
   createdAt: string;
 }
 
-function toPendingFeeSettlementRow(row: {
-  id: string;
-  txnRef: string | null;
-  source: unknown;
-  destination?: unknown;
-  fees: unknown;
-  createdAt: Date;
-}): PendingFeeSettlementRow {
-  const fees =
-    row.fees != null && typeof row.fees === 'object' && !Array.isArray(row.fees)
-      ? (row.fees as Record<string, unknown>)
-      : {};
-  const pf =
-    fees.platformFee != null &&
-    typeof fees.platformFee === 'object' &&
-    !Array.isArray(fees.platformFee)
-      ? (fees.platformFee as Record<string, unknown>)
-      : {};
-  const settlement =
-    pf.settlement != null &&
-    typeof pf.settlement === 'object' &&
-    !Array.isArray(pf.settlement)
-      ? (pf.settlement as Record<string, unknown>)
-      : {};
+export function toPendingFeeSettlementRow(
+  type: TxnType,
+  row: {
+    id: string;
+    txnRef: string | null;
+    source: unknown;
+    destination?: unknown;
+    fees: unknown;
+    createdAt: Date;
+  }
+): PendingFeeSettlementRow {
+  const pf = platformFeeOf(row.fees);
+  const settlement = platformFeeSettlementOf(row.fees);
   const src = (row.source ?? {}) as { amount?: unknown; currency?: unknown };
   const dest = (row.destination ?? {}) as { amount?: unknown; currency?: unknown };
   return {
-    offrampId: row.id,
+    id: row.id,
+    type,
     txnRef: row.txnRef,
     settlementStatus: typeof settlement.status === 'string' ? settlement.status : null,
     feeAmount: typeof pf.amount === 'string' ? pf.amount : null,
@@ -721,6 +710,20 @@ function toPendingFeeSettlementRow(row: {
   };
 }
 
+/** Merge two createdAt-desc pages into one page of `limit`, with a shared cursor. */
+export function mergeFeeSettlementPages(
+  pages: Array<{ items: PendingFeeSettlementRow[]; hasMore: boolean }>,
+  limit: number
+): { items: PendingFeeSettlementRow[]; nextCursor: string | null } {
+  const merged = pages
+    .flatMap((p) => p.items)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const items = merged.slice(0, limit);
+  const hasMore = merged.length > limit || pages.some((p) => p.hasMore);
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].createdAt : null;
+  return { items, nextCursor };
+}
+
 export async function listPendingFeeSettlements(params: {
   cursor?: string;
   limit?: number;
@@ -734,47 +737,67 @@ export async function listPendingFeeSettlements(params: {
     }
   }
 
-  const offrampRepo = await import('@/db/repositories/offramp.repo');
-  const { offramps, nextCursor } = await offrampRepo.listOfframpsFeeSettlementsForAdmin({
-    limit,
-    createdBefore,
-  });
-  return {
-    items: offramps.map(toPendingFeeSettlementRow),
-    nextCursor: nextCursor ? nextCursor.toISOString() : null,
-  };
+  const [onrampRepo, offrampRepo] = await Promise.all([
+    import('@/db/repositories/onramp.repo'),
+    import('@/db/repositories/offramp.repo'),
+  ]);
+  const [on, off] = await Promise.all([
+    onrampRepo.listOnrampsFeeSettlementsForAdmin({ limit, createdBefore }),
+    offrampRepo.listOfframpsFeeSettlementsForAdmin({ limit, createdBefore }),
+  ]);
+  return mergeFeeSettlementPages(
+    [
+      {
+        items: on.onramps.map((r) => toPendingFeeSettlementRow('onramp', r)),
+        hasMore: on.nextCursor != null,
+      },
+      {
+        items: off.offramps.map((r) => toPendingFeeSettlementRow('offramp', r)),
+        hasMore: off.nextCursor != null,
+      },
+    ],
+    limit
+  );
 }
 
 export interface ApproveFeeSettlementParams {
-  offrampId: string;
+  type: TxnType;
+  id: string;
   actor?: string;
+}
+
+async function findRampForFeeSettlement(type: TxnType, id: string) {
+  if (type === 'onramp') {
+    const onrampRepo = await import('@/db/repositories/onramp.repo');
+    return onrampRepo.findOnrampById(id);
+  }
+  const offrampRepo = await import('@/db/repositories/offramp.repo');
+  return offrampRepo.findOfframpById(id);
+}
+
+async function triggerRampFeeSettlement(type: TxnType, id: string) {
+  if (type === 'onramp') {
+    const { triggerOnrampPlatformFeeSettlement } = await import(
+      '@/core/onramps/triggerOnrampPlatformFeeSettlement'
+    );
+    return triggerOnrampPlatformFeeSettlement(id);
+  }
+  const { triggerOfframpPlatformFeeSettlement } = await import(
+    '@/core/offramps/triggerOfframpPlatformFeeSettlement'
+  );
+  return triggerOfframpPlatformFeeSettlement(id);
 }
 
 export async function approveFeeSettlement(
   params: ApproveFeeSettlementParams
 ): Promise<{ outcome: string; settlement?: unknown; row: PendingFeeSettlementRow | null }> {
-  const offrampRepo = await import('@/db/repositories/offramp.repo');
-  const row = await offrampRepo.findOfframpById(params.offrampId);
-  if (!row) throw new AppError('Offramp not found', 'NOT_FOUND', 404);
+  const { type, id } = params;
+  const row = await findRampForFeeSettlement(type, id);
+  if (!row) {
+    throw new AppError(type === 'onramp' ? 'Onramp not found' : 'Offramp not found', 'NOT_FOUND', 404);
+  }
 
-  const fees =
-    row.fees != null && typeof row.fees === 'object' && !Array.isArray(row.fees)
-      ? (row.fees as Record<string, unknown>)
-      : {};
-  const pf =
-    fees.platformFee != null &&
-    typeof fees.platformFee === 'object' &&
-    !Array.isArray(fees.platformFee)
-      ? (fees.platformFee as Record<string, unknown>)
-      : {};
-  const settlement =
-    pf.settlement != null &&
-    typeof pf.settlement === 'object' &&
-    !Array.isArray(pf.settlement)
-      ? (pf.settlement as Record<string, unknown>)
-      : {};
-  const settlementStatus =
-    typeof settlement.status === 'string' ? settlement.status : '';
+  const settlementStatus = platformFeeSettlementStatus(row.fees) ?? '';
   if (settlementStatus !== 'pending' && settlementStatus !== 'failed') {
     throw new AppError(
       'Fee settlement is not pending approval or retryable',
@@ -783,10 +806,7 @@ export async function approveFeeSettlement(
     );
   }
 
-  const { triggerOfframpPlatformFeeSettlement } = await import(
-    '@/core/offramps/triggerOfframpPlatformFeeSettlement'
-  );
-  const result = await triggerOfframpPlatformFeeSettlement(params.offrampId);
+  const result = await triggerRampFeeSettlement(type, id);
   if (result.outcome !== 'processing' && result.outcome !== 'already_settled') {
     throw new AppError(
       `Fee settlement could not be started (${result.outcome})`,
@@ -795,12 +815,12 @@ export async function approveFeeSettlement(
     );
   }
 
-  const updated = await offrampRepo.findOfframpById(params.offrampId);
+  const updated = await findRampForFeeSettlement(type, id);
 
   const adminActionRepo = await import('@/db/repositories/adminAction.repo');
   await adminActionRepo.createAdminAction({
-    txnType: 'offramp',
-    txnId: params.offrampId,
+    txnType: type,
+    txnId: id,
     fromStatus: settlementStatus === 'failed' ? 'fee:failed' : 'fee:pending',
     toStatus:
       result.outcome === 'already_settled' ? 'fee:completed' : 'fee:processing',
@@ -812,13 +832,13 @@ export async function approveFeeSettlement(
   });
 
   logger.info(
-    { offrampId: params.offrampId, actor: params.actor, outcome: result.outcome },
+    { type, rampId: id, actor: params.actor, outcome: result.outcome },
     'admin approved platform fee settlement'
   );
   return {
     outcome: result.outcome,
     settlement: result.settlement,
-    row: updated ? toPendingFeeSettlementRow(updated) : null,
+    row: updated ? toPendingFeeSettlementRow(type, updated) : null,
   };
 }
 

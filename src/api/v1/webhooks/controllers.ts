@@ -13,6 +13,11 @@ import { advanceOnrampIfFiatProcessed } from "@/core/onramps/advanceOnrampPayout
 import { advanceOfframpIfDepositReady } from "@/core/offramps/advanceOfframpPayout";
 import { scheduleOfframpPlatformFeeSettlement } from "@/core/offramps/triggerOfframpPlatformFeeSettlement";
 import { applyOfframpPlatformFeeWithdrawalWebhook } from "@/core/offramps/settleOfframpPlatformFee";
+import { applyOnrampPlatformFeeWithdrawalWebhook } from "@/core/onramps/settleOnrampPlatformFee";
+import {
+  onrampFeeSettlementRepo,
+  scheduleOnrampPlatformFeeSettlement,
+} from "@/core/onramps/triggerOnrampPlatformFeeSettlement";
 import { executePalremitOnrampCryptoWithdrawal } from "@/core/integrations";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import { logger } from "@/lib/logger";
@@ -65,6 +70,20 @@ const webhookRepos = {
           ),
       );
     },
+    afterOnrampCompleted: scheduleOnrampPlatformFeeSettlement,
+    applyPlatformFeeWithdrawalWebhook: (
+      parentTxnRef: string,
+      withdrawal: Record<string, unknown>,
+      terminal: 'completed' | 'failed',
+      failureNote?: string
+    ) =>
+      applyOnrampPlatformFeeWithdrawalWebhook(
+        onrampFeeSettlementRepo,
+        parentTxnRef,
+        withdrawal,
+        terminal,
+        failureNote
+      ),
   },
   offramp: {
     findOfframpById: offrampRepo.findOfframpById,

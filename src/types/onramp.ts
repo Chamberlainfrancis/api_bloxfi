@@ -1,9 +1,10 @@
 /**
  * Onramp types per docs/bloxfi-api-specmd.md §4.
- * Platform fee uses the same request shape as offramp (no automatic settlement payout).
+ * Platform fee uses the same request shape as offramp; settlement is queued on completion
+ * and paid out after admin approval.
  */
 
-import type { PlatformFee, RampFeePreview } from '@/types/offramp';
+import type { PlatformFee, PlatformFeeSettlement, RampFeePreview } from '@/types/offramp';
 
 export type OnrampStatus =
   | 'CREATED'
@@ -29,6 +30,8 @@ export interface OnrampFees {
     /** USDC settlement destination (from create request) */
     settlementCurrency?: string;
     settlementNetwork?: string;
+    transactionHash?: string;
+    settlement?: PlatformFeeSettlement;
   };
 }
 

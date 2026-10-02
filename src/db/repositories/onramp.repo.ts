@@ -156,6 +156,15 @@ export async function updateOnrampStatus(
   return row as OnrampRow;
 }
 
+/** Writes `fees` only. Never changes status or emits a partner webhook. */
+export async function updateOnrampFees(id: string, fees: object): Promise<OnrampRow> {
+  const row = await prisma.onramp.update({
+    where: { id },
+    data: { fees },
+  });
+  return row as OnrampRow;
+}
+
 export interface ListOnrampsParams {
   userId?: string;
   status?: OnrampStatus;
@@ -213,6 +222,47 @@ export async function listOnramps(params: ListOnrampsParams): Promise<{
     const lower = currency.toLowerCase();
     rows = rows.filter((r) => (r.source as { currency?: string })?.currency?.toLowerCase() === lower);
   }
+
+  const hasMore = rows.length > take;
+  const page = hasMore ? rows.slice(0, take) : rows;
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].createdAt : null;
+  return {
+    onramps: page as OnrampRow[],
+    nextCursor,
+  };
+}
+
+export async function listOnrampsFeeSettlementsForAdmin(params: {
+  limit: number;
+  createdBefore?: Date;
+}): Promise<{
+  onramps: OnrampRow[];
+  nextCursor: Date | null;
+}> {
+  const take = Math.min(Math.max(1, params.limit), 100);
+  const settlementStatuses = ['pending', 'processing', 'failed', 'skipped'] as const;
+  const where: {
+    status: 'COMPLETED';
+    createdAt?: { lt: Date };
+    OR: Array<{ fees: { path: string[]; equals: string } }>;
+  } = {
+    status: 'COMPLETED',
+    OR: settlementStatuses.map((s) => ({
+      fees: {
+        path: ['platformFee', 'settlement', 'status'],
+        equals: s,
+      },
+    })),
+  };
+  if (params.createdBefore) {
+    where.createdAt = { lt: params.createdBefore };
+  }
+
+  const rows = await prisma.onramp.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: take + 1,
+  });
 
   const hasMore = rows.length > take;
   const page = hasMore ? rows.slice(0, take) : rows;

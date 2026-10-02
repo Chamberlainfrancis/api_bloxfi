@@ -240,6 +240,8 @@ function addOnrampLpEvents(events: AuditTrailEvent[], row: AuditRowInput): void 
       row.failedReason ?? null
     );
   }
+
+  addFeeSettlementEvents(events, row.fees);
 }
 
 function addOfframpLpEvents(events: AuditTrailEvent[], row: AuditRowInput): void {

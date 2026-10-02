@@ -38,21 +38,41 @@ export function isOfframpTxnRef(s: string): boolean {
   return OFF_RE.test(s.trim());
 }
 
-const OFF_FEE_SUFFIX = '-FEE';
+const FEE_SUFFIX = '-FEE';
+
+/** Palremit `client_reference` for a ramp platform-fee settlement withdrawal. */
+export function buildRampFeeClientReference(txnRef: string): string {
+  return `${txnRef.trim()}${FEE_SUFFIX}`;
+}
+
+function parseFeeParent(clientRef: string): string | null {
+  const trimmed = clientRef.trim();
+  if (!trimmed.endsWith(FEE_SUFFIX)) return null;
+  return trimmed.slice(0, -FEE_SUFFIX.length);
+}
 
 /** Palremit `client_reference` for offramp platform-fee settlement withdrawal. */
 export function buildOfframpFeeClientReference(txnRef: string): string {
-  return `${txnRef.trim()}${OFF_FEE_SUFFIX}`;
+  return buildRampFeeClientReference(txnRef);
 }
 
 /** Parent offramp `txnRef` when `client_reference` is a fee settlement ref. */
 export function parseOfframpFeeClientReference(clientRef: string): string | null {
-  const trimmed = clientRef.trim();
-  if (!trimmed.endsWith(OFF_FEE_SUFFIX)) return null;
-  const parent = trimmed.slice(0, -OFF_FEE_SUFFIX.length);
-  return isOfframpTxnRef(parent) ? parent : null;
+  const parent = parseFeeParent(clientRef);
+  return parent != null && isOfframpTxnRef(parent) ? parent : null;
 }
 
 export function isOfframpFeeClientReference(clientRef: string): boolean {
   return parseOfframpFeeClientReference(clientRef) != null;
+}
+
+/** Palremit `client_reference` for onramp platform-fee settlement withdrawal. */
+export function buildOnrampFeeClientReference(txnRef: string): string {
+  return buildRampFeeClientReference(txnRef);
+}
+
+/** Parent onramp `txnRef` when `client_reference` is a fee settlement ref. */
+export function parseOnrampFeeClientReference(clientRef: string): string | null {
+  const parent = parseFeeParent(clientRef);
+  return parent != null && isOnrampTxnRef(parent) ? parent : null;
 }
