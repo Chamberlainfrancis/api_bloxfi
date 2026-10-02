@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing, sumProfitUsdc, extractFiatPayoutError, canRetryOfframpFiatPayout } from '@/core/admin/dashboard';
+import { resolveMarkStatus, toListRow, isValidStatus, isWithdrawalProcessing, sumProfitUsdc, extractFiatPayoutError, canRetryOfframpFiatPayout, toPendingFeeSettlementRow, mergeFeeSettlementPages, platformFeeSettlementStatus } from '@/core/admin/dashboard';
 
 describe('resolveMarkStatus', () => {
   it('maps success to COMPLETED for both types', () => {
@@ -254,5 +254,57 @@ describe('canRetryOfframpFiatPayout', () => {
         lpWithdrawalState: 'pending',
       })
     ).toBe(false);
+  });
+});
+
+describe('fee settlement queue rows', () => {
+  const onrampRow = {
+    id: 'on-1',
+    txnRef: 'ON-635d8fecfbc6926c9333ad98',
+    source: { amount: 5015.6, currency: 'usd' },
+    destination: { amount: 5000.07, currency: 'usdc' },
+    fees: {
+      platformFee: {
+        amount: '7.51138179',
+        currency: 'usdc',
+        walletAddress: '0xFee',
+        settlementNetwork: 'MATIC',
+        settlementCurrency: 'USDC',
+        settlement: { status: 'pending', attemptedAt: '2026-10-02T09:00:00.000Z' },
+      },
+    },
+    createdAt: new Date('2026-09-30T11:03:12.644Z'),
+  };
+
+  it('tags rows with their ramp type', () => {
+    const row = toPendingFeeSettlementRow('onramp', onrampRow);
+    expect(row).toMatchObject({
+      id: 'on-1',
+      type: 'onramp',
+      settlementStatus: 'pending',
+      feeAmount: '7.51138179',
+      walletAddress: '0xFee',
+      settlementNetwork: 'MATIC',
+    });
+    expect(platformFeeSettlementStatus(onrampRow.fees)).toBe('pending');
+    expect(platformFeeSettlementStatus({})).toBeNull();
+  });
+
+  it('merges onramp and offramp pages newest first with a shared cursor', () => {
+    const on = toPendingFeeSettlementRow('onramp', onrampRow);
+    const offNew = { ...on, id: 'off-1', type: 'offramp' as const, createdAt: '2026-10-01T00:00:00.000Z' };
+    const offOld = { ...on, id: 'off-2', type: 'offramp' as const, createdAt: '2026-09-01T00:00:00.000Z' };
+    const page = mergeFeeSettlementPages(
+      [
+        { items: [on], hasMore: false },
+        { items: [offNew, offOld], hasMore: false },
+      ],
+      2
+    );
+    expect(page.items.map((i) => i.id)).toEqual(['off-1', 'on-1']);
+    expect(page.nextCursor).toBe(on.createdAt);
+
+    const last = mergeFeeSettlementPages([{ items: [on], hasMore: false }, { items: [], hasMore: false }], 25);
+    expect(last.nextCursor).toBeNull();
   });
 });

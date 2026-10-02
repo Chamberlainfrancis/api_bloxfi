@@ -348,7 +348,7 @@ function requirePasscode(actionLabel) {
 
 function setTableHead(view) {
   if (view === "settlements") {
-    $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Fee</th><th>Platform wallet</th><th>Network</th><th>Offramp</th><th>Queued</th><th></th></tr>";
+    $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Fee</th><th>Platform wallet</th><th>Network</th><th>Transaction</th><th>Queued</th><th></th></tr>";
   } else {
     $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr>";
   }
@@ -425,13 +425,15 @@ function settlementRowHtml(s) {
     : canRetry
       ? '<button class="ok approve-btn">Retry</button>'
       : '<span class="muted">—</span>';
-  return '<tr class="row settlement-row" data-id="' + esc(s.offrampId) + '"' +
+  return '<tr class="row settlement-row" data-id="' + esc(s.id) + '"' +
+    ' data-type="' + esc(s.type) + '"' +
     ' data-fee-amount="' + esc(s.feeAmount || "") + '"' +
     ' data-fee-currency="' + esc(s.feeCurrency || "") + '"' +
     ' data-wallet="' + esc(s.walletAddress || "") + '"' +
     ' data-network="' + esc(s.settlementNetwork || "") + '"' +
     ' data-settlement-status="' + esc(s.settlementStatus || "") + '">' +
-    "<td>" + (s.txnRef ? esc(s.txnRef) : '<span class="muted">' + esc(s.offrampId.slice(0, 8)) + "</span>") + "</td>" +
+    "<td>" + (s.txnRef ? esc(s.txnRef) : '<span class="muted">' + esc(s.id.slice(0, 8)) + "</span>") +
+    '<div class="muted">' + esc(s.type) + "</div></td>" +
     "<td>" + settlementStatusBadge(s.settlementStatus) + "</td>" +
     '<td class="amt">' + fmtMoney(s.feeAmount, s.feeCurrency) + "</td>" +
     '<td class="mono">' + (s.walletAddress ? esc(s.walletAddress) : "—") + "</td>" +
@@ -670,13 +672,13 @@ async function openDetail(id, forceType, flash) {
       body += section("Palremit profit", kvBlock(profitRows));
     }
 
-    if (t.type === "offramp" && t.fees && t.fees.platformFee && t.fees.platformFee.settlement) {
+    if (t.fees && t.fees.platformFee && t.fees.platformFee.settlement) {
       const pf = t.fees.platformFee;
       const st = pf.settlement.status;
       let notice = "";
       let actions = "";
       if (st === "pending") {
-        notice = '<div class="notice">This offramp has a platform fee waiting for admin approval before the fee is sent.</div>';
+        notice = '<div class="notice">This ' + esc(t.type) + ' has a platform fee waiting for admin approval before the fee is sent.</div>';
         actions = '<div class="actions"><button type="button" class="ok" id="approveFee">Approve fee settlement</button></div>';
       } else if (st === "failed") {
         const failNotes = Array.isArray(pf.settlement.notes) ? pf.settlement.notes.join("; ") : (t.failedReason || "Settlement failed");
@@ -883,7 +885,7 @@ async function retryFiatPayout(offrampId, txnRef) {
   }
 }
 
-let approveFeeCtx = { offrampId: "", platformFee: null, triggerBtn: null };
+let approveFeeCtx = { id: "", type: "offramp", platformFee: null, triggerBtn: null };
 
 function showApproveFeeMsg(msg, kind) {
   const el = $("approveFeeMsg");
@@ -904,9 +906,9 @@ function closeApproveFeeModal() {
   if (modal && modal.open) modal.close();
 }
 
-function openApproveFeeModal(offrampId, platformFee, triggerBtn) {
+function openApproveFeeModal(id, type, platformFee, triggerBtn) {
   const pf = platformFee || {};
-  approveFeeCtx = { offrampId: offrampId, platformFee: pf, triggerBtn: triggerBtn || null };
+  approveFeeCtx = { id: id, type: type || "offramp", platformFee: pf, triggerBtn: triggerBtn || null };
   const isRetry = pf.settlement && pf.settlement.status === "failed";
   const amount = pf.amount
     ? pf.amount + " " + String(pf.currency || pf.settlementCurrency || "").toUpperCase()
@@ -924,9 +926,9 @@ function openApproveFeeModal(offrampId, platformFee, triggerBtn) {
 }
 
 async function submitApproveFee() {
-  const offrampId = approveFeeCtx.offrampId;
+  const id = approveFeeCtx.id;
   const pf = approveFeeCtx.platformFee || {};
-  if (!offrampId) return;
+  if (!id) return;
   const isRetry = pf.settlement && pf.settlement.status === "failed";
   const passEl = $("approveFeePasscode");
   const secret = passEl && passEl.value ? passEl.value.trim() : "";
@@ -943,10 +945,10 @@ async function submitApproveFee() {
   if (approveFeeCtx.triggerBtn) setBtnLoading(approveFeeCtx.triggerBtn, true, isRetry ? "Retrying" : "Approving");
   showApproveFeeMsg((isRetry ? "Retrying" : "Approving") + " platform fee settlement…", "info");
   try {
-    await api("/fee-settlements/" + offrampId + "/approve", {
+    await api("/fee-settlements/" + id + "/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify({ actor: actor })
+      body: JSON.stringify({ actor: actor, type: approveFeeCtx.type })
     });
     closeApproveFeeModal();
     if ($("detail") && $("detail").open) $("detail").close();
@@ -969,8 +971,8 @@ async function submitApproveFee() {
   }
 }
 
-function approveSettlement(offrampId, platformFee, triggerBtn) {
-  openApproveFeeModal(offrampId, platformFee, triggerBtn);
+function approveSettlement(id, type, platformFee, triggerBtn) {
+  openApproveFeeModal(id, type, platformFee, triggerBtn);
 }
 
 // --- businesses: provider customer ID management ----------------------------
@@ -1607,7 +1609,7 @@ $("dBody").addEventListener("click", function (e) {
   if (e.target.closest("#markFiatReceived")) { markFiatReceived(detailCtx.id); return; }
   if (e.target.closest("#markOk")) { mark(detailCtx.id, "success", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
-  if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.platformFee); return; }
+  if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.type, detailCtx.platformFee); return; }
   if (e.target.closest("#retryFiatPayout")) { retryFiatPayout(detailCtx.id, detailCtx.txnRef); return; }
   if (e.target.closest("#dakAttestBtn")) {
     var dakBtn = e.target.closest("#dakAttestBtn");
@@ -1621,7 +1623,7 @@ $("rows").addEventListener("click", function (e) {
     e.stopPropagation();
     const tr = approve.closest("tr.settlement-row");
     if (tr) {
-      approveSettlement(tr.dataset.id, {
+      approveSettlement(tr.dataset.id, tr.dataset.type || "offramp", {
         amount: tr.dataset.feeAmount || "",
         currency: tr.dataset.feeCurrency || "",
         walletAddress: tr.dataset.wallet || "",
@@ -1633,7 +1635,7 @@ $("rows").addEventListener("click", function (e) {
   }
   const tr = e.target.closest("tr.row");
   if (tr && tr.classList.contains("settlement-row")) {
-    openDetail(tr.dataset.id, "offramp");
+    openDetail(tr.dataset.id, tr.dataset.type || "offramp");
     return;
   }
   if (tr) openDetail(tr.dataset.id);

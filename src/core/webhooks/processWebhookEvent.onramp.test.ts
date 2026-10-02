@@ -361,3 +361,97 @@ describe('processWebhookEvent onramp withdrawal.successful', () => {
     expect(updateOnrampStatus).not.toHaveBeenCalled();
   });
 });
+
+describe('processWebhookEvent onramp platform fee settlement', () => {
+  function reposWithFeeHooks() {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const findOnrampByTxnRef = vi.fn();
+    const afterOnrampCompleted = vi.fn();
+    const applyPlatformFeeWithdrawalWebhook = vi.fn().mockResolvedValue(true);
+    const repos = emptyOnrampRepos({ findOnrampByTxnRef, updateOnrampStatus });
+    return {
+      repos: {
+        ...repos,
+        onramp: { ...repos.onramp, afterOnrampCompleted, applyPlatformFeeWithdrawalWebhook },
+      },
+      updateOnrampStatus,
+      findOnrampByTxnRef,
+      afterOnrampCompleted,
+      applyPlatformFeeWithdrawalWebhook,
+    };
+  }
+
+  it('routes a successful ON-…-FEE withdrawal to fee settlement, not onramp completion', async () => {
+    const h = reposWithFeeHooks();
+    const withdrawal = {
+      id: 'wd-on-fee-1',
+      client_reference: `${ON_TXN}-FEE`,
+      state: 'successful',
+      mode: 'CRYPTO_WITHDRAWAL',
+      settlement_reference: '0xfeehash',
+    };
+    await processWebhookEvent(h.repos, {
+      eventId: 'evt-on-fee-ok',
+      eventType: 'withdrawal.successful',
+      timestamp: new Date().toISOString(),
+      data: { withdrawal },
+    });
+    expect(h.applyPlatformFeeWithdrawalWebhook).toHaveBeenCalledWith(ON_TXN, withdrawal, 'completed');
+    expect(h.findOnrampByTxnRef).not.toHaveBeenCalled();
+    expect(h.updateOnrampStatus).not.toHaveBeenCalled();
+    expect(h.afterOnrampCompleted).not.toHaveBeenCalled();
+  });
+
+  it('routes a failed ON-…-FEE withdrawal to fee settlement with the failure reason', async () => {
+    const h = reposWithFeeHooks();
+    const withdrawal = {
+      id: 'wd-on-fee-1',
+      client_reference: `${ON_TXN}-FEE`,
+      state: 'failed',
+      mode: 'CRYPTO_WITHDRAWAL',
+      failure_reason: { message: 'insufficient balance' },
+    };
+    await processWebhookEvent(h.repos, {
+      eventId: 'evt-on-fee-fail',
+      eventType: 'withdrawal.failed',
+      timestamp: new Date().toISOString(),
+      data: { withdrawal },
+    });
+    expect(h.applyPlatformFeeWithdrawalWebhook).toHaveBeenCalledWith(
+      ON_TXN,
+      withdrawal,
+      'failed',
+      'insufficient balance'
+    );
+    expect(h.updateOnrampStatus).not.toHaveBeenCalled();
+  });
+
+  it('queues fee settlement after the customer crypto payout completes', async () => {
+    const h = reposWithFeeHooks();
+    h.findOnrampByTxnRef.mockResolvedValue({
+      id: 'onramp-fee-1',
+      requestId: 'req-fee-1',
+      status: 'CRYPTO_PENDING',
+      txnRef: ON_TXN,
+      providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-cust-1' } },
+      source: { currency: 'usd' },
+      quoteInformation: {},
+    });
+    await processWebhookEvent(h.repos, {
+      eventId: 'evt-on-cust-ok',
+      eventType: 'withdrawal.successful',
+      timestamp: new Date().toISOString(),
+      data: {
+        withdrawal: {
+          id: 'wd-cust-1',
+          client_reference: ON_TXN,
+          state: 'successful',
+          mode: 'CRYPTO_WITHDRAWAL',
+        },
+      },
+    });
+    expect(h.updateOnrampStatus).toHaveBeenCalledWith('onramp-fee-1', 'COMPLETED', expect.anything());
+    expect(h.afterOnrampCompleted).toHaveBeenCalledWith('onramp-fee-1');
+    expect(h.applyPlatformFeeWithdrawalWebhook).not.toHaveBeenCalled();
+  });
+});

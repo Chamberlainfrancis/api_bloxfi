@@ -176,7 +176,7 @@ export async function approveFeeSettlement(
   next: NextFunction
 ): Promise<void> {
   try {
-    const body = (req.body ?? {}) as { actor?: unknown; secret?: unknown };
+    const body = (req.body ?? {}) as { actor?: unknown; secret?: unknown; type?: unknown };
     const provided =
       (typeof req.headers['x-dashboard-secret'] === 'string'
         ? (req.headers['x-dashboard-secret'] as string)
@@ -185,8 +185,13 @@ export async function approveFeeSettlement(
       throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
     }
     const actor = typeof body.actor === 'string' ? body.actor : undefined;
+    const rawType = typeof body.type === 'string' ? body.type : 'offramp';
+    if (rawType !== 'onramp' && rawType !== 'offramp') {
+      throw new AppError('type must be onramp or offramp', 'INVALID_REQUEST', 400);
+    }
     const result = await dashboard.approveFeeSettlement({
-      offrampId: req.params.offrampId,
+      type: rawType,
+      id: req.params.id,
       actor,
     });
     sendSuccess(res, result);
