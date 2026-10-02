@@ -1,5 +1,7 @@
-// account_reference / contact_email / customer_type on the onramp provision
-// body. USD and NGN use house accounts, so neither sends a provision body.
+// account_reference / contact_email / customer_type on the USD onramp
+// provision body. These three travel together — sending an account_reference
+// the orchestrator cannot resolve turns a working onramp into a permanent
+// refusal, so the omission cases matter as much as the happy path.
 
 import { describe, it, expect, vi } from 'vitest';
 import { createOnrampPalremitFiatDeposit } from '@/core/integrations/palremitOnramp';
@@ -42,11 +44,9 @@ function stubRequest(calls: { path: string; body: unknown }[]): PalremitLiquidit
 }
 
 describe('USD onramp account_reference', () => {
-  // USD now uses the Coastal house account — no provision body is sent, so
-  // account_reference / contact_email / customer_type never reach liquidity.
-  it('does not provision USD even when account_reference, contact_email and customer_type are set', async () => {
+  it('sends account_reference plus contact_email and customer_type when inferred', async () => {
     const calls: { path: string; body: unknown }[] = [];
-    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
+    await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'USD',
       accountReference: 'acc_swx_1',
@@ -54,46 +54,54 @@ describe('USD onramp account_reference', () => {
       customerType: 'individual',
     });
 
-    expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.wire?.accountNumber).toBe('875110901746');
-    expect(result?.depositInfo.reference).toBe('ON1234567890');
-  });
-
-  it('does not provision USD when no account_reference was inferred', async () => {
-    const calls: { path: string; body: unknown }[] = [];
-    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
-      ...baseParams,
-      currency: 'USD',
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.account_reference).toBe('acc_swx_1');
+    expect(body.business_reference).toBe('user-swipelux-account-ref-1');
+    expect(body.provider_extras).toMatchObject({
+      amount: '250',
+      contact_email: 'jehinc26@gmail.com',
+      customer_type: 'individual',
     });
-
-    expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.bankName).toBe('Coastal Community Bank');
   });
 
-  it('does not provision USD with contact_email but no account_reference', async () => {
+  // Inference inconclusive → the orchestrator must stay on its per-business
+  // path, which is exactly today's behaviour.
+  it('omits account_reference entirely when none was inferred', async () => {
     const calls: { path: string; body: unknown }[] = [];
-    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
+    await createOnrampPalremitFiatDeposit(stubRequest(calls), { ...baseParams, currency: 'USD' });
+
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('account_reference');
+    expect(body.provider_extras).toEqual({ amount: '250' });
+  });
+
+  // Without an account_reference the orchestrator has nothing to key a
+  // mapping on, so the SwipeLux hints would be dead weight on the wire.
+  it('does not send contact_email or customer_type without an account_reference', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'USD',
       contactEmail: 'jehinc26@gmail.com',
       customerType: 'individual',
     });
 
-    expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.wire?.routingNumber).toBe('125109019');
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.provider_extras).toEqual({ amount: '250' });
   });
 
-  it('does not provision USD with account_reference but no contact email', async () => {
+  it('still sends account_reference when the account has no contact email', async () => {
     const calls: { path: string; body: unknown }[] = [];
-    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
+    await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'USD',
       accountReference: 'acc_swx_1',
       customerType: 'individual',
     });
 
-    expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.beneficiary.name).toBe('Palremit Corporation');
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.account_reference).toBe('acc_swx_1');
+    expect(body.provider_extras).not.toHaveProperty('contact_email');
   });
 
   // TEMP: NGN preferred Wema static skips provision (no account_reference path).

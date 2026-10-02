@@ -2,12 +2,11 @@
  * Platform receiving accounts for GBP / EUR / USD / GHS / NGN onramps.
  * Ops marks fiat received manually (no provider deposit webhook).
  *
- * GBP / EUR / USD / GHS / NGN: preferred first (skip orchestrator provision for now).
+ * GBP / EUR / GHS / NGN: preferred first (skip orchestrator provision for now).
  *   EUR SEPA is a shared house account for every business — including
  *   Graph/Bancara-pinned ones (Carlston, Briana, SMS Data).
  *   NGN Wema is temporary — revert to Kuda pooled VAs when ready.
- * USD: Coastal Community Bank house account for every business — including
- *   Graph/Dakota named-USD ones. No provider VA is issued per onramp.
+ * USD: still try orchestrator first; use these only if provision fails.
  *
  * Each deposit gets a unique payment reference (from the onramp txnRef).
  * Customers must put that exact value in the bank transfer narration so
@@ -54,11 +53,10 @@ const STATIC: Record<
     country: 'BG',
   },
   USD: {
-    bankName: 'Coastal Community Bank',
-    accountName: 'Palremit Corporation',
-    accountNumber: '875110901746',
-    routingNumber: '125109019',
-    beneficiaryAddress: '2309 Melhorn Dr, Alhambra, CA, 91803',
+    bankName: 'Cross River Bank',
+    accountName: 'Palremit',
+    accountNumber: '387199357253',
+    routingNumber: '021214891',
     country: 'US',
   },
   GHS: {
@@ -105,7 +103,7 @@ export function isStaticDepositCurrency(asset: string): asset is StaticDepositCu
 /** Currencies that should skip orchestrator and use platform accounts immediately. */
 export function isPreferredStaticDepositCurrency(asset: string): boolean {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'EUR' || a === 'USD' || a === 'GHS' || a === 'NGN';
+  return a === 'GBP' || a === 'EUR' || a === 'GHS' || a === 'NGN';
 }
 
 /** Default onramp deposit window (orchestrator-provisioned rails with webhooks). */
@@ -113,7 +111,7 @@ export const DEFAULT_ONRAMP_DEPOSIT_WINDOW_MINUTES = 180;
 
 /**
  * Preferred-static rails need ops to match and mark fiat received — 3h is too
- * short for US/Ghana/UK/NG/EUR SEPA transfers plus manual credit.
+ * short for Ghana/UK/NG/EUR SEPA transfers plus manual credit.
  */
 export const STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES = 24 * 60;
 

@@ -17,13 +17,12 @@ describe('staticDepositAccounts', () => {
     expect(isStaticDepositCurrency('KES')).toBe(false);
   });
 
-  it('marks GBP, EUR, USD, GHS and NGN as preferred static', () => {
+  it('marks GBP, EUR, GHS and NGN as preferred static (not USD)', () => {
     expect(isPreferredStaticDepositCurrency('GBP')).toBe(true);
     expect(isPreferredStaticDepositCurrency('EUR')).toBe(true);
     expect(isPreferredStaticDepositCurrency('ghs')).toBe(true);
     expect(isPreferredStaticDepositCurrency('NGN')).toBe(true);
-    expect(isPreferredStaticDepositCurrency('USD')).toBe(true);
-    expect(isPreferredStaticDepositCurrency('KES')).toBe(false);
+    expect(isPreferredStaticDepositCurrency('USD')).toBe(false);
   });
 
   it('uses the onramp txnRef as the bank narration reference', () => {
@@ -82,20 +81,15 @@ describe('staticDepositAccounts', () => {
     expect(info?.instruction).toContain('SEPA C2B is not supported');
   });
 
-  it('builds USD Coastal Community Bank, GHS FBN Bank GhIPSS, and NGN Wema instructions', () => {
+  it('builds USD Cross River, GHS FBN Bank GhIPSS, and NGN Wema instructions', () => {
     const usd = buildStaticFallbackDepositInfo({
       currency: 'USD',
       amount: 500,
       txnRef: 'ON-USD',
       depositByIso: '2026-07-24T00:00:00.000Z',
     });
-    expect(usd?.bankName).toBe('Coastal Community Bank');
-    expect(usd?.beneficiary).toEqual({
-      name: 'Palremit Corporation',
-      address: '2309 Melhorn Dr, Alhambra, CA, 91803',
-      country: 'US',
-    });
-    expect(usd?.wire).toEqual({ accountNumber: '875110901746', routingNumber: '125109019' });
+    expect(usd?.beneficiary.name).toBe('Palremit');
+    expect(usd?.wire).toEqual({ accountNumber: '387199357253', routingNumber: '021214891' });
     expect(usd?.instruction).toContain('wire memo / narration: ON-USD');
 
     const ghs = buildStaticFallbackDepositInfo({
@@ -130,7 +124,7 @@ describe('staticDepositAccounts', () => {
     expect(onrampDepositWindowMinutes('gbp')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('EUR')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('NGN')).toBe(24 * 60);
-    expect(onrampDepositWindowMinutes('USD')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('USD')).toBe(180);
     expect(onrampDepositWindowMinutes('KES')).toBe(180);
   });
 

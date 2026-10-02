@@ -207,7 +207,7 @@ describe('createOnrampQuote — account markup', () => {
 });
 
 describe('createOnrampQuote — deposit window', () => {
-  it('locks GHS and USD quotes for 24h', async () => {
+  it('locks GHS quotes for 24h and USD quotes for 3h', async () => {
     const ghsNow = Date.now();
     await createOnrampQuote(
       { ...quoteInput, fromCurrency: 'ghs', toCurrency: 'usdt' },
@@ -227,8 +227,8 @@ describe('createOnrampQuote — deposit window', () => {
     await createOnrampQuote(quoteInput, makeOptions());
     const usdSnap = lastSnapshot();
     const usdMs = new Date(usdSnap.rateValidUntil).getTime() - usdNow;
-    expect(usdMs).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 2000);
-    expect(usdMs).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+    expect(usdMs).toBeGreaterThanOrEqual(180 * 60 * 1000 - 2000);
+    expect(usdMs).toBeLessThan(180 * 60 * 1000 + 5000);
   });
 });
 
