@@ -97,7 +97,7 @@ describe('createOnramp — rate-spread profit', () => {
 });
 
 describe('createOnramp — deposit window', () => {
-  it('gives GHS and USD (static) 24h', async () => {
+  it('gives GHS (static) 24h and USD 3h', async () => {
     const now = Date.now();
     const ghs = makeDeps();
     ghs.kybRepo.getKybRailStatuses = vi.fn(async () => [{ rail: 'GHS', status: 'approved' }]);
@@ -148,7 +148,7 @@ describe('createOnramp — deposit window', () => {
     const usdExp = new Date(
       (usd.created.data!.quoteInformation as { expiresAt: string }).expiresAt
     ).getTime();
-    expect(usdExp - usdNow).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 2000);
-    expect(usdExp - usdNow).toBeLessThan(24 * 60 * 60 * 1000 + 5000);
+    expect(usdExp - usdNow).toBeGreaterThanOrEqual(180 * 60 * 1000 - 2000);
+    expect(usdExp - usdNow).toBeLessThan(180 * 60 * 1000 + 5000);
   });
 });
