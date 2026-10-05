@@ -40,6 +40,8 @@ export interface OfframpQuoteSnapshot {
   fees: OfframpFees;
   profit?: PalremitProfit | null;
   rateInformation: RateInformation;
+  /** Payout funding cap when it differs from quote.sendNet (fee already inside the provider rate). */
+  sourceAmountCap?: string;
 }
 
 export interface OfframpQuoteResponse {

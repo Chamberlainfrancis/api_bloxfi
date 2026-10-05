@@ -7,6 +7,7 @@ import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import { applyPairMarkupIfMatched, findPairMarkup } from '@/core/quotes/pairMarkup';
 import {
+  executableRateExcludingTransferFee,
   floorOfframpMarketRate,
   isUsableExecutableRate,
 } from '@/core/quotes/floorOfframpMarketRate';
@@ -208,10 +209,13 @@ export async function createOfframpQuote(
   if (findPairMarkup(fromCurrency, toCurrency) && !executableOk) {
     throw new Error('UNFAVORABLE_RATE');
   }
-  const flooredMarket = floorOfframpMarketRate(
-    apiMarket,
-    executableOk ? executable : null,
-  );
+  const floorExec = executableRateExcludingTransferFee({
+    fromCurrency,
+    toCurrency,
+    executableRate: executableOk ? executable : null,
+    feeQuote,
+  });
+  const flooredMarket = floorOfframpMarketRate(apiMarket, floorExec.executableRate);
   const repriced = applyPairMarkupIfMatched({
     fromCurrency,
     toCurrency,
@@ -227,10 +231,7 @@ export async function createOfframpQuote(
   } else {
     // No pair-markup rule (CNY, NGN, …): still cap the locked customer rate
     // at OwlPay so solvency does not 422 a corridor we can actually fund.
-    const flooredCustomer = floorOfframpMarketRate(
-      baseRateNum,
-      executableOk ? executable : null,
-    );
+    const flooredCustomer = floorOfframpMarketRate(baseRateNum, floorExec.executableRate);
     conversionRate = String(flooredCustomer);
     baseRateNum = flooredCustomer;
     if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
@@ -288,9 +289,14 @@ export async function createOfframpQuote(
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
 
+  // The embedded fee is the provider's funding spread: it is collected from
+  // the customer and spent funding the payout, so it backs the provider cost.
+  const fundingAvailable =
+    floorExec.embeddedFee > 0 ? amounts.sendNet + feeInSendCurrency : amounts.sendNet;
+
   if (
     offrampImpliedSourceExceedsSendNet({
-      sendNet: amounts.sendNet,
+      sendNet: fundingAvailable,
       receiveNet,
       effectiveRate: executableOk ? executable : null,
     })
@@ -388,6 +394,7 @@ export async function createOfframpQuote(
     fees,
     profit,
     rateInformation,
+    ...(floorExec.embeddedFee > 0 ? { sourceAmountCap: fundingAvailable.toFixed(8) } : {}),
   };
 
   const row = await rampQuoteRepo.createRampQuote({

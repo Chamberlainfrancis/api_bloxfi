@@ -37,6 +37,7 @@ import {
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote, solveOfframpSendFromDest } from '@/core/quotes';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
+import { executableRateExcludingTransferFee } from '@/core/quotes/floorOfframpMarketRate';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
@@ -127,7 +128,12 @@ export async function getOfframpRates(
         beneficiaryType: q.beneficiaryType ?? undefined,
       });
       const parsedExec = parseFloat(feeQuote?.effectiveRate ?? '');
-      executableRate = Number.isFinite(parsedExec) && parsedExec > 0 ? parsedExec : null;
+      executableRate = executableRateExcludingTransferFee({
+        fromCurrency: preview.fromCurrency,
+        toCurrency: preview.toCurrency,
+        executableRate: Number.isFinite(parsedExec) && parsedExec > 0 ? parsedExec : null,
+        feeQuote,
+      }).executableRate;
     }
     const result = await offrampCore.getOfframpRate(
       q.fromCurrency,

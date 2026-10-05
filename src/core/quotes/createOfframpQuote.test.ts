@@ -242,6 +242,80 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
     expect(Number(snapshot.baseConversionRate)).toBeCloseTo(customer, 10);
     expect(Number(snapshot.quote.receiveGross.amount)).toBeCloseTo(1000 * customer, 2);
   });
+
+  function usdOptions(fee: { amount: string; dest: string; rate: string }, destinationType: string) {
+    return {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('0.9988', 'usd'),
+        marketRate: '1',
+        rateCurrency: 'USD',
+        perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'BEP20'),
+      getProviderWithdrawalFeeQuote: vi.fn(async () => ({
+        feeUnavailable: false,
+        fees: [{ kind: 'transfer fee', amount: fee.amount, currency: 'USDC' }],
+        totalFee: { amount: fee.amount, currency: 'USDC' },
+        destinationAmount: fee.dest,
+        effectiveRate: fee.rate,
+        expiresAt: null,
+      })),
+      convertToUsdc: vi.fn(async (_from: string, amount: number) => amount),
+      loadOfframpAccountCorridor: makeOptions({
+        asset: 'USD',
+        country: 'US',
+        destinationType,
+        beneficiaryType: 'business',
+      }).loadOfframpAccountCorridor,
+    };
+  }
+
+  it('charges the US local-bank funding spread once, then 20 bps', async () => {
+    // 2026-10-05 quote ce64c299: 10k USDT returned 9927.87 because the 26.16
+    // spread was both inside the OwlPay floor and deducted as the fee.
+    const options = usdOptions(
+      { amount: '26.16', dest: '9980.00', rate: String(9980 / (9980 + 26.16)) },
+      'local_bank'
+    );
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'usd',
+        fromChain: 'BEP20',
+        amount: 10000,
+        corridor: { country: 'US', destinationType: 'local_bank', beneficiaryType: 'business' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 6);
+    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(9973.84, 6);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9973.84 * 0.998, 2);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { sourceAmountCap?: string };
+    expect(snapshot.sourceAmountCap).toBe('10000.00000000');
+  });
+
+  it('leaves USD WIRE (flat $25, spread not inside the fee) on the raw OwlPay floor', async () => {
+    const options = usdOptions({ amount: '25', dest: '9980.00', rate: '0.99639255' }, 'wire');
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'usd',
+        fromChain: 'BEP20',
+        amount: 10000,
+        corridor: { country: 'US', destinationType: 'wire', beneficiaryType: 'business' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.99639255 * 0.998, 8);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { sourceAmountCap?: string };
+    expect(snapshot.sourceAmountCap).toBeUndefined();
+  });
 });
 
 describe('createOfframpQuote — USD→EUR pair markup', () => {

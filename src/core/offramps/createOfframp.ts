@@ -279,7 +279,7 @@ export async function createOfframp(
     txnRef,
     providerRefs: mergeSourceAmountCapIntoProviderRefs(
       palremitDeposit.providerRefs,
-      snap.quote.sendNet?.amount
+      snap.sourceAmountCap ?? snap.quote.sendNet?.amount
     ),
     userId,
     status: 'AWAITING_CRYPTO',

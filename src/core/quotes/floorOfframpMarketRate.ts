@@ -22,3 +22,48 @@ export function floorOfframpMarketRate(
 export function isUsableExecutableRate(rate: number | null | undefined): rate is number {
   return rate != null && Number.isFinite(rate) && rate > 0;
 }
+
+/**
+ * USD payouts charge the provider's funding spread (source − destination) as
+ * the transfer fee, and effective_rate (destination / source) carries that
+ * same spread. Flooring on the raw rate AND deducting the fee charges it
+ * twice. When the quoted fee matches the spread implied by the rate, strip it
+ * from the rate and report it so callers can count it once.
+ *
+ * Only USD payouts from a stablecoin send: other fiats mix units, and the
+ * fee must convert 1:1 into the send currency.
+ */
+export function executableRateExcludingTransferFee(params: {
+  fromCurrency: string;
+  toCurrency: string;
+  executableRate: number | null;
+  feeQuote: {
+    feeUnavailable: boolean;
+    totalFee: { amount: string; currency: string } | null;
+    destinationAmount: string | null;
+  } | null;
+}): { executableRate: number | null; embeddedFee: number } {
+  const unchanged = { executableRate: params.executableRate, embeddedFee: 0 };
+  const exec = params.executableRate;
+  if (!isUsableExecutableRate(exec)) return unchanged;
+  if (params.toCurrency.trim().toLowerCase() !== 'usd') return unchanged;
+  const from = params.fromCurrency.trim().toUpperCase();
+  if (from !== 'USDT' && from !== 'USDC') return unchanged;
+
+  const q = params.feeQuote;
+  if (!q || q.feeUnavailable || !q.totalFee) return unchanged;
+  const feeCcy = q.totalFee.currency.trim().toUpperCase();
+  if (feeCcy !== 'USDT' && feeCcy !== 'USDC') return unchanged;
+  const fee = Number(q.totalFee.amount);
+  const dest = Number(q.destinationAmount);
+  if (!Number.isFinite(fee) || fee <= 0) return unchanged;
+  if (!Number.isFinite(dest) || dest <= 0) return unchanged;
+
+  const impliedSource = dest / exec;
+  const tolerance = Math.max(0.05, fee * 0.005);
+  if (Math.abs(impliedSource - dest - fee) > tolerance) return unchanged;
+  const sourceExFee = impliedSource - fee;
+  if (!(sourceExFee > 0)) return unchanged;
+
+  return { executableRate: dest / sourceExFee, embeddedFee: fee };
+}
