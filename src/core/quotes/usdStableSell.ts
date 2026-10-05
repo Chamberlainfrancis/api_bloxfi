@@ -28,17 +28,28 @@ export function isUsdStableSell(fromCurrency: string, toCurrency: string): boole
   return toCurrency.trim().toUpperCase() === 'USD' && (from === 'USDT' || from === 'USDC');
 }
 
-/** The only transfer fee the client pays: $25 on wire, nothing on local bank. */
+/**
+ * The transfer fee the client pays, as its own fee line. Wire: Palremit's
+ * published wire fee ($25 if the preview is missing). Local bank: none —
+ * Palremit's USD local "fee" is the provider's funding spread, which is ours.
+ */
 export function usdSellCustomerFeeQuote(
   destinationType: string,
   provider: PalremitWithdrawalFeeQuote | null,
 ): PalremitWithdrawalFeeQuote {
   const wire = destinationType.trim().toLowerCase() === 'wire';
-  const amount = String(wire ? WIRE_FLAT_FEE_USDC : 0);
+  const previewed = Number(provider?.totalFee?.amount);
+  const previewedOk =
+    provider != null &&
+    !provider.feeUnavailable &&
+    Number.isFinite(previewed) &&
+    previewed >= 0;
+  const amount = wire ? String(previewedOk ? previewed : WIRE_FLAT_FEE_USDC) : '0';
+  const currency = wire && previewedOk ? provider!.totalFee!.currency : 'USDC';
   return {
     feeUnavailable: false,
-    fees: wire ? [{ kind: 'SWIFT fee', amount, currency: 'USDC' }] : [],
-    totalFee: { amount, currency: 'USDC' },
+    fees: wire ? [{ kind: 'SWIFT fee', amount, currency }] : [],
+    totalFee: { amount, currency },
     destinationAmount: provider?.destinationAmount ?? null,
     effectiveRate: provider?.effectiveRate ?? null,
     expiresAt: provider?.expiresAt ?? null,

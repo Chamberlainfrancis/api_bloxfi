@@ -325,13 +325,31 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
     expect(Number(lastCap())).toBeCloseTo(((9975 * 0.998) / rate) * 1.0025, 6);
   });
 
-  it('wire: charges only $25 even if Palremit previews a different fee', async () => {
+  it('wire: charges whatever wire fee Palremit publishes, as its own fee line', async () => {
     const result = await usdQuote(
       'wire',
-      usdOptions({ amount: '40', dest: '9980.00', rate: '0.995' }, 'wire')
+      usdOptions({ amount: '30', dest: '9980.00', rate: '0.995' }, 'wire')
     );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 10);
+    expect(Number(result.quote.sendNet.amount)).toBe(9970);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9970 * 0.998, 2);
+    expect(result.quote.transferFee.fees).toEqual([
+      { kind: 'SWIFT fee', amount: '30', currency: 'USDC' },
+    ]);
+  });
+
+  it('wire: falls back to the flat $25 when Palremit has no fee preview', async () => {
+    const options = usdOptions({ amount: '25', dest: '9980.00', rate: '0.995' }, 'wire');
+    options.getProviderWithdrawalFeeQuote = vi.fn(async () => ({
+      feeUnavailable: true,
+      fees: [],
+      totalFee: null,
+      destinationAmount: '9980.00',
+      effectiveRate: '0.995',
+      expiresAt: null,
+    })) as never;
+    const result = await usdQuote('wire', options);
     expect(Number(result.quote.sendNet.amount)).toBe(9975);
-    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * 0.998, 2);
   });
 
   it('never sets the cap below sendNet', async () => {
