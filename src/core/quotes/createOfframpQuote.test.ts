@@ -297,8 +297,10 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
     expect(snapshot.sourceAmountCap).toBe('10000.00000000');
   });
 
-  it('leaves USD WIRE (flat $25, spread not inside the fee) on the raw OwlPay floor', async () => {
-    const options = usdOptions({ amount: '25', dest: '9980.00', rate: '0.99639255' }, 'wire');
+  it('charges the USD WIRE $25 once when OwlPay’s rate already holds the wire charge', async () => {
+    // 2026-10-05 KE wire quote bbbb072b returned 9919.11 for 10k USDT.
+    const rate = 0.99639255;
+    const options = usdOptions({ amount: '25', dest: '9980.00', rate: String(rate) }, 'wire');
     const result = await createOfframpQuote(
       {
         fromCurrency: 'usdt',
@@ -311,7 +313,30 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(0.99639255 * 0.998, 8);
+    const floor = 9980 / (9980 / rate - 25);
+    expect(Number(result.baseConversionRate)).toBeCloseTo(floor * 0.998, 8);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * floor * 0.998, 2);
+    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
+      .payload as { sourceAmountCap?: string };
+    expect(snapshot.sourceAmountCap).toBe('10000.00000000');
+  });
+
+  it('leaves USD WIRE alone when OwlPay reports source == destination', async () => {
+    const options = usdOptions({ amount: '25', dest: '9980.00', rate: '1' }, 'wire');
+    const result = await createOfframpQuote(
+      {
+        fromCurrency: 'usdt',
+        toCurrency: 'usd',
+        fromChain: 'BEP20',
+        amount: 10000,
+        corridor: { country: 'US', destinationType: 'wire', beneficiaryType: 'business' },
+        accountId: ACC,
+        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
+      },
+      options as never
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 8);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * 0.998, 2);
     const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
       .payload as { sourceAmountCap?: string };
     expect(snapshot.sourceAmountCap).toBeUndefined();

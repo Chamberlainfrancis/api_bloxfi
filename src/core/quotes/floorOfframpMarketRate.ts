@@ -24,11 +24,13 @@ export function isUsableExecutableRate(rate: number | null | undefined): rate is
 }
 
 /**
- * USD payouts charge the provider's funding spread (source − destination) as
- * the transfer fee, and effective_rate (destination / source) carries that
- * same spread. Flooring on the raw rate AND deducting the fee charges it
- * twice. When the quoted fee matches the spread implied by the rate, strip it
- * from the rate and report it so callers can count it once.
+ * For USD payouts the provider's effective_rate (destination / source) carries
+ * its payout cost: the whole funding spread on local bank (which is also what
+ * we charge as the transfer fee), and the ~$25 wire charge plus Harbor's fee on
+ * WIRE (where we charge a flat $25). Flooring on the raw rate AND deducting the
+ * fee charges that cost twice. Strip the fee from the rate — never more than
+ * the spread actually inside it — and report the stripped amount so callers
+ * can count it once.
  *
  * Only USD payouts from a stablecoin send: other fiats mix units, and the
  * fee must convert 1:1 into the send currency.
@@ -60,10 +62,11 @@ export function executableRateExcludingTransferFee(params: {
   if (!Number.isFinite(dest) || dest <= 0) return unchanged;
 
   const impliedSource = dest / exec;
-  const tolerance = Math.max(0.05, fee * 0.005);
-  if (Math.abs(impliedSource - dest - fee) > tolerance) return unchanged;
-  const sourceExFee = impliedSource - fee;
+  const spread = impliedSource - dest;
+  if (!(spread > 0.01)) return unchanged;
+  const embedded = Math.min(fee, spread);
+  const sourceExFee = impliedSource - embedded;
   if (!(sourceExFee > 0)) return unchanged;
 
-  return { executableRate: dest / sourceExFee, embeddedFee: fee };
+  return { executableRate: dest / sourceExFee, embeddedFee: embedded };
 }

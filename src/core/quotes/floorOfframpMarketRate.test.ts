@@ -38,19 +38,33 @@ describe('executableRateExcludingTransferFee', () => {
       executableRate: 0.99737806,
       feeQuote: feeQuote('26.08', '9920.15'),
     });
-    expect(r.embeddedFee).toBe(26.08);
+    expect(r.embeddedFee).toBeCloseTo(26.08, 2);
     expect(r.executableRate!).toBeCloseTo(1, 4);
   });
 
-  it('keeps the rate when the fee is not the spread inside it (USD WIRE flat $25)', () => {
-    // 2026-10-05 KE wire: rate 0.99639255 implies ~36 spread, fee is the flat 25.
+  it('strips the flat $25 WIRE fee from a spread that also holds Harbor’s fee', () => {
+    // 2026-10-05 KE wire: rate 0.99639255 implies ~36 spread (~24 wire + ~12 Harbor).
     const r = executableRateExcludingTransferFee({
       fromCurrency: 'usdt',
       toCurrency: 'usd',
       executableRate: 0.99639255,
       feeQuote: feeQuote('25', '9944.00'),
     });
-    expect(r).toEqual({ executableRate: 0.99639255, embeddedFee: 0 });
+    expect(r.embeddedFee).toBe(25);
+    expect(r.executableRate!).toBeCloseTo(9944 / (9944 / 0.99639255 - 25), 10);
+    expect(r.executableRate!).toBeLessThan(1);
+  });
+
+  it('never strips more than the spread inside the rate', () => {
+    // Small wire where the spread is below the fee: strip only the spread.
+    const r = executableRateExcludingTransferFee({
+      fromCurrency: 'usdt',
+      toCurrency: 'usd',
+      executableRate: 100 / 110,
+      feeQuote: feeQuote('25', '100.00'),
+    });
+    expect(r.embeddedFee).toBeCloseTo(10, 8);
+    expect(r.executableRate!).toBeCloseTo(1, 8);
   });
 
   it('keeps the rate when OwlPay reports source == destination', () => {

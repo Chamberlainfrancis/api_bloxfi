@@ -289,10 +289,9 @@ export async function createOfframpQuote(
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
 
-  // The embedded fee is the provider's funding spread: it is collected from
-  // the customer and spent funding the payout, so it backs the provider cost.
-  const fundingAvailable =
-    floorExec.embeddedFee > 0 ? amounts.sendNet + feeInSendCurrency : amounts.sendNet;
+  // The embedded fee is part of the provider's funding spread: it is collected
+  // from the customer and spent funding the payout, so it backs the provider cost.
+  const fundingAvailable = amounts.sendNet + floorExec.embeddedFee;
 
   if (
     offrampImpliedSourceExceedsSendNet({
