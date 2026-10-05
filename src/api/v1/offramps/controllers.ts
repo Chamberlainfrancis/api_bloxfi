@@ -37,7 +37,7 @@ import {
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote, solveOfframpSendFromDest } from '@/core/quotes';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
-import { executableRateExcludingTransferFee } from '@/core/quotes/floorOfframpMarketRate';
+import { isUsdStableSell, usdSellCustomerFeeQuote } from '@/core/quotes/usdStableSell';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import {
@@ -128,12 +128,14 @@ export async function getOfframpRates(
         beneficiaryType: q.beneficiaryType ?? undefined,
       });
       const parsedExec = parseFloat(feeQuote?.effectiveRate ?? '');
-      executableRate = executableRateExcludingTransferFee({
-        fromCurrency: preview.fromCurrency,
-        toCurrency: preview.toCurrency,
-        executableRate: Number.isFinite(parsedExec) && parsedExec > 0 ? parsedExec : null,
-        feeQuote,
-      }).executableRate;
+      const execOk = Number.isFinite(parsedExec) && parsedExec > 0;
+      if (isUsdStableSell(preview.fromCurrency, preview.toCurrency)) {
+        // Market − 20 bps, $25 on wire only: the provider's cost is not the client's.
+        if (!execOk) throw new Error('PALREMIT_RATES_UNAVAILABLE');
+        feeQuote = usdSellCustomerFeeQuote(q.destinationType!, feeQuote);
+      } else {
+        executableRate = execOk ? parsedExec : null;
+      }
     }
     const result = await offrampCore.getOfframpRate(
       q.fromCurrency,
@@ -142,7 +144,10 @@ export async function getOfframpRates(
       {
         getRateFromPalremit,
         executableRate,
-        requireExecutable: corridorReady && findPairMarkup(q.fromCurrency, q.toCurrency) != null,
+        requireExecutable:
+          corridorReady &&
+          findPairMarkup(q.fromCurrency, q.toCurrency) != null &&
+          !isUsdStableSell(q.fromCurrency, q.toCurrency),
       }
     );
     const rateNum = parseFloat(result.conversionRate) || 0;

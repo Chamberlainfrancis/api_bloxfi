@@ -7,10 +7,14 @@ import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
 import { applyPairMarkupIfMatched, findPairMarkup } from '@/core/quotes/pairMarkup';
 import {
-  executableRateExcludingTransferFee,
   floorOfframpMarketRate,
   isUsableExecutableRate,
 } from '@/core/quotes/floorOfframpMarketRate';
+import {
+  isUsdStableSell,
+  usdSellCustomerFeeQuote,
+  usdSellSourceAmountCap,
+} from '@/core/quotes/usdStableSell';
 import { offrampImpliedSourceExceedsSendNet } from '@/core/quotes/offrampQuoteSolvency';
 import {
   computeOfframpQuoteAmounts,
@@ -209,13 +213,10 @@ export async function createOfframpQuote(
   if (findPairMarkup(fromCurrency, toCurrency) && !executableOk) {
     throw new Error('UNFAVORABLE_RATE');
   }
-  const floorExec = executableRateExcludingTransferFee({
-    fromCurrency,
-    toCurrency,
-    executableRate: executableOk ? executable : null,
-    feeQuote,
-  });
-  const flooredMarket = floorOfframpMarketRate(apiMarket, floorExec.executableRate);
+  // USD stablecoin sells price off market − 20 bps; the provider's cost is ours.
+  const usdSell = isUsdStableSell(fromCurrency, toCurrency);
+  const floorRate = executableOk && !usdSell ? executable : null;
+  const flooredMarket = floorOfframpMarketRate(apiMarket, floorRate);
   const repriced = applyPairMarkupIfMatched({
     fromCurrency,
     toCurrency,
@@ -231,14 +232,14 @@ export async function createOfframpQuote(
   } else {
     // No pair-markup rule (CNY, NGN, …): still cap the locked customer rate
     // at OwlPay so solvency does not 422 a corridor we can actually fund.
-    const flooredCustomer = floorOfframpMarketRate(baseRateNum, floorExec.executableRate);
+    const flooredCustomer = floorOfframpMarketRate(baseRateNum, floorRate);
     conversionRate = String(flooredCustomer);
     baseRateNum = flooredCustomer;
     if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
   const pricedFee = await resolveOfframpPayoutFee({
-    feeQuote,
+    feeQuote: usdSell ? usdSellCustomerFeeQuote(corridor.destinationType, feeQuote) : feeQuote,
     destinationType: corridor.destinationType,
     toCurrency,
     sendCurrency: fromCurrency,
@@ -289,13 +290,17 @@ export async function createOfframpQuote(
     throw new Error('AMOUNT_TOO_LOW_AFTER_FEES');
   }
 
-  // The embedded fee is part of the provider's funding spread: it is collected
-  // from the customer and spent funding the payout, so it backs the provider cost.
-  const fundingAvailable = amounts.sendNet + floorExec.embeddedFee;
+  // USD stablecoin sells: Palremit absorbs the provider's cost, so instead of
+  // refusing the quote, let it spend up to that cost (plus headroom).
+  const sourceAmountCap =
+    usdSell && executableOk
+      ? usdSellSourceAmountCap({ sendNet: amounts.sendNet, receiveNet, executableRate: executable })
+      : null;
 
   if (
+    sourceAmountCap == null &&
     offrampImpliedSourceExceedsSendNet({
-      sendNet: fundingAvailable,
+      sendNet: amounts.sendNet,
       receiveNet,
       effectiveRate: executableOk ? executable : null,
     })
@@ -393,7 +398,7 @@ export async function createOfframpQuote(
     fees,
     profit,
     rateInformation,
-    ...(floorExec.embeddedFee > 0 ? { sourceAmountCap: fundingAvailable.toFixed(8) } : {}),
+    ...(sourceAmountCap != null ? { sourceAmountCap: sourceAmountCap.toFixed(8) } : {}),
   };
 
   const row = await rampQuoteRepo.createRampQuote({

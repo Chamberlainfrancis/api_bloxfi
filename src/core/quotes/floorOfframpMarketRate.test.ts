@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  executableRateExcludingTransferFee,
-  floorOfframpMarketRate,
-} from '@/core/quotes/floorOfframpMarketRate';
+import { floorOfframpMarketRate } from '@/core/quotes/floorOfframpMarketRate';
 
 describe('floorOfframpMarketRate', () => {
   it('caps currency-api mid at the live executable OwlPay rate', () => {
@@ -18,109 +15,5 @@ describe('floorOfframpMarketRate', () => {
     expect(floorOfframpMarketRate(0.870293, null)).toBe(0.870293);
     expect(floorOfframpMarketRate(0.870293, 0)).toBe(0.870293);
     expect(floorOfframpMarketRate(0.870293, Number.NaN)).toBe(0.870293);
-  });
-});
-
-function feeQuote(fee: string, dest: string, currency = 'USDC') {
-  return {
-    feeUnavailable: false,
-    totalFee: { amount: fee, currency },
-    destinationAmount: dest,
-  };
-}
-
-describe('executableRateExcludingTransferFee', () => {
-  it('strips the USD funding spread that is also charged as the transfer fee', () => {
-    // OFF-1396fd70 (2026-10-03): dest 9920.15, source 9946.23, rate 0.99737806.
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'usd',
-      executableRate: 0.99737806,
-      feeQuote: feeQuote('26.08', '9920.15'),
-    });
-    expect(r.embeddedFee).toBeCloseTo(26.08, 2);
-    expect(r.executableRate!).toBeCloseTo(1, 4);
-  });
-
-  it('strips the flat $25 WIRE fee from a spread that also holds Harbor’s fee', () => {
-    // 2026-10-05 KE wire: rate 0.99639255 implies ~36 spread (~24 wire + ~12 Harbor).
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'usd',
-      executableRate: 0.99639255,
-      feeQuote: feeQuote('25', '9944.00'),
-    });
-    expect(r.embeddedFee).toBe(25);
-    expect(r.executableRate!).toBeCloseTo(9944 / (9944 / 0.99639255 - 25), 10);
-    expect(r.executableRate!).toBeLessThan(1);
-  });
-
-  it('never strips more than the spread inside the rate', () => {
-    // Small wire where the spread is below the fee: strip only the spread.
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'usd',
-      executableRate: 100 / 110,
-      feeQuote: feeQuote('25', '100.00'),
-    });
-    expect(r.embeddedFee).toBeCloseTo(10, 8);
-    expect(r.executableRate!).toBeCloseTo(1, 8);
-  });
-
-  it('keeps the rate when OwlPay reports source == destination', () => {
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'usd',
-      executableRate: 1,
-      feeQuote: feeQuote('25', '975.00'),
-    });
-    expect(r).toEqual({ executableRate: 1, embeddedFee: 0 });
-  });
-
-  it('only applies to USD payouts', () => {
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'eur',
-      executableRate: 0.99737806,
-      feeQuote: feeQuote('26.08', '9920.15'),
-    });
-    expect(r).toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-  });
-
-  it('only applies to stablecoin sends', () => {
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'btc',
-      toCurrency: 'usd',
-      executableRate: 0.99737806,
-      feeQuote: feeQuote('26.08', '9920.15'),
-    });
-    expect(r).toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-  });
-
-  it('keeps the rate when the fee is zero, unavailable or missing', () => {
-    const base = { fromCurrency: 'usdt', toCurrency: 'usd', executableRate: 0.99737806 };
-    expect(executableRateExcludingTransferFee({ ...base, feeQuote: feeQuote('0', '9920.15') }))
-      .toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-    expect(
-      executableRateExcludingTransferFee({
-        ...base,
-        feeQuote: { ...feeQuote('26.08', '9920.15'), feeUnavailable: true },
-      })
-    ).toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-    expect(executableRateExcludingTransferFee({ ...base, feeQuote: null }))
-      .toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-    expect(
-      executableRateExcludingTransferFee({ ...base, feeQuote: feeQuote('26.08', '') })
-    ).toEqual({ executableRate: 0.99737806, embeddedFee: 0 });
-  });
-
-  it('passes through a missing executable rate', () => {
-    const r = executableRateExcludingTransferFee({
-      fromCurrency: 'usdt',
-      toCurrency: 'usd',
-      executableRate: null,
-      feeQuote: feeQuote('26.08', '9920.15'),
-    });
-    expect(r).toEqual({ executableRate: null, embeddedFee: 0 });
   });
 });

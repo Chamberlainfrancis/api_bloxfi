@@ -270,76 +270,82 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
     };
   }
 
-  it('charges the US local-bank funding spread once, then 20 bps', async () => {
-    // 2026-10-05 quote ce64c299: 10k USDT returned 9927.87 because the 26.16
-    // spread was both inside the OwlPay floor and deducted as the fee.
-    const options = usdOptions(
-      { amount: '26.16', dest: '9980.00', rate: String(9980 / (9980 + 26.16)) },
-      'local_bank'
-    );
-    const result = await createOfframpQuote(
+  function usdQuote(destinationType: string, options: ReturnType<typeof usdOptions>, amount = 10000) {
+    return createOfframpQuote(
       {
         fromCurrency: 'usdt',
         toCurrency: 'usd',
         fromChain: 'BEP20',
-        amount: 10000,
-        corridor: { country: 'US', destinationType: 'local_bank', beneficiaryType: 'business' },
+        amount,
+        corridor: { country: 'US', destinationType, beneficiaryType: 'business' },
         accountId: ACC,
         platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 6);
-    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(9973.84, 6);
-    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9973.84 * 0.998, 2);
-    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
-      .payload as { sourceAmountCap?: string };
-    expect(snapshot.sourceAmountCap).toBe('10000.00000000');
+  }
+
+  function lastCap(): string | undefined {
+    return (
+      vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0].payload as {
+        sourceAmountCap?: string;
+      }
+    ).sourceAmountCap;
+  }
+
+  it('local bank: 20 bps all-in, OwlPay spread is not passed on', async () => {
+    // 2026-10-05 quote ce64c299: 10k USDT returned 9927.87 (72 bps all-in).
+    const rate = 9980 / (9980 + 26.16);
+    const result = await usdQuote(
+      'local_bank',
+      usdOptions({ amount: '26.16', dest: '9980.00', rate: String(rate) }, 'local_bank')
+    );
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 10);
+    expect(Number(result.quote.sendNet.amount)).toBe(10000);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9980, 2);
+    expect(result.quote.transferFee.fees).toEqual([]);
+    expect(result.quote.transferFee.total).toEqual({ amount: '0', currency: 'USDC' });
+    // Palremit may spend OwlPay's source for 9980 plus 25 bps headroom.
+    expect(Number(lastCap())).toBeCloseTo((9980 / rate) * 1.0025, 6);
   });
 
-  it('charges the USD WIRE $25 once when OwlPay’s rate already holds the wire charge', async () => {
+  it('wire: 20 bps plus the flat $25, OwlPay wire spread is not passed on', async () => {
     // 2026-10-05 KE wire quote bbbb072b returned 9919.11 for 10k USDT.
     const rate = 0.99639255;
-    const options = usdOptions({ amount: '25', dest: '9980.00', rate: String(rate) }, 'wire');
-    const result = await createOfframpQuote(
-      {
-        fromCurrency: 'usdt',
-        toCurrency: 'usd',
-        fromChain: 'BEP20',
-        amount: 10000,
-        corridor: { country: 'US', destinationType: 'wire', beneficiaryType: 'business' },
-        accountId: ACC,
-        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
-      },
-      options as never
+    const result = await usdQuote(
+      'wire',
+      usdOptions({ amount: '25', dest: '9980.00', rate: String(rate) }, 'wire')
     );
-    const floor = 9980 / (9980 / rate - 25);
-    expect(Number(result.baseConversionRate)).toBeCloseTo(floor * 0.998, 8);
-    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * floor * 0.998, 2);
-    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
-      .payload as { sourceAmountCap?: string };
-    expect(snapshot.sourceAmountCap).toBe('10000.00000000');
+    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 10);
+    expect(Number(result.quote.sendNet.amount)).toBe(9975);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * 0.998, 2);
+    expect(result.quote.transferFee.fees).toEqual([
+      { kind: 'SWIFT fee', amount: '25', currency: 'USDC' },
+    ]);
+    expect(Number(lastCap())).toBeCloseTo(((9975 * 0.998) / rate) * 1.0025, 6);
   });
 
-  it('leaves USD WIRE alone when OwlPay reports source == destination', async () => {
-    const options = usdOptions({ amount: '25', dest: '9980.00', rate: '1' }, 'wire');
-    const result = await createOfframpQuote(
-      {
-        fromCurrency: 'usdt',
-        toCurrency: 'usd',
-        fromChain: 'BEP20',
-        amount: 10000,
-        corridor: { country: 'US', destinationType: 'wire', beneficiaryType: 'business' },
-        accountId: ACC,
-        platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' },
-      },
-      options as never
+  it('wire: charges only $25 even if Palremit previews a different fee', async () => {
+    const result = await usdQuote(
+      'wire',
+      usdOptions({ amount: '40', dest: '9980.00', rate: '0.995' }, 'wire')
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(0.998, 8);
+    expect(Number(result.quote.sendNet.amount)).toBe(9975);
     expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(9975 * 0.998, 2);
-    const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
-      .payload as { sourceAmountCap?: string };
-    expect(snapshot.sourceAmountCap).toBeUndefined();
+  });
+
+  it('never sets the cap below sendNet', async () => {
+    const result = await usdQuote(
+      'local_bank',
+      usdOptions({ amount: '0', dest: '9980.00', rate: '1.01' }, 'local_bank')
+    );
+    expect(Number(lastCap())).toBe(Number(result.quote.sendNet.amount));
+  });
+
+  it('still refuses to quote when Palremit has no executable rate', async () => {
+    await expect(
+      usdQuote('local_bank', usdOptions({ amount: '26.16', dest: '9980.00', rate: '' }, 'local_bank'))
+    ).rejects.toThrow('UNFAVORABLE_RATE');
   });
 });
 
