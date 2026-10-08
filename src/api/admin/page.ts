@@ -154,7 +154,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div class="tabs">
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
   <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
-  <div class="tab" data-view="held">Held payouts</div>
+  <div class="tab" data-view="held">Held payouts <span id="heldCount" class="badge pend" style="display:none"></span></div>
   <div class="tab" data-view="settlements">Fee settlements</div>
   <div class="tab" data-view="businesses">Businesses</div>
   <div class="tab" data-view="dakota">Dakota KYB</div>
@@ -212,8 +212,18 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <dialog id="acceptRateModal" class="approve-fee-dialog">
   <div class="dhead"><span class="t">Send this payout?</span><button type="button" class="ghost" id="acceptRateCancel">Cancel</button></div>
   <div class="dbody">
-    <div class="notice">Check who gets paid and how much extra Palremit covers.</div>
+    <div class="notice">Check who gets paid. Once you confirm, Palremit sends the money.</div>
     <div class="confirm-list" id="acceptRateSummary"></div>
+    <div class="payout-retry-fields">
+      <label for="holdActor">Your name</label>
+      <input type="text" id="holdActor" placeholder="Saved in the audit trail" autocomplete="name" />
+      <label for="holdPasscode">Passcode</label>
+      <input type="password" id="holdPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />
+    </div>
+    <div class="payout-retry-fields">
+      <label for="holdNote">Note</label>
+      <input type="text" id="holdNote" placeholder="Optional, e.g. approved by finance" style="min-width:260px;flex:1" />
+    </div>
     <div id="acceptRateMsg" class="payout-retry-msg" style="display:none"></div>
     <div class="actions">
       <button type="button" class="ghost" id="acceptRateDismiss">Cancel</button>
@@ -494,6 +504,7 @@ async function loadHeld() {
   $("more").style.display = "none";
   try {
     const data = await api("/held-payouts");
+    updateHeldCount(data.items.length);
     $("rows").innerHTML = data.items.length
       ? data.items.map(heldRowHtml).join("")
       : '<tr><td colspan="6" class="muted" style="padding:24px">No payouts are on hold.</td></tr>';
@@ -639,7 +650,11 @@ async function openDetail(id, forceType, flash) {
       '<span class="arrow">→</span>' + fmtMoney(dest.amount, dest.currency) +
       '<div class="sub">' + (t.type === "offramp" ? "Crypto in, cash out" : "Cash in, crypto out") + "</div></span>";
     const payoutPill = holdView && holdView.hold
-      ? '<span class="pill pending">⏸ Payout on hold at Palremit</span>'
+      ? (holdView.hold.tenant_actionable
+          ? '<span class="pill pending">⏸ On hold: needs your decision</span>'
+          : holdView.hold.reason === "pending_review"
+            ? '<span class="pill pending">⏸ On hold: waiting for Palremit approval</span>'
+            : '<span class="pill pending">⏸ On hold: Palremit ops are handling it</span>')
       : pi.sent
         ? '<span class="pill sent">✓ Payout sent to Palremit</span>'
         : '<span class="pill pending">Payout not sent yet</span>';
@@ -831,15 +846,28 @@ async function openDetail(id, forceType, flash) {
     $("detail").showModal();
     $("dBody").scrollTop = 0;
     if (flash && flash.msg) showDetailMsg(flash.msg, flash.kind);
+    if (holdView && holdView.hold && holdView.hold.tenant_actionable) checkHoldRate();
   } catch (e) { showErr(e.message); }
 }
 
 // --- held payouts: release an unfavorable-rate hold -----------------------
 
+// Costs are in USD stablecoins (USDT/USDC, both worth $1), so show dollars.
 function usdc(x) {
   var n = Number(x);
   if (x == null || x === "" || isNaN(n)) return "—";
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " USDC";
+  return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function updateHeldCount(n) {
+  var el = $("heldCount");
+  if (!el) return;
+  el.textContent = n > 0 ? String(n) : "";
+  el.style.display = n > 0 ? "inline-block" : "none";
+}
+
+async function refreshHeldCount() {
+  try { var d = await api("/held-payouts"); updateHeldCount(d.items.length); } catch (e) { updateHeldCount(0); }
 }
 
 function extraCost(cost, paid) {
@@ -851,18 +879,14 @@ function holdSectionHtml(hv) {
   var h = hv.hold;
   var inner;
   if (h.reason === "unfavorable_rate") {
-    var extra = h.last_quoted_cost ? extraCost(h.last_quoted_cost, h.source_amount_cap) : null;
-    inner = '<div class="notice bad">Palremit paused this payout because the exchange rate moved after the customer got their quote. ' +
-      "Sending it now costs more than the customer paid, so the difference would come out of Palremit's margin.</div>" +
+    inner = '<div class="notice">Paused because the exchange rate moved after the customer got their quote. ' +
+      "Sending it now costs more than the customer paid. You decide: send it and Palremit covers the difference, or leave it paused.</div>" +
       kvPairs([
-        ["Customer paid", usdc(h.source_amount_cap)],
-        ["Cost to send (when paused)", h.last_quoted_cost ? usdc(h.last_quoted_cost) : null],
-        ["Extra Palremit would pay", extra != null ? usdc(extra) : null],
         ["Paused since", h.held_since ? new Date(h.held_since).toLocaleString() : null]
       ]) +
       (h.tenant_actionable
-        ? '<div class="muted" style="margin-top:8px">Rates change all the time, so check the cost today before deciding.</div>' +
-          '<div class="actions" style="margin-top:10px"><button type="button" id="holdQuote">Check the cost today</button></div><div id="holdQuoteBox" class="hold-quote"></div>'
+        ? '<div id="holdQuoteBox" class="hold-quote"><div class="muted">Getting the price right now…</div></div>' +
+          '<div class="muted" style="margin-top:10px;font-size:12px">Use the button above to send it. Do not use Mark Successful / Mark Failed for a paused payout.</div>'
         : '<div class="muted" style="margin-top:8px">This payout already reached a provider, so only Palremit ops can resolve it.</div>');
   } else if (h.reason === "pending_review") {
     inner = '<div class="notice">This is a large payout, so Palremit ops must approve it in the Palremit admin panel (Approve withdrawals). There is nothing to do here.</div>' +
@@ -901,30 +925,20 @@ function holdQuoteHtml(hv) {
   var lines = kvPairs([
     ["Payout", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : null],
     ["Customer paid", usdc(paid)],
-    ["Cost to send today", usdc(q.cost)],
+    ["Costs to send now", usdc(q.cost)],
     ["Extra Palremit pays", usdc(extra)]
   ]);
+  var refresh = '<button type="button" class="ghost" id="holdQuote">Refresh price</button>';
   if (q.exceeds_cap && max && Number(q.cost) > Number(max)) {
-    return lines + '<div class="notice bad">The rate has moved too far to send this from the dashboard (Palremit would pay ' + esc(usdc(extra)) +
-      ' extra). Ask Palremit ops what to do with this payout.</div>';
+    return lines + '<div class="notice bad">Too expensive to send from here: Palremit would pay ' + esc(usdc(extra)) +
+      ' extra, more than this dashboard allows. Leave it paused and escalate to engineering.</div><div class="actions">' + refresh + '</div>';
   }
   var intro = q.exceeds_cap
-    ? '<div class="notice">If paying about <b>' + esc(usdc(extra)) + '</b> extra is fine, send it. Palremit checks the price once more right before sending.</div>'
-    : '<div class="notice" style="color:var(--ok);border-color:#22c55e55;background:#22c55e14">Good news: the rate came back. Sending this no longer costs Palremit anything extra.</div>';
+    ? '<div class="notice">Sending it now costs Palremit <b>' + esc(usdc(extra)) + '</b> more than the customer paid.</div>'
+    : '<div class="notice" style="color:var(--ok);border-color:#22c55e55;background:#22c55e14">The rate came back. Sending it no longer costs Palremit anything extra.</div>';
   return lines + intro +
-    '<div class="payout-retry-fields">' +
-      '<label for="holdActor">Your name</label>' +
-      '<input type="text" id="holdActor" placeholder="For the audit trail" autocomplete="name" />' +
-      '<label for="holdPasscode">Passcode</label>' +
-      '<input type="password" id="holdPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
-    "</div>" +
-    '<div class="payout-retry-fields">' +
-      '<label for="holdNote">Note</label>' +
-      '<input type="text" id="holdNote" placeholder="Optional, e.g. approved by finance" style="min-width:280px;flex:1" />' +
-    "</div>" +
-    '<div id="holdMsg" class="payout-retry-msg" style="display:none"></div>' +
     '<div class="actions"><button type="button" class="ok" id="holdProceed">' +
-      (q.exceeds_cap ? "Send it, Palremit pays " + esc(usdc(extra)) + " extra…" : "Send payout…") + "</button></div>";
+      (q.exceeds_cap ? "Send payout (Palremit pays " + esc(usdc(extra)) + " extra)" : "Send payout") + "</button>" + refresh + "</div>";
 }
 
 function showHoldMsg(id, msg, kind) {
@@ -937,7 +951,7 @@ function showHoldMsg(id, msg, kind) {
 
 async function checkHoldRate() {
   var btn = $("holdQuote");
-  setBtnLoading(btn, true, "Checking");
+  if (btn) setBtnLoading(btn, true, "Refreshing");
   try {
     var hv = await api("/offramps/" + detailCtx.id + "/hold?quote=true");
     detailCtx.hold = hv;
@@ -946,7 +960,7 @@ async function checkHoldRate() {
   } catch (e) {
     $("holdQuoteBox").innerHTML = '<div class="notice bad">' + esc(e.message || "Could not check the rate.") + "</div>";
   } finally {
-    setBtnLoading(btn, false, "Check the cost today");
+    if (btn && document.body.contains(btn)) setBtnLoading(btn, false, "Refresh price");
   }
 }
 
@@ -970,40 +984,30 @@ function openAcceptRateConfirm() {
   var q = hv.live_quote;
   var paid = hv.hold.source_amount_cap;
   var newCap = suggestedCap(q.cost, paid, hv.max_source_amount_cap);
-  var actor = $("holdActor") && $("holdActor").value ? $("holdActor").value.trim() : "";
-  if (!actor) {
-    showHoldMsg("holdMsg", "Enter your name. It is saved in the audit trail.", "bad");
-    $("holdActor").focus();
-    return;
-  }
-  var secret = readPasscode();
-  if (!secret) {
-    showHoldMsg("holdMsg", "Enter the dashboard passcode.", "bad");
-    $("holdPasscode").focus();
-    return;
-  }
-  showHoldMsg("holdMsg", "", "");
   var b = payoutBeneficiary(detailCtx.t);
   var extraNow = extraCost(q.cost, paid);
   var extraMost = extraCost(newCap, paid);
-  acceptRateCtx = { offrampId: detailCtx.id, expectedCap: paid, newCap: newCap, actor: actor, secret: secret,
-    note: $("holdNote") && $("holdNote").value ? $("holdNote").value.trim() : "" };
+  acceptRateCtx = { offrampId: detailCtx.id, expectedCap: paid, newCap: newCap };
   var rows = [
-    ["Beneficiary", b.name || "—"],
+    ["Pay", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : "—"],
+    ["To", b.name || "—"],
     ["Bank", b.bank || "—"],
     ["Account / IBAN", b.account || "—"],
-    ["Payout", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : "—"],
     ["Reference", detailCtx.txnRef || "—"],
-    ["Extra Palremit pays", extraNow > 0 ? "About " + usdc(extraNow) : "Nothing"]
+    ["Extra Palremit pays", extraNow > 0 ? usdc(extraNow) : "Nothing"]
   ];
   if (extraMost > extraNow) {
-    rows.push(["At most", usdc(extraMost) + ". If the rate moves more than that before sending, it pauses again instead."]);
+    rows.push(["If the rate moves", "Palremit pays up to " + usdc(extraMost) + " extra. If it moves more than that, nothing is sent and the payout pauses again."]);
   }
   $("acceptRateSummary").innerHTML = rows.map(function (r) {
     return '<div class="k">' + esc(r[0]) + '</div><div class="v' + (r[0] === "Account / IBAN" ? " mono" : "") + '">' + esc(r[1]) + "</div>";
   }).join("");
+  $("holdNote").value = "";
+  restorePasscodeField();
   showHoldMsg("acceptRateMsg", "", "");
+  $("acceptRateConfirm").textContent = "Send " + (q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : "payout");
   $("acceptRateModal").showModal();
+  $("holdActor").focus();
 }
 
 function closeAcceptRateModal() {
@@ -1013,9 +1017,16 @@ function closeAcceptRateModal() {
 async function submitAcceptRate() {
   var c = acceptRateCtx;
   if (!c) return;
+  c.actor = ($("holdActor").value || "").trim();
+  c.secret = ($("holdPasscode").value || "").trim();
+  c.note = ($("holdNote").value || "").trim();
+  if (!c.actor) { showHoldMsg("acceptRateMsg", "Enter your name. It is saved in the audit trail.", "bad"); $("holdActor").focus(); return; }
+  if (!c.secret) { showHoldMsg("acceptRateMsg", "Enter the dashboard passcode.", "bad"); $("holdPasscode").focus(); return; }
+  sessionStorage.setItem("dashSecret", c.secret);
   var btn = $("acceptRateConfirm");
   setBtnLoading(btn, true, "Sending");
-  showHoldMsg("acceptRateMsg", "Telling Palremit to send this payout…", "info");
+  var label = btn.textContent;
+  showHoldMsg("acceptRateMsg", "Sending…", "info");
   try {
     var r = await api("/offramps/" + c.offrampId + "/accept-rate", {
       method: "POST",
@@ -1026,21 +1037,22 @@ async function submitAcceptRate() {
     acceptRateCtx = null;
     var msg = r.outcome === "replay"
       ? "Already released earlier with this limit. Palremit is handling it."
-      : "Sent to Palremit. It checks the price once more and pays out. If the rate jumped again in the meantime, it pauses and shows up under Held payouts.";
+      : "Done. The payout is on its way. If the rate jumped again in the last moment, it pauses instead and shows up under Held payouts.";
     await openDetail(c.offrampId, "offramp", { msg: msg, kind: "ok" });
-    if (state.view === "held") await loadHeld();
+    if (state.view === "held") await loadHeld(); else await refreshHeldCount();
   } catch (e) {
     if (e.status === 401) {
       sessionStorage.removeItem("dashSecret");
       clearPasscodeFields();
-      showHoldMsg("acceptRateMsg", "Incorrect passcode. Close this, re-enter it, and try again.", "bad");
+      showHoldMsg("acceptRateMsg", "Wrong passcode. Try again.", "bad");
+      $("holdPasscode").focus();
     } else if (e.status === 409) {
       showHoldMsg("acceptRateMsg", "This payout changed since you checked (someone may have already sent it). Close this and check the cost again.", "bad");
     } else {
       showHoldMsg("acceptRateMsg", e.message || "Palremit did not accept this. Try again or ask Palremit ops.", "bad");
     }
   } finally {
-    setBtnLoading(btn, false, "Confirm and send");
+    setBtnLoading(btn, false, label);
   }
 }
 
@@ -1937,6 +1949,7 @@ $("rows").addEventListener("click", function (e) {
 fillStatusFilter();
 restorePasscodeField();
 load(true);
+refreshHeldCount();
 </script>
 </body>
 </html>`;
