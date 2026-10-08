@@ -88,6 +88,8 @@ export interface HeldPayoutListItem {
   beneficiaryName: string | null;
   payoutAmount: number;
   payoutCurrency: string;
+  /** Stablecoin the customer paid in (USDT/USDC); unit for hold amounts. */
+  sourceCurrency: string | null;
   createdAt: string;
   hold: WithdrawalHold;
 }
@@ -100,6 +102,11 @@ function orchestratorError(e: unknown, fallback: string): AppError {
     return new AppError(msg, code, status);
   }
   return new AppError(fallback, 'ORCHESTRATOR_UNAVAILABLE', 502);
+}
+
+function sourceCurrencyOf(offramp: OfframpLike | null): string | null {
+  const src = (offramp?.source ?? null) as { currency?: unknown } | null;
+  return typeof src?.currency === 'string' && src.currency ? src.currency.toUpperCase() : null;
 }
 
 export async function listHeldPayouts(deps: HeldPayoutDeps): Promise<HeldPayoutListItem[]> {
@@ -121,6 +128,7 @@ export async function listHeldPayouts(deps: HeldPayoutDeps): Promise<HeldPayoutL
       beneficiaryName: offramp ? await deps.beneficiaryName(offramp) : null,
       payoutAmount: w.amount,
       payoutCurrency: w.asset,
+      sourceCurrency: sourceCurrencyOf(offramp),
       createdAt: w.created_at,
       hold: w.hold,
     });

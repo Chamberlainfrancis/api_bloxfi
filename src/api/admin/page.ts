@@ -485,7 +485,7 @@ const HOLD_REASON_LABEL = {
 function heldRowHtml(h) {
   var hold = h.hold || {};
   var limit = hold.reason === "unfavorable_rate" && hold.last_quoted_cost && hold.source_amount_cap
-    ? '<span class="over">' + esc(usdc(extraCost(hold.last_quoted_cost, hold.source_amount_cap))) + "</span>"
+    ? '<span class="over">' + esc(usdc(extraCost(hold.last_quoted_cost, hold.source_amount_cap), h.sourceCurrency)) + "</span>"
     : '<span class="muted">—</span>';
   return '<tr class="row held-row" data-offramp-id="' + esc(h.offrampId || "") + '" data-txn-ref="' + esc(h.txnRef) + '">' +
     '<td class="mono">' + esc(h.txnRef) + "</td>" +
@@ -852,11 +852,16 @@ async function openDetail(id, forceType, flash) {
 
 // --- held payouts: release an unfavorable-rate hold -----------------------
 
-// Costs are in USD stablecoins (USDT/USDC, both worth $1), so show dollars.
-function usdc(x) {
+// Amounts are labelled with the stablecoin the customer paid in (USDT or USDC)
+// so ops see the same coin as on the rest of the offramp.
+function coinOf(source) {
+  var c = source && typeof source.currency === "string" ? source.currency.toUpperCase() : "";
+  return c || "USDT/USDC";
+}
+function usdc(x, coin) {
   var n = Number(x);
   if (x == null || x === "" || isNaN(n)) return "—";
-  return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (coin || "USDT/USDC");
 }
 
 function updateHeldCount(n) {
@@ -924,21 +929,21 @@ function holdQuoteHtml(hv) {
   var extra = extraCost(q.cost, paid);
   var lines = kvPairs([
     ["Payout", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : null],
-    ["Customer paid", usdc(paid)],
-    ["Costs to send now", usdc(q.cost)],
-    ["Extra Palremit pays", usdc(extra)]
+    ["Customer paid", usdc(paid, coinOf(detailCtx.t && detailCtx.t.source))],
+    ["Costs to send now", usdc(q.cost, coinOf(detailCtx.t && detailCtx.t.source))],
+    ["Extra Palremit pays", usdc(extra, coinOf(detailCtx.t && detailCtx.t.source))]
   ]);
   var refresh = '<button type="button" class="ghost" id="holdQuote">Refresh price</button>';
   if (q.exceeds_cap && max && Number(q.cost) > Number(max)) {
-    return lines + '<div class="notice bad">Too expensive to send from here: Palremit would pay ' + esc(usdc(extra)) +
+    return lines + '<div class="notice bad">Too expensive to send from here: Palremit would pay ' + esc(usdc(extra, coinOf(detailCtx.t && detailCtx.t.source))) +
       ' extra, more than this dashboard allows. Leave it paused and escalate to engineering.</div><div class="actions">' + refresh + '</div>';
   }
   var intro = q.exceeds_cap
-    ? '<div class="notice">Sending it now costs Palremit <b>' + esc(usdc(extra)) + '</b> more than the customer paid.</div>'
+    ? '<div class="notice">Sending it now costs Palremit <b>' + esc(usdc(extra, coinOf(detailCtx.t && detailCtx.t.source))) + '</b> more than the customer paid.</div>'
     : '<div class="notice" style="color:var(--ok);border-color:#22c55e55;background:#22c55e14">The rate came back. Sending it no longer costs Palremit anything extra.</div>';
   return lines + intro +
     '<div class="actions"><button type="button" class="ok" id="holdProceed">' +
-      (q.exceeds_cap ? "Send payout (Palremit pays " + esc(usdc(extra)) + " extra)" : "Send payout") + "</button>" + refresh + "</div>";
+      (q.exceeds_cap ? "Send payout (Palremit pays " + esc(usdc(extra, coinOf(detailCtx.t && detailCtx.t.source))) + " extra)" : "Send payout") + "</button>" + refresh + "</div>";
 }
 
 function showHoldMsg(id, msg, kind) {
@@ -994,10 +999,10 @@ function openAcceptRateConfirm() {
     ["Bank", b.bank || "—"],
     ["Account / IBAN", b.account || "—"],
     ["Reference", detailCtx.txnRef || "—"],
-    ["Extra Palremit pays", extraNow > 0 ? usdc(extraNow) : "Nothing"]
+    ["Extra Palremit pays", extraNow > 0 ? usdc(extraNow, coinOf(detailCtx.t && detailCtx.t.source)) : "Nothing"]
   ];
   if (extraMost > extraNow) {
-    rows.push(["If the rate moves", "Palremit pays up to " + usdc(extraMost) + " extra. If it moves more than that, nothing is sent and the payout pauses again."]);
+    rows.push(["If the rate moves", "Palremit pays up to " + usdc(extraMost, coinOf(detailCtx.t && detailCtx.t.source)) + " extra. If it moves more than that, nothing is sent and the payout pauses again."]);
   }
   $("acceptRateSummary").innerHTML = rows.map(function (r) {
     return '<div class="k">' + esc(r[0]) + '</div><div class="v' + (r[0] === "Account / IBAN" ? " mono" : "") + '">' + esc(r[1]) + "</div>";
