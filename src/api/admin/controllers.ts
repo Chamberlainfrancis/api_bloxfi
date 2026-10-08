@@ -10,6 +10,7 @@ import { env } from '@/config';
 import * as dashboard from '@/core/admin/dashboard';
 import * as providerCustomer from '@/core/admin/providerCustomer';
 import * as dakotaKyb from '@/core/admin/dakotaKyb';
+import * as heldPayouts from '@/core/admin/heldPayouts';
 import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
@@ -499,6 +500,109 @@ export async function postDakotaKybAttestations(
       throw new AppError(result.message, 'ORCHESTRATOR_REJECTED', result.status);
     }
     sendSuccess(res, result.value);
+  } catch (e) {
+    next(e);
+  }
+}
+
+// --- Held payouts (orchestrator deliberately holding a fiat payout) ---
+
+// Repos are imported lazily (as in core/admin/dashboard) so loading this
+// module does not pull in the Prisma client.
+async function heldPayoutDeps(): Promise<heldPayouts.HeldPayoutDeps> {
+  const [offrampRepo, accountRepo, adminActionRepo] = await Promise.all([
+    import('@/db/repositories/offramp.repo'),
+    import('@/db/repositories/account.repo'),
+    import('@/db/repositories/adminAction.repo'),
+  ]);
+  return {
+    request: palremitLiquidity,
+    findOfframpById: offrampRepo.findOfframpById,
+    findOfframpByTxnRef: offrampRepo.findOfframpByTxnRef,
+    async beneficiaryName(offramp) {
+      const dest = (offramp.destination ?? {}) as { accountId?: unknown };
+      let holder: string | null = null;
+      if (typeof dest.accountId === 'string' && dest.accountId) {
+        const acct = await accountRepo.findOfframpAccountByIdAndUser(dest.accountId, offramp.userId);
+        const ah = (acct?.accountHolder ?? null) as { name?: unknown } | null;
+        holder = typeof ah?.name === 'string' && ah.name ? ah.name : null;
+      }
+      return dashboard.toListRow('offramp', { ...offramp, createdAt: new Date() }, holder).beneficiaryName;
+    },
+    async recordAdminAction(data) {
+      await adminActionRepo.createAdminAction({
+        txnType: 'offramp',
+        txnId: data.txnId,
+        fromStatus: data.status,
+        toStatus: data.status,
+        note: data.note,
+        actor: data.actor,
+      });
+    },
+  };
+}
+
+export async function listHeldPayouts(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const items = await heldPayouts.listHeldPayouts(await heldPayoutDeps());
+    sendSuccess(res, { items });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getOfframpPayoutHold(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const result = await heldPayouts.getHeldPayout(await heldPayoutDeps(), req.params.offrampId, {
+      quote: req.query.quote === 'true',
+    });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function acceptOfframpPayoutRate(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const body = (req.body ?? {}) as {
+      expectedCap?: unknown;
+      newCap?: unknown;
+      actor?: unknown;
+      note?: unknown;
+      secret?: unknown;
+    };
+    // Accepting a worse rate spends more of Palremit's money on this payout —
+    // same passcode gate as every other mutating dashboard action.
+    const provided =
+      (typeof req.headers['x-dashboard-secret'] === 'string'
+        ? (req.headers['x-dashboard-secret'] as string)
+        : undefined) ?? (typeof body.secret === 'string' ? body.secret : '');
+    if (!env.DASHBOARD_MARK_SECRET || provided !== env.DASHBOARD_MARK_SECRET) {
+      throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+    }
+    if (typeof body.expectedCap !== 'string' || typeof body.newCap !== 'string') {
+      throw new AppError('expectedCap and newCap are required', 'INVALID_REQUEST', 400);
+    }
+    const result = await heldPayouts.acceptHeldPayoutRate(await heldPayoutDeps(), {
+      offrampId: req.params.offrampId,
+      expectedCap: body.expectedCap,
+      newCap: body.newCap,
+      actor: typeof body.actor === 'string' ? body.actor : null,
+      note: typeof body.note === 'string' ? body.note : undefined,
+    });
+    sendSuccess(res, result);
   } catch (e) {
     next(e);
   }
