@@ -36,6 +36,7 @@ import {
 import {
   isDakotaUsdBusiness,
   isGraphUsdBusiness,
+  isOwlPayUsdBusiness,
 } from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
 
@@ -92,6 +93,7 @@ export interface CreateOnrampOptions {
     /** Pin Graph USD named deposit path. */
     useGraphUsd?: boolean;
     useDakotaUsd?: boolean;
+    useOwlPayUsd?: boolean;
     /** Reuse Graph VA issued at Account create time when present. */
     existingGraphIssuance?: {
       providerIssuanceStatus: string | null;
@@ -596,6 +598,10 @@ export async function createOnramp(
     !useDakotaUsd &&
     isGraphUsdBusiness(userId, user.metadata);
   const useNamedUsd = useGraphUsd || useDakotaUsd;
+  const useOwlPayUsd =
+    fromCurrency.trim().toUpperCase() === 'USD' &&
+    !useNamedUsd &&
+    isOwlPayUsdBusiness(user.metadata);
 
   let graphKycInput: Record<string, unknown> | undefined;
   let existingGraphIssuance:
@@ -677,6 +683,7 @@ export async function createOnramp(
           existingGraphIssuance,
         }
       : {}),
+    ...(useOwlPayUsd ? { useOwlPayUsd } : {}),
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');

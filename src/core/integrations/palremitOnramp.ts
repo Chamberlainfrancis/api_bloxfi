@@ -60,6 +60,19 @@ export function isDakotaUsdBusiness(userId: string, metadata: unknown): boolean 
   return false;
 }
 
+/**
+ * Pooled USD deposits for this business go only to OwlPay, under the
+ * business's own OwlPay customer (business_provider_customers row) — never
+ * failing over to SwipeLux or the house customer. Opt-in via
+ * `metadata.owlpayUsdDeposits`. Named USD (Graph/Dakota) takes precedence.
+ */
+export function isOwlPayUsdBusiness(metadata: unknown): boolean {
+  if (metadata != null && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    return (metadata as Record<string, unknown>).owlpayUsdDeposits === true;
+  }
+  return false;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -329,6 +342,8 @@ export async function createOnrampPalremitFiatDeposit(
     useGraphUsd?: boolean;
     /** Pin preferred_provider=dakota + FIAT_DEPOSIT_KYC (metadata.dakotaUsdNamedDeposits). */
     useDakotaUsd?: boolean;
+    /** Pin preferred_provider=owlpay, no failover (metadata.owlpayUsdDeposits). */
+    useOwlPayUsd?: boolean;
     /**
      * When Account already has Graph named-VA issuance from create time,
      * reuse it instead of provisioning a second VA under the onramp txnRef.
@@ -345,6 +360,7 @@ export async function createOnrampPalremitFiatDeposit(
   const isGraphUsd = asset === 'USD' && params.useGraphUsd === true;
   const isDakotaUsd = asset === 'USD' && params.useDakotaUsd === true;
   const isNamedUsd = isGraphUsd || isDakotaUsd;
+  const isOwlPayUsd = asset === 'USD' && !isNamedUsd && params.useOwlPayUsd === true;
 
   if (isNamedUsd && params.existingGraphIssuance) {
     const issuance = params.existingGraphIssuance;
@@ -480,6 +496,12 @@ export async function createOnrampPalremitFiatDeposit(
   // - Graph USD: named VA — no amount extras; full kyc_input below.
   if (asset === 'NGN') {
     body.provider_extras = { account_name: NGN_POOLED_KUDA_ACCOUNT_NAME };
+  } else if (isOwlPayUsd) {
+    // OwlPay resolves the customer per business, so the SwipeLux per-account
+    // hints (account_reference, contact_email, customer_type) are not sent.
+    body.provider_extras = { amount: String(params.amount) };
+    body.allow_provider_failover = false;
+    body.preferred_provider = 'owlpay';
   } else if (asset === 'USD' && !isNamedUsd) {
     const providerExtras: Record<string, unknown> = { amount: String(params.amount) };
     // Per-account SwipeLux identity. account_reference switches the
