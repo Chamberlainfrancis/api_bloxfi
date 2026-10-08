@@ -15,6 +15,9 @@ router.post('/transactions/onramp/:id/mark-fiat-received', controllers.markOnram
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:id/approve', controllers.approveFeeSettlement);
 router.post('/offramps/:offrampId/retry-fiat-payout', controllers.retryOfframpFiatPayout);
+router.get('/held-payouts', controllers.listHeldPayouts);
+router.get('/offramps/:offrampId/hold', controllers.getOfframpPayoutHold);
+router.post('/offramps/:offrampId/accept-rate', controllers.acceptOfframpPayoutRate);
 router.patch('/users/:userId/metadata', controllers.patchUserMetadata);
 router.get('/businesses', controllers.listBusinesses);
 router.get('/businesses/search', controllers.searchBusinesses);

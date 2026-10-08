@@ -137,6 +137,12 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .biz-txn-table th, .biz-txn-table td { padding:9px 12px; border-bottom:1px solid var(--line); font-size:13px; }
   .biz-txn-table th { color:var(--mut); font-weight:600; }
   .biz-txn-type.active { border-color:var(--accent); color:var(--accent); }
+  .hold-quote { margin-top:12px; }
+  .hold-quote .kv2 { margin-bottom:10px; }
+  .hold-quote .over { color:var(--bad); font-weight:600; }
+  .hold-quote .fine { color:var(--ok); font-weight:600; }
+  .confirm-list { display:grid; grid-template-columns:160px 1fr; gap:6px 14px; margin:0 0 14px; font-size:13px; }
+  .confirm-list .k { color:var(--mut); }
 </style>
 </head>
 <body>
@@ -148,6 +154,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div class="tabs">
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
   <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
+  <div class="tab" data-view="held">Held payouts</div>
   <div class="tab" data-view="settlements">Fee settlements</div>
   <div class="tab" data-view="businesses">Businesses</div>
   <div class="tab" data-view="dakota">Dakota KYB</div>
@@ -202,6 +209,19 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   </div>
 </dialog>
 
+<dialog id="acceptRateModal" class="approve-fee-dialog">
+  <div class="dhead"><span class="t">Send this payout?</span><button type="button" class="ghost" id="acceptRateCancel">Cancel</button></div>
+  <div class="dbody">
+    <div class="notice">Check who gets paid and how much extra Palremit covers.</div>
+    <div class="confirm-list" id="acceptRateSummary"></div>
+    <div id="acceptRateMsg" class="payout-retry-msg" style="display:none"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="acceptRateDismiss">Cancel</button>
+      <button type="button" class="ok" id="acceptRateConfirm">Confirm and send</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="bizDetail" class="biz-dialog">
   <div class="dhead"><span class="t" id="bizDTitle">Business</span><button class="ghost" id="bizDClose">Close</button></div>
   <div class="biz-mtabs" id="bizMTabs">
@@ -237,7 +257,7 @@ const LABELS = {
 const SKIP = new Set(["userId","externalWalletId","documents","rawProvisionRequest","rawProvisionResponse","metadata"]);
 
 let state = { view: "transactions", type: "onramp", status: "", includeExpired: false, cursor: null };
-let detailCtx = { id: "", txnRef: "", type: "onramp", platformFee: null, withdrawalProcessing: false };
+let detailCtx = { id: "", txnRef: "", type: "onramp", platformFee: null, withdrawalProcessing: false, t: null, hold: null };
 const $ = (id) => document.getElementById(id);
 
 function showDetailMsg(msg, kind) {
@@ -275,7 +295,7 @@ function payoutRetryFormHtml(reissue) {
 }
 
 function readPasscode() {
-  const candidates = [$("approveFeePasscode"), $("markPasscode"), $("retryFiatPasscode")];
+  const candidates = [$("approveFeePasscode"), $("holdPasscode"), $("markPasscode"), $("retryFiatPasscode")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     var v = el && el.value ? el.value.trim() : "";
@@ -288,7 +308,7 @@ function readPasscode() {
 }
 
 function readActor() {
-  const candidates = [$("approveFeeActor"), $("markActor"), $("retryFiatActor")];
+  const candidates = [$("approveFeeActor"), $("holdActor"), $("markActor"), $("retryFiatActor")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     if (el && el.value && el.value.trim()) return el.value.trim();
@@ -298,7 +318,7 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["approveFeePasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
@@ -316,7 +336,7 @@ function focusPasscode() {
 }
 
 function clearPasscodeFields() {
-  ["approveFeePasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -347,7 +367,9 @@ function requirePasscode(actionLabel) {
 }
 
 function setTableHead(view) {
-  if (view === "settlements") {
+  if (view === "held") {
+    $("tableHead").innerHTML = "<tr><th>Reference</th><th>Why it is held</th><th>Payout</th><th>Beneficiary</th><th>Extra cost to send</th><th>Held since</th></tr>";
+  } else if (view === "settlements") {
     $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Fee</th><th>Platform wallet</th><th>Network</th><th>Transaction</th><th>Queued</th><th></th></tr>";
   } else {
     $("tableHead").innerHTML = "<tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr>";
@@ -444,7 +466,42 @@ function settlementRowHtml(s) {
     "</tr>";
 }
 
+const HOLD_REASON_LABEL = {
+  unfavorable_rate: "Rate moved",
+  pending_review: "Awaiting Palremit approval",
+  operator_attention: "Needs Palremit ops"
+};
+
+function heldRowHtml(h) {
+  var hold = h.hold || {};
+  var limit = hold.reason === "unfavorable_rate" && hold.last_quoted_cost && hold.source_amount_cap
+    ? '<span class="over">' + esc(usdc(extraCost(hold.last_quoted_cost, hold.source_amount_cap))) + "</span>"
+    : '<span class="muted">—</span>';
+  return '<tr class="row held-row" data-offramp-id="' + esc(h.offrampId || "") + '" data-txn-ref="' + esc(h.txnRef) + '">' +
+    '<td class="mono">' + esc(h.txnRef) + "</td>" +
+    '<td><span class="badge pend">' + esc(HOLD_REASON_LABEL[hold.reason] || hold.reason) + "</span>" +
+      (hold.tenant_actionable ? ' <span class="muted" style="font-size:12px">· you can send it</span>' : "") + "</td>" +
+    '<td class="amt">' + fmtMoney(h.payoutAmount, h.payoutCurrency) + "</td>" +
+    "<td>" + (h.beneficiaryName ? esc(h.beneficiaryName) : '<span class="muted">—</span>') + "</td>" +
+    '<td class="amt">' + limit + "</td>" +
+    '<td class="muted">' + (hold.held_since ? esc(new Date(hold.held_since).toLocaleString()) : "—") + "</td>" +
+    "</tr>";
+}
+
+async function loadHeld() {
+  showErr("");
+  $("rows").innerHTML = "";
+  $("more").style.display = "none";
+  try {
+    const data = await api("/held-payouts");
+    $("rows").innerHTML = data.items.length
+      ? data.items.map(heldRowHtml).join("")
+      : '<tr><td colspan="6" class="muted" style="padding:24px">No payouts are on hold.</td></tr>';
+  } catch (e) { showErr(e.message); }
+}
+
 async function load(reset) {
+  if (state.view === "held") return loadHeld();
   if (state.view === "settlements") return loadSettlements(reset);
   showErr("");
   if (reset) { state.cursor = null; $("rows").innerHTML = ""; }
@@ -555,12 +612,20 @@ async function openDetail(id, forceType, flash) {
   const detailType = forceType || state.type;
   try {
     const t = await api("/transactions/" + detailType + "/" + id);
+    var holdView = null;
+    var holdLoadError = "";
+    if (detailType === "offramp" && t.lpWithdrawalState === "pending") {
+      try { holdView = await api("/offramps/" + id + "/hold"); }
+      catch (holdErr) { holdLoadError = holdErr.message || "Could not check whether this payout is on hold."; }
+    }
     detailCtx = {
       id: id,
       txnRef: t.txnRef || "",
       type: detailType,
       platformFee: t.fees && t.fees.platformFee ? t.fees.platformFee : null,
-      withdrawalProcessing: !!t.withdrawalProcessing
+      withdrawalProcessing: !!t.withdrawalProcessing,
+      t: t,
+      hold: holdView
     };
     const dest = t.destination || {};
     const src = t.source || {};
@@ -573,16 +638,23 @@ async function openDetail(id, forceType, flash) {
     const flow = '<span class="flow">' + fmtMoney(src.amount, src.currency) +
       '<span class="arrow">→</span>' + fmtMoney(dest.amount, dest.currency) +
       '<div class="sub">' + (t.type === "offramp" ? "Crypto in, cash out" : "Cash in, crypto out") + "</div></span>";
-    const payoutPill = pi.sent
-      ? '<span class="pill sent">✓ Payout sent to Palremit</span>'
-      : '<span class="pill pending">Payout not sent yet</span>';
+    const payoutPill = holdView && holdView.hold
+      ? '<span class="pill pending">⏸ Payout on hold at Palremit</span>'
+      : pi.sent
+        ? '<span class="pill sent">✓ Payout sent to Palremit</span>'
+        : '<span class="pill pending">Payout not sent yet</span>';
     const summary = '<div class="summary">' + flow + payoutPill + "</div>";
 
     // Sections ordered for an operator reading top-to-bottom.
     let body = summary;
 
     if (t.type === "offramp") {
-      if (!pi.sent && t.payoutError) {
+      if (holdLoadError) {
+        body += '<div class="section"><h3>Payout on hold?</h3><div class="card"><div class="notice bad">' + esc(holdLoadError) + "</div></div></div>";
+      }
+      if (holdView && holdView.hold) {
+        body += holdSectionHtml(holdView);
+      } else if (!pi.sent && t.payoutError) {
         var payoutHint = "";
         if (String(t.payoutError).indexOf("provider_customer_not_onboarded") >= 0) {
           payoutHint = '<div class="audit-detail" style="margin-top:8px">Set a custom OwlPay/Yativo customer ID under Businesses → Provider config, or seed the house default and ensure the orchestrator has ALLOW_HOUSE_CUSTOMER_FALLBACK=true, then retry.</div>';
@@ -760,6 +832,216 @@ async function openDetail(id, forceType, flash) {
     $("dBody").scrollTop = 0;
     if (flash && flash.msg) showDetailMsg(flash.msg, flash.kind);
   } catch (e) { showErr(e.message); }
+}
+
+// --- held payouts: release an unfavorable-rate hold -----------------------
+
+function usdc(x) {
+  var n = Number(x);
+  if (x == null || x === "" || isNaN(n)) return "—";
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " USDC";
+}
+
+function extraCost(cost, paid) {
+  var d = Number(cost) - Number(paid);
+  return d > 0 ? d : 0;
+}
+
+function holdSectionHtml(hv) {
+  var h = hv.hold;
+  var inner;
+  if (h.reason === "unfavorable_rate") {
+    var extra = h.last_quoted_cost ? extraCost(h.last_quoted_cost, h.source_amount_cap) : null;
+    inner = '<div class="notice bad">Palremit paused this payout because the exchange rate moved after the customer got their quote. ' +
+      "Sending it now costs more than the customer paid, so the difference would come out of Palremit's margin.</div>" +
+      kvPairs([
+        ["Customer paid", usdc(h.source_amount_cap)],
+        ["Cost to send (when paused)", h.last_quoted_cost ? usdc(h.last_quoted_cost) : null],
+        ["Extra Palremit would pay", extra != null ? usdc(extra) : null],
+        ["Paused since", h.held_since ? new Date(h.held_since).toLocaleString() : null]
+      ]) +
+      (h.tenant_actionable
+        ? '<div class="muted" style="margin-top:8px">Rates change all the time, so check the cost today before deciding.</div>' +
+          '<div class="actions" style="margin-top:10px"><button type="button" id="holdQuote">Check the cost today</button></div><div id="holdQuoteBox" class="hold-quote"></div>'
+        : '<div class="muted" style="margin-top:8px">This payout already reached a provider, so only Palremit ops can resolve it.</div>');
+  } else if (h.reason === "pending_review") {
+    inner = '<div class="notice">This is a large payout, so Palremit ops must approve it in the Palremit admin panel (Approve withdrawals). There is nothing to do here.</div>' +
+      kvPairs([["Waiting since", h.held_since ? new Date(h.held_since).toLocaleString() : null]]);
+  } else {
+    inner = '<div class="notice">Palremit ops need to fix something before this payout can be sent (for example, funding). It cannot be released from this dashboard.</div>' +
+      kvPairs([["Held since", h.held_since ? new Date(h.held_since).toLocaleString() : null]]);
+  }
+  return '<div class="section"><h3>Payout on hold</h3><div class="card">' + inner + "</div></div>";
+}
+
+// Ops never set the limit themselves: it is today's cost plus a 0.1% buffer
+// so a tiny rate move before sending does not pause it again. The payout
+// still costs only what the provider quotes at send time.
+function suggestedCap(cost, cap, max) {
+  var c = Number(cost);
+  if (!(c > Number(cap))) return cap;
+  var s = Math.ceil(c * 1.001 * 100) / 100;
+  if (max && s > Number(max)) return max;
+  return s.toFixed(2);
+}
+
+function holdQuoteHtml(hv) {
+  var h = hv.hold;
+  if (!h || h.reason !== "unfavorable_rate") {
+    return '<div class="notice">This payout is no longer paused for its rate. Close and reopen to see where it is now.</div>';
+  }
+  if (!hv.live_quote) {
+    var why = hv.live_quote_error && hv.live_quote_error.message ? hv.live_quote_error.message : "no price returned";
+    return '<div class="notice bad">Could not get the cost right now (' + esc(why) + '). Try again in a minute.</div>';
+  }
+  var q = hv.live_quote;
+  var paid = h.source_amount_cap;
+  var max = hv.max_source_amount_cap;
+  var extra = extraCost(q.cost, paid);
+  var lines = kvPairs([
+    ["Payout", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : null],
+    ["Customer paid", usdc(paid)],
+    ["Cost to send today", usdc(q.cost)],
+    ["Extra Palremit pays", usdc(extra)]
+  ]);
+  if (q.exceeds_cap && max && Number(q.cost) > Number(max)) {
+    return lines + '<div class="notice bad">The rate has moved too far to send this from the dashboard (Palremit would pay ' + esc(usdc(extra)) +
+      ' extra). Ask Palremit ops what to do with this payout.</div>';
+  }
+  var intro = q.exceeds_cap
+    ? '<div class="notice">If paying about <b>' + esc(usdc(extra)) + '</b> extra is fine, send it. Palremit checks the price once more right before sending.</div>'
+    : '<div class="notice" style="color:var(--ok);border-color:#22c55e55;background:#22c55e14">Good news: the rate came back. Sending this no longer costs Palremit anything extra.</div>';
+  return lines + intro +
+    '<div class="payout-retry-fields">' +
+      '<label for="holdActor">Your name</label>' +
+      '<input type="text" id="holdActor" placeholder="For the audit trail" autocomplete="name" />' +
+      '<label for="holdPasscode">Passcode</label>' +
+      '<input type="password" id="holdPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+    "</div>" +
+    '<div class="payout-retry-fields">' +
+      '<label for="holdNote">Note</label>' +
+      '<input type="text" id="holdNote" placeholder="Optional, e.g. approved by finance" style="min-width:280px;flex:1" />' +
+    "</div>" +
+    '<div id="holdMsg" class="payout-retry-msg" style="display:none"></div>' +
+    '<div class="actions"><button type="button" class="ok" id="holdProceed">' +
+      (q.exceeds_cap ? "Send it, Palremit pays " + esc(usdc(extra)) + " extra…" : "Send payout…") + "</button></div>";
+}
+
+function showHoldMsg(id, msg, kind) {
+  var el = $(id);
+  if (!el) return;
+  el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+  el.textContent = msg || "";
+  el.style.display = msg ? "block" : "none";
+}
+
+async function checkHoldRate() {
+  var btn = $("holdQuote");
+  setBtnLoading(btn, true, "Checking");
+  try {
+    var hv = await api("/offramps/" + detailCtx.id + "/hold?quote=true");
+    detailCtx.hold = hv;
+    $("holdQuoteBox").innerHTML = holdQuoteHtml(hv);
+    restorePasscodeField();
+  } catch (e) {
+    $("holdQuoteBox").innerHTML = '<div class="notice bad">' + esc(e.message || "Could not check the rate.") + "</div>";
+  } finally {
+    setBtnLoading(btn, false, "Check the cost today");
+  }
+}
+
+var acceptRateCtx = null;
+
+function payoutBeneficiary(t) {
+  var ba = (t && t.beneficiaryAccount) || {};
+  var ah = ba.accountHolder || {};
+  var pd = (ba.providerPayout && ba.providerPayout.destination) || {};
+  var ben = pd.beneficiary || {};
+  return {
+    name: ah.name || pd.account_holder_name || ben.name || null,
+    bank: [pd.bank_name, pd.bank_code].filter(Boolean).join(" · ") || null,
+    account: pd.account_number || pd.iban || null
+  };
+}
+
+function openAcceptRateConfirm() {
+  var hv = detailCtx.hold;
+  if (!hv || !hv.hold || !hv.live_quote) return;
+  var q = hv.live_quote;
+  var paid = hv.hold.source_amount_cap;
+  var newCap = suggestedCap(q.cost, paid, hv.max_source_amount_cap);
+  var actor = $("holdActor") && $("holdActor").value ? $("holdActor").value.trim() : "";
+  if (!actor) {
+    showHoldMsg("holdMsg", "Enter your name. It is saved in the audit trail.", "bad");
+    $("holdActor").focus();
+    return;
+  }
+  var secret = readPasscode();
+  if (!secret) {
+    showHoldMsg("holdMsg", "Enter the dashboard passcode.", "bad");
+    $("holdPasscode").focus();
+    return;
+  }
+  showHoldMsg("holdMsg", "", "");
+  var b = payoutBeneficiary(detailCtx.t);
+  var extraNow = extraCost(q.cost, paid);
+  var extraMost = extraCost(newCap, paid);
+  acceptRateCtx = { offrampId: detailCtx.id, expectedCap: paid, newCap: newCap, actor: actor, secret: secret,
+    note: $("holdNote") && $("holdNote").value ? $("holdNote").value.trim() : "" };
+  var rows = [
+    ["Beneficiary", b.name || "—"],
+    ["Bank", b.bank || "—"],
+    ["Account / IBAN", b.account || "—"],
+    ["Payout", q.destination_amount ? Number(q.destination_amount).toLocaleString() + " " + q.destination_asset : "—"],
+    ["Reference", detailCtx.txnRef || "—"],
+    ["Extra Palremit pays", extraNow > 0 ? "About " + usdc(extraNow) : "Nothing"]
+  ];
+  if (extraMost > extraNow) {
+    rows.push(["At most", usdc(extraMost) + ". If the rate moves more than that before sending, it pauses again instead."]);
+  }
+  $("acceptRateSummary").innerHTML = rows.map(function (r) {
+    return '<div class="k">' + esc(r[0]) + '</div><div class="v' + (r[0] === "Account / IBAN" ? " mono" : "") + '">' + esc(r[1]) + "</div>";
+  }).join("");
+  showHoldMsg("acceptRateMsg", "", "");
+  $("acceptRateModal").showModal();
+}
+
+function closeAcceptRateModal() {
+  if ($("acceptRateModal").open) $("acceptRateModal").close();
+}
+
+async function submitAcceptRate() {
+  var c = acceptRateCtx;
+  if (!c) return;
+  var btn = $("acceptRateConfirm");
+  setBtnLoading(btn, true, "Sending");
+  showHoldMsg("acceptRateMsg", "Telling Palremit to send this payout…", "info");
+  try {
+    var r = await api("/offramps/" + c.offrampId + "/accept-rate", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": c.secret },
+      body: JSON.stringify({ expectedCap: c.expectedCap, newCap: c.newCap, actor: c.actor, note: c.note || undefined })
+    });
+    closeAcceptRateModal();
+    acceptRateCtx = null;
+    var msg = r.outcome === "replay"
+      ? "Already released earlier with this limit. Palremit is handling it."
+      : "Sent to Palremit. It checks the price once more and pays out. If the rate jumped again in the meantime, it pauses and shows up under Held payouts.";
+    await openDetail(c.offrampId, "offramp", { msg: msg, kind: "ok" });
+    if (state.view === "held") await loadHeld();
+  } catch (e) {
+    if (e.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      clearPasscodeFields();
+      showHoldMsg("acceptRateMsg", "Incorrect passcode. Close this, re-enter it, and try again.", "bad");
+    } else if (e.status === 409) {
+      showHoldMsg("acceptRateMsg", "This payout changed since you checked (someone may have already sent it). Close this and check the cost again.", "bad");
+    } else {
+      showHoldMsg("acceptRateMsg", e.message || "Palremit did not accept this. Try again or ask Palremit ops.", "bad");
+    }
+  } finally {
+    setBtnLoading(btn, false, "Confirm and send");
+  }
 }
 
 // --- mark with shared passcode ---------------------------------------------
@@ -1580,9 +1862,10 @@ document.querySelectorAll(".tab").forEach(function (el) {
       return;
     }
 
-    $("statusLabel").style.display = state.view === "settlements" ? "none" : "";
-    $("statusFilter").style.display = state.view === "settlements" ? "none" : "";
-    $("includeExpiredLabel").style.display = state.view === "settlements" ? "none" : "";
+    var noFilters = state.view === "settlements" || state.view === "held";
+    $("statusLabel").style.display = noFilters ? "none" : "";
+    $("statusFilter").style.display = noFilters ? "none" : "";
+    $("includeExpiredLabel").style.display = noFilters ? "none" : "";
     setTableHead(state.view);
     fillStatusFilter();
     load(true);
@@ -1600,6 +1883,9 @@ $("more").addEventListener("click", function () { load(false); });
 $("bizMore").addEventListener("click", function () { loadBusinessList(false); });
 $("dClose").addEventListener("click", function () { $("detail").close(); });
 $("approveFeeCancel").addEventListener("click", closeApproveFeeModal);
+$("acceptRateCancel").addEventListener("click", closeAcceptRateModal);
+$("acceptRateDismiss").addEventListener("click", closeAcceptRateModal);
+$("acceptRateConfirm").addEventListener("click", function () { submitAcceptRate(); });
 $("approveFeeDismiss").addEventListener("click", closeApproveFeeModal);
 $("approveFeeConfirm").addEventListener("click", function () { submitApproveFee(); });
 $("approveFeePasscode").addEventListener("keydown", function (e) {
@@ -1611,6 +1897,8 @@ $("dBody").addEventListener("click", function (e) {
   if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#approveFee")) { approveSettlement(detailCtx.id, detailCtx.type, detailCtx.platformFee); return; }
   if (e.target.closest("#retryFiatPayout")) { retryFiatPayout(detailCtx.id, detailCtx.txnRef); return; }
+  if (e.target.closest("#holdQuote")) { checkHoldRate(); return; }
+  if (e.target.closest("#holdProceed")) { openAcceptRateConfirm(); return; }
   if (e.target.closest("#dakAttestBtn")) {
     var dakBtn = e.target.closest("#dakAttestBtn");
     submitDakotaAttest(dakBtn.dataset.applicationId);
@@ -1634,6 +1922,11 @@ $("rows").addEventListener("click", function (e) {
     return;
   }
   const tr = e.target.closest("tr.row");
+  if (tr && tr.classList.contains("held-row")) {
+    if (tr.dataset.offrampId) openDetail(tr.dataset.offrampId, "offramp");
+    else showErr("No BloxFi offramp matches " + tr.dataset.txnRef + ". Check it in the Palremit admin panel.");
+    return;
+  }
   if (tr && tr.classList.contains("settlement-row")) {
     openDetail(tr.dataset.id, tr.dataset.type || "offramp");
     return;
