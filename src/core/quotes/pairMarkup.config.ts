@@ -5,7 +5,7 @@
  * buy (onramp) and sell (offramp).
  *
  * EUR onramp buy is 2.4% for every business (shared Iberbanco SEPA account),
- * including Graph/Bancara-pinned users. EUR offramp sell is 25 bps.
+ * including Graph/Bancara-pinned users. EUR offramp sell is 20 bps (was 25 until 2026-10-09).
  * USD offramp sell is 20 bps (USDT/USDC → USD). USD onramp stays on
  * named-deposit 40 bps / currency-api B2B — no buy rule here.
  * CAD buy and sell are 50 bps (OwlPay EFT, 2026-09-03).
@@ -23,7 +23,7 @@ export interface PairMarkupRule {
 
 export const PAIR_MARKUP_RULES: readonly PairMarkupRule[] = [
   { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.024, sides: ['buy'] },
-  { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.0025, sides: ['sell'] },
+  { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
   { fiat: 'USD', crypto: ['USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
   { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
   { fiat: 'JPY', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },

@@ -16,14 +16,14 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('eur', 'usdc')?.side).toBe('buy');
   });
 
-  it('returns 25 bps sell for USD/USDT/USDC → EUR offramp', () => {
+  it('returns 20 bps sell for USD/USDT/USDC → EUR offramp', () => {
     expect(findPairMarkup('usdt', 'eur')).toEqual({
       fiat: 'EUR',
-      markup: 0.0025,
+      markup: 0.002,
       side: 'sell',
     });
     expect(findPairMarkup('USD', 'EUR')?.side).toBe('sell');
-    expect(findPairMarkup('usdc', 'eur')?.markup).toBe(0.0025);
+    expect(findPairMarkup('usdc', 'eur')?.markup).toBe(0.002);
   });
 
   it('returns 0.5% buy and sell for CAD ↔ USD/USDT/USDC', () => {
