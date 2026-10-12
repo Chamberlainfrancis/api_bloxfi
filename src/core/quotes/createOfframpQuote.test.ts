@@ -60,7 +60,7 @@ function makeOptions(
 }
 
 describe('createOfframpQuote — wire SWIFT fee fallback', () => {
-  it('deducts the $25 WIRE fee when Palremit marks the fee unavailable', async () => {
+  it('uses the known $0 WIRE fee when Palremit marks the fee unavailable', async () => {
     const options = {
       getRateFromPalremit: vi.fn(async () => ({
         ...rateResponse('0.9988', 'usd'),
@@ -96,9 +96,9 @@ describe('createOfframpQuote — wire SWIFT fee fallback', () => {
       },
       options as never
     );
-    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(975, 6);
+    expect(Number(result.quote.sendNet.amount)).toBeCloseTo(1000, 6);
     expect(result.quote.transferFee.unavailable).toBe(false);
-    expect(result.quote.transferFee.total).toEqual({ amount: '25', currency: 'USDC' });
+    expect(result.quote.transferFee.total).toEqual({ amount: '0', currency: 'USDC' });
   });
 
   it('does not quote GBP wire when Palremit did not return a fee', async () => {
@@ -338,7 +338,7 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
     ]);
   });
 
-  it('wire: falls back to the flat $25 when Palremit has no fee preview', async () => {
+  it('wire: falls back to the known $0 fee when Palremit has no fee preview', async () => {
     const options = usdOptions({ amount: '25', dest: '9980.00', rate: '0.995' }, 'wire');
     options.getProviderWithdrawalFeeQuote = vi.fn(async () => ({
       feeUnavailable: true,
@@ -349,7 +349,7 @@ describe('createOfframpQuote — USDT→USD pair markup', () => {
       expiresAt: null,
     })) as never;
     const result = await usdQuote('wire', options);
-    expect(Number(result.quote.sendNet.amount)).toBe(9975);
+    expect(Number(result.quote.sendNet.amount)).toBe(10000);
   });
 
   it('never sets the cap below sendNet', async () => {
