@@ -9,6 +9,7 @@ vi.mock('@/db/repositories/user.repo', () => ({
 
 import { reissueOfframpFiatPayout } from '@/core/offramps/reissueOfframpFiatPayout';
 import { findUserById } from '@/db/repositories/user.repo';
+import { findOfframpAccountByIdAndUser } from '@/db/repositories/account.repo';
 
 describe('reissueOfframpFiatPayout', () => {
   it('attaches the new Palremit payout id and retires the old one', async () => {
@@ -130,6 +131,71 @@ describe('reissueOfframpFiatPayout', () => {
       method: 'POST',
       headers: { 'Idempotency-Key': 'offramp-fiat-reissue:OFF-abc:wd-old' },
       body: { destination: { beneficiary: { dob: '1980-05-15' } } },
+    });
+  });
+
+  it("sends the account's bank code so a corrected account reaches the provider", async () => {
+    vi.mocked(findOfframpAccountByIdAndUser).mockResolvedValueOnce({
+      accountHolder: null,
+      providerPayout: { destination: { bank_code: '004', branch_code: '01002' } },
+    } as never);
+    const liquidityRequest = vi.fn().mockResolvedValue({
+      status: 202,
+      data: { id: 'wd-new', previous_id: 'wd-old', client_reference: 'OFF-abc', state: 'pending' },
+    });
+
+    await reissueOfframpFiatPayout(
+      {
+        findOfframpById: vi.fn().mockResolvedValue({
+          id: 'off-1',
+          txnRef: 'OFF-abc',
+          userId: 'u-1',
+          status: 'FAILED',
+          destination: { accountId: 'acct-1' },
+          timeline: { fiatWithdrawalId: 'wd-old' },
+          providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-old' } },
+        }),
+        updateOfframpStatus: vi.fn().mockResolvedValue({}),
+      },
+      liquidityRequest,
+      { offrampId: 'off-1', withdrawalId: 'wd-old' }
+    );
+
+    expect(liquidityRequest).toHaveBeenCalledWith('/v1/withdrawals/wd-old/reissue', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'offramp-fiat-reissue:OFF-abc:wd-old' },
+      body: { destination: { bank_code: '004' } },
+    });
+  });
+
+  it('omits a blank account bank code', async () => {
+    vi.mocked(findOfframpAccountByIdAndUser).mockResolvedValueOnce({
+      accountHolder: null,
+      providerPayout: { destination: { bank_code: '' } },
+    } as never);
+    const liquidityRequest = vi.fn().mockResolvedValue({
+      status: 202,
+      data: { id: 'wd-new', previous_id: 'wd-old', client_reference: 'OFF-abc', state: 'pending' },
+    });
+    await reissueOfframpFiatPayout(
+      {
+        findOfframpById: vi.fn().mockResolvedValue({
+          id: 'off-1',
+          txnRef: 'OFF-abc',
+          userId: 'u-1',
+          status: 'FAILED',
+          destination: { accountId: 'acct-1' },
+          timeline: { fiatWithdrawalId: 'wd-old' },
+          providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-old' } },
+        }),
+        updateOfframpStatus: vi.fn().mockResolvedValue({}),
+      },
+      liquidityRequest,
+      { offrampId: 'off-1', withdrawalId: 'wd-old' }
+    );
+    expect(liquidityRequest).toHaveBeenCalledWith('/v1/withdrawals/wd-old/reissue', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'offramp-fiat-reissue:OFF-abc:wd-old' },
     });
   });
 });
