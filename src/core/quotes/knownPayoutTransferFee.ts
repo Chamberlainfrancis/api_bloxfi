@@ -2,14 +2,13 @@
  * Palremit payout-fee policy bloxfi can apply without a live Palremit preview.
  *
  * Only WIRE has a hardcoded fee we will use when the preview is missing:
- * $0, matching liquidity-orchestrator `FIAT_WITHDRAWAL_FEE` (Palremit waived
- * every fiat payout fee 2026-10-12; was $25 SWIFT).
+ * $25 SWIFT (USDC), matching liquidity-orchestrator `WIRE_FLAT_FEE`.
  * GBP is excluded — Palremit remaps GBP|GB|WIRE to local BANK_TRANSFER at $0,
- * so a missing preview must fail closed rather than guess.
+ * so a missing preview must fail closed rather than guess $25 or $0.
  * Every other rail stays unknown: no quote.
  */
 
-export const WIRE_FLAT_FEE_USDC = 0;
+export const WIRE_FLAT_FEE_USDC = 25;
 
 export function knownPayoutTransferFeeUsdc(input: {
   destinationType: string;
