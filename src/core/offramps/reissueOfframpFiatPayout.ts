@@ -48,6 +48,15 @@ function orchFrom(providerRefs: unknown): Record<string, unknown> {
   return { ...(o as Record<string, unknown>) };
 }
 
+function bankCodeFromProviderPayout(providerPayout: unknown): string {
+  if (providerPayout == null || typeof providerPayout !== 'object') return '';
+  const dest = (providerPayout as { destination?: unknown }).destination;
+  if (dest == null || typeof dest !== 'object') return '';
+  const code = (dest as { bank_code?: unknown }).bank_code;
+  const trimmed = typeof code === 'string' ? code.trim() : '';
+  return /^[A-Za-z0-9]{1,20}$/.test(trimmed) ? trimmed : '';
+}
+
 export async function reissueOfframpFiatPayout(
   offrampRepo: OfframpRepoReissue,
   liquidityRequest: PalremitLiquidityRequestFn,
@@ -80,9 +89,11 @@ export async function reissueOfframpFiatPayout(
   const accountId = typeof dest.accountId === 'string' ? dest.accountId : '';
   const userId = typeof row.userId === 'string' ? row.userId : '';
   let accountHolder: unknown;
+  let accountBankCode = '';
   if (accountId && userId) {
     const account = await findOfframpAccountByIdAndUser(accountId, userId);
     accountHolder = account?.accountHolder;
+    accountBankCode = bankCodeFromProviderPayout(account?.providerPayout);
   }
   const user = userId ? await findUserById(userId) : null;
   const beneficiaryDob = beneficiaryDobFromCustomer({
@@ -90,11 +101,18 @@ export async function reissueOfframpFiatPayout(
     legalRepresentative: user?.legalRepresentative,
   });
 
+  // Palremit only fills fields the failed attempt left blank, so sending the
+  // account's current bank code lets a corrected account (e.g. a CAD
+  // Institution Number added after a rejection) reach the provider.
+  const overlayDestination = {
+    ...(beneficiaryDob ? { beneficiary: { dob: beneficiaryDob } } : {}),
+    ...(accountBankCode ? { bank_code: accountBankCode } : {}),
+  };
   const created = await reissuePalremitWithdrawal(
     liquidityRequest,
     params.withdrawalId,
     `offramp-fiat-reissue:${row.txnRef}:${params.withdrawalId}`,
-    beneficiaryDob ? { destination: { beneficiary: { dob: beneficiaryDob } } } : undefined
+    Object.keys(overlayDestination).length ? { destination: overlayDestination } : undefined
   );
   if (!created.ok) {
     return {
