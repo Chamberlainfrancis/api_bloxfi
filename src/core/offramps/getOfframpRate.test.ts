@@ -105,7 +105,7 @@ describe('getOfframpRate — pair markup', () => {
     expect(Number(result.inverseRate)).toBeCloseTo(1 / customer, 10);
   });
 
-  it('applies 0.5% below marketRate for USDT → CAD', async () => {
+  it('applies 20 bps below marketRate for USDT → CAD', async () => {
     const result = await getOfframpRate('usdt', 'cad', 'TRC20', {
       getRateFromPalremit: vi.fn(async () => ({
         fromCurrency: 'usdt',
@@ -121,7 +121,7 @@ describe('getOfframpRate — pair markup', () => {
         perCurrency: 'USDT',
       })),
     });
-    const customer = 1.375 * 0.995;
+    const customer = 1.375 * 0.998;
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
   });
 

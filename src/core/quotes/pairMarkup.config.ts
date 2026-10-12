@@ -8,7 +8,7 @@
  * including Graph/Bancara-pinned users. EUR offramp sell is 20 bps (was 25 until 2026-10-09).
  * USD offramp sell is 20 bps (USDT/USDC → USD). USD onramp stays on
  * named-deposit 40 bps / currency-api B2B — no buy rule here.
- * CAD buy and sell are 50 bps (OwlPay EFT, 2026-09-03).
+ * CAD onramp buy is 50 bps; CAD offramp sell is 20 bps (was 50 until 2026-10-12).
  * JPY buy and sell are 50 bps (OwlPay Zengin BANK_TRANSFER, 2026-09-07).
  * GBP onramp buy is 45 bps (Noones, 2026-09-21). Offramp sell stays on
  * currency-api 12 bps — a sell rule would also require an OwlPay executable
@@ -25,7 +25,8 @@ export const PAIR_MARKUP_RULES: readonly PairMarkupRule[] = [
   { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.024, sides: ['buy'] },
   { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
   { fiat: 'USD', crypto: ['USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
-  { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
+  { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005, sides: ['buy'] },
+  { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
   { fiat: 'JPY', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
   { fiat: 'GBP', crypto: ['USD', 'USDT', 'USDC'], markup: 0.0045, sides: ['buy'] },
 ];
