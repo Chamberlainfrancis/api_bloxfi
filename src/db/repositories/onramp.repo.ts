@@ -7,6 +7,8 @@ import { prisma } from '@/db/prisma/client';
 import type { OnrampStatus } from '@/types/onramp';
 import { mapOnrampStatusToEvent, schedulePartnerWebhook } from '@/core/partnerWebhooks';
 import { shouldEmitRampEvent } from '@/core/partnerWebhooks/rampTransition';
+import { blocksOnrampTransition, heldFailureRecord } from '@/core/ramps/fundsReceivedGuard';
+import { logger } from '@/lib/logger';
 import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 // Map our status type to Prisma enum (same string values).
@@ -130,23 +132,40 @@ export async function updateOnrampStatus(
     failedReason?: string | null;
     providerRefs?: object | null;
     depositInfo?: object | null;
-  }
+  },
+  options?: { allowAfterFunds?: boolean }
 ): Promise<OnrampRow | null> {
   const existing = await prisma.onramp.findUnique({ where: { id } });
+  // We hold the customer's fiat: never fail/expire automatically. Keep the
+  // current status and record what was attempted so ops can act on it.
+  const held =
+    !options?.allowAfterFunds &&
+    blocksOnrampTransition(existing ? { status: String(existing.status) } : null, status);
+  if (held) {
+    logger.warn(
+      { onrampId: id, currentStatus: existing?.status, attemptedStatus: status, reason: updates?.failedReason },
+      'onramp failure refused: funds already received'
+    );
+  }
+  const effectiveStatus = held && existing ? (String(existing.status) as OnrampStatus) : status;
+  const providerRefsUpdate =
+    held
+      ? { ...((updates?.providerRefs as object | undefined) ?? {}), heldFailure: heldFailureRecord(status, updates?.failedReason) }
+      : updates?.providerRefs;
   const mergedProviderRefs =
-    updates?.providerRefs !== undefined && existing
+    providerRefsUpdate !== undefined && providerRefsUpdate !== null && existing
       ? ({
           ...((existing.providerRefs as object) ?? {}),
-          ...(updates.providerRefs as object),
+          ...(providerRefsUpdate as object),
         } as object)
       : undefined;
 
   const row = await prisma.onramp.update({
     where: { id },
     data: {
-      status: toPrismaStatus(status),
+      status: toPrismaStatus(effectiveStatus),
       ...(updates?.receipt !== undefined && { receipt: updates.receipt as object | undefined }),
-      ...(updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
+      ...(!held && updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
       ...(updates?.depositInfo !== undefined && { depositInfo: updates.depositInfo as object | undefined }),
       ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },

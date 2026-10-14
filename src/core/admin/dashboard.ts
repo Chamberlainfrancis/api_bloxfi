@@ -499,15 +499,20 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
     const failedReason = 'Marked failed by operator';
     const palremitOrchestrator = { ...orch, withdrawalStatus: 'failed', markedManually: true };
     if (type === 'onramp') {
-      await onrampRepo.updateOnrampStatus(id, toStatus as never, {
-        failedReason,
-        providerRefs: { ...prevRefs, palremitOrchestrator },
-      });
+      // Explicit operator decision: allowed even after the customer's money arrived.
+      await onrampRepo.updateOnrampStatus(
+        id,
+        toStatus as never,
+        { failedReason, providerRefs: { ...prevRefs, palremitOrchestrator } },
+        { allowAfterFunds: true }
+      );
     } else {
-      await offrampRepo.updateOfframpStatus(id, toStatus as never, {
-        failedReason,
-        providerRefs: { ...prevRefs, palremitOrchestrator },
-      });
+      await offrampRepo.updateOfframpStatus(
+        id,
+        toStatus as never,
+        { failedReason, providerRefs: { ...prevRefs, palremitOrchestrator } },
+        { allowAfterFunds: true }
+      );
     }
   }
 

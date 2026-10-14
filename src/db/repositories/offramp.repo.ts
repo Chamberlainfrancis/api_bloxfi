@@ -7,6 +7,8 @@ import { prisma } from '@/db/prisma/client';
 import type { OfframpStatus } from '@/types/offramp';
 import { mapOfframpStatusToEvent, schedulePartnerWebhook } from '@/core/partnerWebhooks';
 import { shouldEmitRampEvent } from '@/core/partnerWebhooks/rampTransition';
+import { blocksOfframpTransition, heldFailureRecord } from '@/core/ramps/fundsReceivedGuard';
+import { logger } from '@/lib/logger';
 import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 const STATUS_VALUES = [
@@ -155,21 +157,37 @@ export async function updateOfframpStatus(
     lpReference?: string | null;
     providerRefs?: object | null;
   },
-  options?: { emitPartnerWebhook?: boolean }
+  options?: { emitPartnerWebhook?: boolean; allowAfterFunds?: boolean }
 ): Promise<OfframpRow | null> {
   const existing = await prisma.offramp.findUnique({ where: { id } });
+  // We hold the customer's crypto: never fail/expire automatically. Keep the
+  // current status and record what was attempted so ops can act on it.
+  const held =
+    !options?.allowAfterFunds &&
+    blocksOfframpTransition(existing ? { status: String(existing.status), timeline: existing.timeline } : null, status);
+  if (held) {
+    logger.warn(
+      { offrampId: id, currentStatus: existing?.status, attemptedStatus: status, reason: updates?.failedReason },
+      'offramp failure refused: funds already received'
+    );
+  }
+  const effectiveStatus = held && existing ? (String(existing.status) as OfframpStatus) : status;
+  const providerRefsUpdate =
+    held
+      ? { ...((updates?.providerRefs as object | undefined) ?? {}), heldFailure: heldFailureRecord(status, updates?.failedReason) }
+      : updates?.providerRefs;
   const mergedProviderRefs =
-    updates?.providerRefs !== undefined && existing
+    providerRefsUpdate !== undefined && providerRefsUpdate !== null && existing
       ? ({
           ...((existing.providerRefs as object) ?? {}),
-          ...(updates.providerRefs as object),
+          ...(providerRefsUpdate as object),
         } as object)
       : undefined;
 
   const row = await prisma.offramp.update({
     where: { id },
     data: {
-      status: toPrismaStatus(status),
+      status: toPrismaStatus(effectiveStatus),
       ...(updates?.depositInstructions !== undefined && {
         depositInstructions: updates.depositInstructions as object | undefined,
       }),
@@ -179,7 +197,7 @@ export async function updateOfframpStatus(
       ...(updates?.refundDetails !== undefined && {
         refundDetails: updates.refundDetails as object | undefined,
       }),
-      ...(updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
+      ...(!held && updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
       ...(updates?.lpReference !== undefined && { lpReference: updates.lpReference }),
       ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
     },
