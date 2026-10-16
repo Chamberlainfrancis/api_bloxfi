@@ -174,3 +174,32 @@ describe('createOnrampBodySchema platformFee extras', () => {
     }
   });
 });
+
+describe('createOnrampQuoteBodySchema fiat-to-fiat flow', () => {
+  const quote = (fromCurrency: string, flow?: string) =>
+    createOnrampQuoteBodySchema.safeParse({
+      fromCurrency,
+      toCurrency: 'USDT',
+      amount: 100,
+      chain: 'TRC20',
+      platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xabc' },
+      ...(flow ? { flow } : {}),
+    });
+
+  it('accepts allowed currencies and keeps the flow', () => {
+    for (const ccy of ['NGN', 'ghs', 'GBP', 'USD']) {
+      const r = quote(ccy, 'FIAT_TO_FIAT');
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.flow).toBe('FIAT_TO_FIAT');
+    }
+  });
+
+  it('rejects other source currencies in the flow only', () => {
+    expect(quote('EUR', 'FIAT_TO_FIAT').success).toBe(false);
+    expect(quote('EUR').success).toBe(true);
+  });
+
+  it('rejects unknown flow values', () => {
+    expect(quote('NGN', 'OTHER').success).toBe(false);
+  });
+});
