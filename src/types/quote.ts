@@ -40,6 +40,8 @@ export interface OfframpQuoteSnapshot {
   fees: OfframpFees;
   profit?: PalremitProfit | null;
   rateInformation: RateInformation;
+  /** Set to "FIAT_TO_FIAT" when quoted for the onramp→offramp flow. */
+  flow?: string;
   /** Payout funding cap when it differs from quote.sendNet (fee already inside the provider rate). */
   sourceAmountCap?: string;
 }
@@ -81,6 +83,8 @@ export interface OnrampQuoteSnapshot {
   conversionRate: string;
   rateValidUntil: string;
   receiveNet: number;
+  /** Set to "FIAT_TO_FIAT" when quoted for the onramp→offramp flow. */
+  flow?: string;
   quote: RampFeePreview;
   quoteInformation: QuoteInformation;
   fees: OnrampFees;

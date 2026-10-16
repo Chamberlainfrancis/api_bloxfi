@@ -9,6 +9,7 @@ import {
   resolveOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
+import { FIAT_TO_FIAT_CONFIG, isFiatToFiatFlow } from '@/config/fiatToFiat';
 import { solveOnrampSendFromDest } from '@/core/quotes/computeOnrampQuoteAmounts';
 import { payoutFiatDecimals, ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
@@ -29,6 +30,8 @@ export interface CreateOnrampQuoteInput {
   destinationChain: string;
   platformFee: PlatformFee;
   accountId?: string;
+  /** "FIAT_TO_FIAT": longer bank-transfer window and the flow's extra markup. */
+  flow?: string;
 }
 
 export interface OnrampQuoteAccountForMarkup {
@@ -66,8 +69,11 @@ export interface CreateOnrampQuoteOptions {
   loadOnrampAccountForMarkup?: (accountId: string) => Promise<OnrampQuoteAccountForMarkup | null>;
 }
 
-function parseQuoteExpiry(fromCurrency: string): Date {
-  return new Date(Date.now() + onrampDepositWindowMinutes(fromCurrency) * 60 * 1000);
+function parseQuoteExpiry(fromCurrency: string, flow?: string): Date {
+  const minutes = isFiatToFiatFlow(flow)
+    ? FIAT_TO_FIAT_CONFIG.onrampWindowMinutes
+    : onrampDepositWindowMinutes(fromCurrency);
+  return new Date(Date.now() + minutes * 60 * 1000);
 }
 
 export async function createOnrampQuote(
@@ -148,6 +154,7 @@ export async function createOnrampQuote(
       marketRate: palremitQuote.marketRate,
       rateCurrency: palremitQuote.rateCurrency,
       perCurrency: palremitQuote.perCurrency,
+      flow: input.flow,
     });
     if (priced) {
       conversionRate = priced.conversionRate;
@@ -213,7 +220,8 @@ export async function createOnrampQuote(
     receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
   }
 
-  const expiresAt = parseQuoteExpiry(fromCurrency);
+  const fiatToFiat = isFiatToFiatFlow(input.flow);
+  const expiresAt = parseQuoteExpiry(fromCurrency, input.flow);
   const sendDecimals = destLocked != null ? payoutFiatDecimals(fromCurrency) : 2;
 
   const quote: RampFeePreview = {
@@ -247,6 +255,7 @@ export async function createOnrampQuote(
     rate: conversionRate,
     expiresAt: expiresAt.toISOString(),
     transferFee: quote.transferFee,
+    ...(fiatToFiat ? { flow: input.flow } : {}),
   };
 
   const fees: OnrampFees = {
@@ -285,6 +294,7 @@ export async function createOnrampQuote(
     platformFee: input.platformFee,
     conversionRate,
     rateValidUntil: expiresAt.toISOString(),
+    ...(fiatToFiat ? { flow: input.flow } : {}),
     receiveNet,
     quote,
     quoteInformation,

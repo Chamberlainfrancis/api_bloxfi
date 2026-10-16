@@ -172,7 +172,7 @@ Call `POST /api/v1/offramps/quotes` first with `fromCurrency`, `toCurrency`, `fr
 When calling `POST /api/v1/offramps`, pass only:
 - `requestId` (header + body, UUID v4)
 - `quoteId` — the id returned by `/offramps/quotes`
-- `source.userId`, `source.externalWalletId`
+- `source.userId`; `source.externalWalletId` is optional
 - `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`
 - `metadata` (required for USD; must include `isSelfTransfer`)
 

@@ -8,6 +8,7 @@
 
 import { applyOnrampAccountMarkup } from '@/core/quotes/onrampAccountMarkup';
 import { PAIR_MARKUP_RULES } from '@/core/quotes/pairMarkup.config';
+import { FIAT_TO_FIAT_CONFIG, isFiatToFiatFlow } from '@/config/fiatToFiat';
 
 export type { PairMarkupRule } from '@/core/quotes/pairMarkup.config';
 export { PAIR_MARKUP_RULES } from '@/core/quotes/pairMarkup.config';
@@ -28,7 +29,29 @@ function sidesOf(rule: { sides?: readonly PairMarkupSide[] }): readonly PairMark
   return rule.sides ?? ['buy', 'sell'];
 }
 
-export function findPairMarkup(fromCurrency: string, toCurrency: string): PairMarkupMatch | null {
+const STABLES = new Set(['USDT', 'USDC']);
+
+/** Normal pair markup, plus the fiat-to-fiat extra when `flow` opts in. */
+export function findPairMarkup(
+  fromCurrency: string,
+  toCurrency: string,
+  flow?: string | null
+): PairMarkupMatch | null {
+  const base = findBasePairMarkup(fromCurrency, toCurrency);
+  if (!isFiatToFiatFlow(flow)) return base;
+
+  const from = norm(fromCurrency);
+  const to = norm(toCurrency);
+  const side: PairMarkupSide | null = STABLES.has(to) ? 'buy' : STABLES.has(from) ? 'sell' : null;
+  if (!side) return base;
+  const extra = FIAT_TO_FIAT_CONFIG.extraMarkup[side];
+  if (base) return { ...base, markup: base.markup + extra };
+  // Corridors without a pair rule (e.g. NGN) still take the extra markup.
+  if (extra > 0) return { fiat: side === 'buy' ? from : to, markup: extra, side };
+  return null;
+}
+
+function findBasePairMarkup(fromCurrency: string, toCurrency: string): PairMarkupMatch | null {
   const from = norm(fromCurrency);
   const to = norm(toCurrency);
   if (!from || !to) return null;
@@ -75,8 +98,9 @@ export function applyPairMarkupIfMatched(p: {
   marketRate: string | number | undefined | null;
   rateCurrency: string | undefined | null;
   perCurrency: string | undefined | null;
+  flow?: string | null;
 }): { conversionRate: string; conversion: number } | null {
-  const match = findPairMarkup(p.fromCurrency, p.toCurrency);
+  const match = findPairMarkup(p.fromCurrency, p.toCurrency, p.flow);
   if (!match) return null;
   return applyPairMarkup({
     amount: p.amount,

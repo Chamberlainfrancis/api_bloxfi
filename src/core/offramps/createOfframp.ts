@@ -169,8 +169,12 @@ export async function createOfframp(
   const account = await accountRepo.findOfframpAccountByIdAndUser(dest.accountId, userId);
   if (!account) throw new Error('ACCOUNT_NOT_FOUND');
 
-  const wallet = await walletRepo.findExternalWalletByIdAndUser(src.externalWalletId, userId);
-  if (!wallet) throw new Error('WALLET_NOT_FOUND');
+  // The sender wallet is informational only; deposits are matched by the
+  // provisioned address, not the sending address.
+  const wallet = src.externalWalletId
+    ? await walletRepo.findExternalWalletByIdAndUser(src.externalWalletId, userId)
+    : null;
+  if (src.externalWalletId && !wallet) throw new Error('WALLET_NOT_FOUND');
 
   const chain = options.lockedQuote.fromChain;
   const fromCurrency = options.lockedQuote.fromCurrency.trim().toLowerCase();
@@ -213,8 +217,7 @@ export async function createOfframp(
     currency: fromCurrency,
     amount: cryptoAmount,
     chain,
-    externalWalletId: src.externalWalletId,
-    walletAddress: wallet.address,
+    ...(wallet ? { externalWalletId: wallet.id, walletAddress: wallet.address } : {}),
     user: userDisplayInfo,
   };
   const destinationPayload: OfframpDestination = {
@@ -235,7 +238,7 @@ export async function createOfframp(
     ...body,
     source: {
       userId: src.userId,
-      externalWalletId: src.externalWalletId,
+      ...(src.externalWalletId ? { externalWalletId: src.externalWalletId } : {}),
       amount: cryptoAmount,
       currency: fromCurrency,
       chain,

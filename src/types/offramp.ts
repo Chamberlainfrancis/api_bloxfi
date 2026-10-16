@@ -95,6 +95,8 @@ export interface RateInformation {
   toCurrency: string;
   fromChain?: string;
   expiresAt?: string;
+  /** "FIAT_TO_FIAT" when the offramp is the second leg of an onramp→offramp flow. */
+  flow?: string;
 }
 
 export interface DepositInstructions {
@@ -268,7 +270,8 @@ export interface CreateOfframpSourceInput {
   currency: string;
   chain: string;
   userId: string;
-  externalWalletId: string;
+  /** Optional: the sender address is not validated against the deposit. */
+  externalWalletId?: string;
 }
 
 export interface CreateOfframpDestinationInput {

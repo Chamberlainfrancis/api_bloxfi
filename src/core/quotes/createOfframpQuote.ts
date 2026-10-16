@@ -38,6 +38,7 @@ import type {
   RampFeePreview,
   RateInformation,
 } from '@/types/offramp';
+import { FIAT_TO_FIAT_CONFIG, isFiatToFiatFlow } from '@/config/fiatToFiat';
 import type { OfframpQuoteCorridor, OfframpQuoteResponse, OfframpQuoteSnapshot } from '@/types/quote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 
@@ -52,6 +53,8 @@ export interface CreateOfframpQuoteInput {
   corridor: OfframpQuoteCorridor | OfframpQuoteCorridorBody;
   platformFee: PlatformFee;
   accountId: string;
+  /** "FIAT_TO_FIAT": longer window and the flow's extra markup. */
+  flow?: string;
 }
 
 export interface CreateOfframpQuoteOptions {
@@ -182,6 +185,7 @@ export async function createOfframpQuote(
     marketRate: rateResponse.marketRate,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
+    flow: input.flow,
   });
   if (pairPriced) conversionRate = pairPriced.conversionRate;
 
@@ -224,6 +228,7 @@ export async function createOfframpQuote(
     marketRate: flooredMarket,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
+    flow: input.flow,
   });
   if (repriced) {
     conversionRate = repriced.conversionRate;
@@ -350,7 +355,13 @@ export async function createOfframpQuote(
   };
 
   const allInRate = formatOfframpConversionRate(allInForRate);
-  const expiresAt = parseQuoteExpiry(rateResponse.rateValidUntil);
+  const fiatToFiat = isFiatToFiatFlow(input.flow);
+  // Fiat-to-fiat: crypto only arrives after the client's bank transfer, so the
+  // locked rate and deposit address outlive the provider's 30 minute rate.
+  const expiresAt = fiatToFiat
+    ? new Date(Date.now() + FIAT_TO_FIAT_CONFIG.offrampWindowMinutes * 60 * 1000)
+    : parseQuoteExpiry(rateResponse.rateValidUntil);
+  const rateValidUntil = fiatToFiat ? expiresAt.toISOString() : rateResponse.rateValidUntil;
 
   const rateInformation: RateInformation = {
     rate: allInRate,
@@ -360,6 +371,7 @@ export async function createOfframpQuote(
     toCurrency,
     fromChain: resolvedChain,
     expiresAt: expiresAt.toISOString(),
+    ...(fiatToFiat ? { flow: input.flow } : {}),
   };
 
   const settlementCurrency =
@@ -392,7 +404,8 @@ export async function createOfframpQuote(
     baseConversionRate: conversionRate,
     conversionRate: allInRate,
     inverseRate: rateInformation.inverseRate,
-    rateValidUntil: rateResponse.rateValidUntil,
+    rateValidUntil,
+    ...(fiatToFiat ? { flow: input.flow } : {}),
     destinationAmount: receiveNet,
     quote,
     fees,
@@ -416,7 +429,7 @@ export async function createOfframpQuote(
     conversionRate: allInRate,
     baseConversionRate: conversionRate,
     inverseRate: rateInformation.inverseRate,
-    rateValidUntil: rateResponse.rateValidUntil,
+    rateValidUntil,
     minimumAmount: rateResponse.minimumAmount,
     maximumAmount: rateResponse.maximumAmount,
     estimatedProcessingTime: rateResponse.estimatedProcessingTime,

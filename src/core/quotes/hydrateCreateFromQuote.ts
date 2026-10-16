@@ -41,7 +41,9 @@ export function hydrateOfframpCreateFromQuote(
   return {
     source: {
       userId: execution.source.userId,
-      externalWalletId: execution.source.externalWalletId,
+      ...(execution.source.externalWalletId
+        ? { externalWalletId: execution.source.externalWalletId }
+        : {}),
       amount: snapshot.sendAmount,
       currency: snapshot.fromCurrency,
       chain: snapshot.fromChain,

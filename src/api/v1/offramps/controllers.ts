@@ -361,7 +361,7 @@ export async function createOfframp(
     const body = hydrateOfframpCreateFromQuote(snapshot, {
       source: {
         userId: parsed.data.source.userId!,
-        externalWalletId: parsed.data.source.externalWalletId!,
+        externalWalletId: parsed.data.source.externalWalletId,
       },
       destination: {
         userId: parsed.data.destination.userId!,

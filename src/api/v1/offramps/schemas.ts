@@ -77,13 +77,6 @@ export const createOfframpBodySchema = z
     if (!val.source.userId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'userId'], message: 'source.userId is required' });
     }
-    if (!val.source.externalWalletId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['source', 'externalWalletId'],
-        message: 'source.externalWalletId is required',
-      });
-    }
     if (!val.destination.userId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -176,6 +169,8 @@ export const createOfframpQuoteBodySchema = z
     beneficiaryType: z.enum(['individual', 'business']).optional(),
     /** Prisma Account.id — corridor is taken from providerPayout so OwlPay matches the payout bank. */
     accountId: z.string().uuid(),
+    /** "FIAT_TO_FIAT" when this quote is a leg of the onramp→offramp flow. */
+    flow: z.literal('FIAT_TO_FIAT').optional(),
     platformFee: platformFeeSchema.superRefine((pf, ctx) => {
       if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
         ctx.addIssue({
@@ -224,6 +219,7 @@ export const createOfframpQuoteBodySchema = z
     },
     accountId: val.accountId,
     platformFee: val.platformFee,
+    ...(val.flow ? { flow: val.flow } : {}),
   }));
 
 export const getOfframpRatesQuerySchema = z

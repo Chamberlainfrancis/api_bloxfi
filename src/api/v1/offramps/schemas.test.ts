@@ -123,3 +123,16 @@ describe('createOfframpBodySchema — quote-first only', () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe('createOfframpBodySchema without externalWalletId', () => {
+  it('accepts a create body with no sender wallet', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const r = createOfframpBodySchema.safeParse({
+      requestId: id,
+      quoteId: id,
+      source: { userId: id },
+      destination: { userId: id, accountId: id, purposeOfPayment: 'Cross-border settlement' },
+    });
+    expect(r.success).toBe(true);
+  });
+});

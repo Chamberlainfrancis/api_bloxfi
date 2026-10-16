@@ -80,6 +80,8 @@ export interface QuoteInformation {
   receiveNet: { amount: string; currency: string };
   rate: string;
   expiresAt?: string;
+  /** "FIAT_TO_FIAT" when the onramp funds an offramp deposit address. */
+  flow?: string;
   /**
    * Palremit payout (crypto network) fee, itemized for transparency. Deducted
    * from the receive amount. `unavailable` is true when Palremit could not

@@ -32,7 +32,7 @@ Auth: `Authorization: Bearer <apiKey>`
 
 Then `POST /api/v1/offramps` with `quoteId` plus:
 
-- `source.userId`, `source.externalWalletId`
+- `source.userId`; `source.externalWalletId` is optional
 - `destination.userId`, `destination.accountId` (same Account as the quote)
 - `destination.purposeOfPayment`
 

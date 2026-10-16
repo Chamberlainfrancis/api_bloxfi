@@ -152,6 +152,8 @@ export const createOnrampQuoteBodySchema = z
     chain: z.string().min(1),
     /** Prisma Account.id — optional; named-USD markup only when the Account hits config. */
     accountId: z.string().uuid().optional(),
+    /** "FIAT_TO_FIAT" when this quote is a leg of the onramp→offramp flow. */
+    flow: z.literal('FIAT_TO_FIAT').optional(),
     platformFee: platformFeeSchema.superRefine((pf, ctx) => {
       if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
         ctx.addIssue({
@@ -180,6 +182,7 @@ export const createOnrampQuoteBodySchema = z
     destinationChain: val.chain.trim(),
     platformFee: val.platformFee,
     ...(val.accountId ? { accountId: val.accountId } : {}),
+    ...(val.flow ? { flow: val.flow } : {}),
   }));
 
 export const getOnrampRatesQuerySchema = z
