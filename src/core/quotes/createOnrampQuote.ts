@@ -9,7 +9,11 @@ import {
   resolveOnrampAccountMarkup,
 } from '@/core/quotes/onrampAccountMarkup';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
-import { FIAT_TO_FIAT_CONFIG, isFiatToFiatFlow } from '@/config/fiatToFiat';
+import {
+  FIAT_TO_FIAT_CONFIG,
+  fiatToFiatOnrampWindowMinutes,
+  isFiatToFiatFlow,
+} from '@/config/fiatToFiat';
 import { solveOnrampSendFromDest } from '@/core/quotes/computeOnrampQuoteAmounts';
 import { payoutFiatDecimals, ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWithdrawalQuote';
@@ -71,7 +75,7 @@ export interface CreateOnrampQuoteOptions {
 
 function parseQuoteExpiry(fromCurrency: string, flow?: string): Date {
   const minutes = isFiatToFiatFlow(flow)
-    ? FIAT_TO_FIAT_CONFIG.onrampWindowMinutes
+    ? (fiatToFiatOnrampWindowMinutes(fromCurrency) ?? onrampDepositWindowMinutes(fromCurrency))
     : onrampDepositWindowMinutes(fromCurrency);
   return new Date(Date.now() + minutes * 60 * 1000);
 }
@@ -126,20 +130,23 @@ export async function createOnrampQuote(
       capabilities: account.capabilities,
     });
     if (rule) {
+      const accountMarkup = isFiatToFiatFlow(input.flow)
+        ? rule.markup * FIAT_TO_FIAT_CONFIG.markupMultiplier
+        : rule.markup;
       const priced = applyOnrampAccountMarkup({
         amount: sendHint,
         toCurrency,
         marketRate: palremitQuote.marketRate,
         rateCurrency: palremitQuote.rateCurrency,
         perCurrency: palremitQuote.perCurrency,
-        markup: rule.markup,
+        markup: accountMarkup,
       });
       conversionRate = priced.conversionRate;
       receiveGross = priced.conversion;
       snapshotMarkup = {
         capability: rule.capability,
         currency: rule.currency,
-        markup: rule.markup,
+        markup: accountMarkup,
       };
     } else {
       snapshotMarkup = null;

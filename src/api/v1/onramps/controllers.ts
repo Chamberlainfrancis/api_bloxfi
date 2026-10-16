@@ -30,6 +30,11 @@ import {
 import type { CreateOnrampDestinationInput, CreateOnrampRequest, CreateOnrampSourceInput } from '@/types/onramp';
 import { createOnrampQuote, solveOnrampSendFromDest } from '@/core/quotes';
 import { hydrateOnrampCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
+import {
+  FIAT_TO_FIAT_CONFIG,
+  fiatToFiatTransferTypeAllowed,
+  isFiatToFiatFlow,
+} from '@/config/fiatToFiat';
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import { ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
@@ -332,6 +337,19 @@ export async function createOnramp(
         return;
       }
       lockedQuote = row.payload as OnrampQuoteSnapshot;
+      if (
+        isFiatToFiatFlow(lockedQuote.flow) &&
+        !fiatToFiatTransferTypeAllowed(lockedQuote.fromCurrency, parsed.data.source.transferType)
+      ) {
+        next(
+          new AppError(
+            `source.transferType must be one of ${(FIAT_TO_FIAT_CONFIG.onrampTransferTypes[lockedQuote.fromCurrency.toUpperCase()] ?? []).join(', ')} for ${lockedQuote.fromCurrency.toUpperCase()} in the fiat-to-fiat flow`,
+            'INVALID_REQUEST',
+            400
+          )
+        );
+        return;
+      }
       body = hydrateOnrampCreateFromQuote(lockedQuote, {
         source: {
           userId: parsed.data.source.userId!,

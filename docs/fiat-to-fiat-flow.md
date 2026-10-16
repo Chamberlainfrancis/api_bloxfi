@@ -6,6 +6,8 @@ address, which triggers the payout.
 
 ## Steps
 
+Run all five calls back to back. Both rates are fixed once both transfers exist.
+
 1. **Quote the offramp** — `POST /api/v1/offramps/quotes` with `"flow": "FIAT_TO_FIAT"`.
 2. **Create the offramp** — `POST /api/v1/offramps` with the `quoteId`. Take
    `transferDetails.depositInstructions.address` (and network) from the response.
@@ -13,38 +15,51 @@ address, which triggers the payout.
 4. **Quote the onramp** — `POST /api/v1/onramps/quotes` with `"flow": "FIAT_TO_FIAT"`,
    `destinationAmount` set to the offramp's crypto `sendAmount` (so the right amount
    of USDT arrives), and the same chain.
-5. **Create the onramp** with its `quoteId`, `destination.externalWalletId` = the wallet from step 3.
-6. The client sends the bank transfer. When the onramp pays out USDT, the offramp
-   sees the deposit and pays the recipient's bank.
+5. **Create the onramp** with its `quoteId` and `destination.externalWalletId` = the wallet from step 3.
 
-Create the offramp first so you have an address before the onramp exists.
+The client then sends the bank transfer. When the onramp pays out USDT, the offramp
+sees the deposit and pays the recipient's bank.
 
 ## What `flow: "FIAT_TO_FIAT"` changes
 
-| | Normal | Fiat-to-fiat |
+Send it on **both** quotes. Without it a quote behaves exactly as before, and
+plain crypto offramps keep the 30 minute window.
+
+**Onramp source currencies** are limited to NGN, USD, GHS and GBP. Any other
+currency is rejected on the quote with a 400.
+
+| Currency | Bank-transfer window | Transfer type |
 |---|---|---|
-| Offramp quote / deposit window | about 30 minutes (provider rate) | 72 hours |
-| Onramp deposit window | 3 hours (24 hours for NGN, GHS, GBP, EUR) | 48 hours |
-| Markup | normal pair markup | pair markup + `extraMarkup` |
-| Rate | locked at quote | locked at quote, held for the full window |
+| NGN, GHS, GBP | 1 hour | any |
+| USD | 24 hours | `wire` only |
+
+For USD, `source.transferType` must be `wire` on `POST /onramps`; anything else
+is rejected with a 400.
+
+**Offramp leg:** the quote and the USDT deposit address stay open for 26 hours
+(longest onramp window plus a buffer).
+
+**Markup:** Palremit's normal pair markup is doubled on both legs. For example a
+20 bps USDT→EUR sell becomes 40 bps. Corridors with no pair markup (such as NGN)
+stay at 0, because doubling 0 is 0.
 
 The flag is saved on the quote and shown as `flow` in the offramp's
 `rateInformation` and the onramp's `quoteInformation`, so ops can filter these
-transfers. Send it on **both** quotes. Without it a quote behaves exactly as before.
-Plain crypto offramps keep the 30 minute window.
+transfers.
 
-Values are in [`src/config/fiatToFiat.ts`](../src/config/fiatToFiat.ts). Edit and deploy; no env vars.
+## Config
+
+Everything is in [`src/config/fiatToFiat.ts`](../src/config/fiatToFiat.ts). Edit and deploy; no env vars.
 
 ```ts
-const EXTRA_MARKUP = 0.003; // 30 bps per leg
-
-onrampWindowMinutes: 48 * 60,
-offrampWindowMinutes: 72 * 60,
-extraMarkup: { buy: EXTRA_MARKUP, sell: EXTRA_MARKUP }, // buy = onramp leg, sell = offramp leg
+onrampWindowMinutes: { NGN: 60, GHS: 60, GBP: 60, USD: 24 * 60 }, // keys = allowed currencies
+onrampTransferTypes: { USD: ['wire'] },
+offrampWindowMinutes: 26 * 60,
+markupMultiplier: 2, // 2 = double the normal markup
 ```
 
-The extra markup is 30 bps on each leg (60 bps across both). It is added to the normal pair markup, and also applies to corridors with no
-pair rule (such as NGN).
+To allow another currency, add it to `onrampWindowMinutes`. To change the
+markup, change `markupMultiplier` (1 = no change, 1.5 = 50% more).
 
 ## Sender wallet is optional
 
@@ -54,16 +69,16 @@ the sending address. If you do send it, it must still belong to the user.
 
 ## Late and partial deposits
 
-- The payout uses the amounts locked on the offramp, not a fresh rate.
-- If USDT arrives after the deposit window and the offramp is `EXPIRED`, a
-  confirmed deposit still revives it and the payout continues.
-- A short deposit leaves it `CRYPTO_RECEIVED` until the full amount arrives.
-- Quotes cannot be refreshed on an existing offramp. Keep the window long enough
-  that this never needs to happen.
+- A confirmed deposit still revives an `EXPIRED` offramp and the payout continues.
+- If the provider's cost has moved past the quote's cap, the payout is held and
+  ops must accept the new rate (`POST /admin/offramps/:id/accept-rate`). There is
+  no client-facing webhook or endpoint for this yet.
+- A short deposit leaves the offramp `CRYPTO_RECEIVED` until the full amount arrives.
+- Quotes cannot be refreshed on an existing offramp.
 
 ## Notes
 
-- Create the offramp only when the client is ready to fund. Its address and
-  rate are held for 72 hours.
 - The onramp must deliver the full offramp amount in one asset and network,
   or the offramp stays partial.
+- If the client never funds the onramp, both transfers expire on their own and
+  nothing is paid out.

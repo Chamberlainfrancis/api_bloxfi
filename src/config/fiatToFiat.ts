@@ -9,25 +9,38 @@
 
 export const FIAT_TO_FIAT_FLOW = 'FIAT_TO_FIAT';
 
-/** Extra markup per leg: 0.003 = 30 bps. Change here. */
-const EXTRA_MARKUP = 0.003;
-
 export const FIAT_TO_FIAT_CONFIG = {
-  /** Onramp leg: how long the client has to send the bank transfer. */
-  onrampWindowMinutes: 48 * 60,
+  /**
+   * Onramp source currencies allowed in this flow, and how long the client has
+   * to send the bank transfer. Any currency not listed is rejected.
+   */
+  onrampWindowMinutes: {
+    NGN: 60,
+    GHS: 60,
+    GBP: 60,
+    USD: 24 * 60,
+  } as Readonly<Record<string, number>>,
+  /** Onramp transfer types allowed per currency. Unlisted currencies are unrestricted. */
+  onrampTransferTypes: { USD: ['wire'] } as Readonly<Record<string, readonly string[]>>,
   /**
    * Offramp leg: how long the USDT deposit address stays open and the quote
-   * stays valid. Must outlast the onramp window plus processing time.
+   * stays valid. Must outlast the longest onramp window plus processing time.
    */
-  offrampWindowMinutes: 72 * 60,
-  /**
-   * Extra FX markup added on top of the normal pair markup, to cover holding a
-   * locked rate for days. Decimal fractions: 0.005 = 50 bps. 0 = no extra.
-   * `buy` applies to the onramp leg, `sell` to the offramp leg.
-   */
-  extraMarkup: { buy: EXTRA_MARKUP, sell: EXTRA_MARKUP },
-} as const;
+  offrampWindowMinutes: 26 * 60,
+  /** Palremit's normal pair markup is multiplied by this in the flow (2 = double). */
+  markupMultiplier: 2,
+};
 
 export function isFiatToFiatFlow(flow: string | undefined | null): boolean {
   return flow === FIAT_TO_FIAT_FLOW;
+}
+
+export function fiatToFiatOnrampWindowMinutes(currency: string): number | null {
+  return FIAT_TO_FIAT_CONFIG.onrampWindowMinutes[currency.trim().toUpperCase()] ?? null;
+}
+
+export function fiatToFiatTransferTypeAllowed(currency: string, transferType: string | undefined): boolean {
+  const allowed = FIAT_TO_FIAT_CONFIG.onrampTransferTypes[currency.trim().toUpperCase()];
+  if (!allowed) return true;
+  return allowed.includes((transferType ?? '').trim().toLowerCase());
 }

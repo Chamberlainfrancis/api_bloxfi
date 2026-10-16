@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { FIAT_TO_FIAT_CONFIG, fiatToFiatOnrampWindowMinutes } from '@/config/fiatToFiat';
 
 const platformFeeSchema = z.object({
   type: z.enum(['PERCENTAGE', 'FLAT']),
@@ -171,6 +172,13 @@ export const createOnrampQuoteBodySchema = z
         code: z.ZodIssueCode.custom,
         path: hasDest ? ['destinationAmount'] : ['amount'],
         message: 'Send exactly one of amount (fiat send) or destinationAmount (crypto receive)',
+      });
+    }
+    if (val.flow && fiatToFiatOnrampWindowMinutes(val.fromCurrency) == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fromCurrency'],
+        message: `fromCurrency must be one of ${Object.keys(FIAT_TO_FIAT_CONFIG.onrampWindowMinutes).join(', ')} for the fiat-to-fiat flow`,
       });
     }
   })

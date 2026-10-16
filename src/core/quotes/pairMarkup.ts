@@ -29,26 +29,15 @@ function sidesOf(rule: { sides?: readonly PairMarkupSide[] }): readonly PairMark
   return rule.sides ?? ['buy', 'sell'];
 }
 
-const STABLES = new Set(['USDT', 'USDC']);
-
-/** Normal pair markup, plus the fiat-to-fiat extra when `flow` opts in. */
+/** Normal pair markup, multiplied by the flow's multiplier when `flow` opts in. */
 export function findPairMarkup(
   fromCurrency: string,
   toCurrency: string,
   flow?: string | null
 ): PairMarkupMatch | null {
   const base = findBasePairMarkup(fromCurrency, toCurrency);
-  if (!isFiatToFiatFlow(flow)) return base;
-
-  const from = norm(fromCurrency);
-  const to = norm(toCurrency);
-  const side: PairMarkupSide | null = STABLES.has(to) ? 'buy' : STABLES.has(from) ? 'sell' : null;
-  if (!side) return base;
-  const extra = FIAT_TO_FIAT_CONFIG.extraMarkup[side];
-  if (base) return { ...base, markup: base.markup + extra };
-  // Corridors without a pair rule (e.g. NGN) still take the extra markup.
-  if (extra > 0) return { fiat: side === 'buy' ? from : to, markup: extra, side };
-  return null;
+  if (!base || !isFiatToFiatFlow(flow)) return base;
+  return { ...base, markup: base.markup * FIAT_TO_FIAT_CONFIG.markupMultiplier };
 }
 
 function findBasePairMarkup(fromCurrency: string, toCurrency: string): PairMarkupMatch | null {
