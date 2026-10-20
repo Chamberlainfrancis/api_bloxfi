@@ -158,6 +158,7 @@ export async function advanceOfframpIfDepositReady(
         ...(orch && typeof orch === 'object' ? orch : {}),
         withdrawalStatus: 'pending',
         palremitWithdrawalId: result.withdrawalId,
+        senderName: result.senderName,
         fiatPayoutLastError: null,
         fiatPayoutLastErrorAt: null,
         rawFiatWithdrawalRequest: result.rawRequest,

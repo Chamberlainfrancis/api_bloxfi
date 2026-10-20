@@ -216,6 +216,8 @@ export interface PalremitWithdrawalCreateResult {
   id: string;
   client_reference: string;
   state: string;
+  /** Payout originator display label from the orchestrator; null when not configured. */
+  sender_name?: string | null;
   raw: unknown;
 }
 
@@ -231,7 +233,11 @@ function parsePalremitWithdrawalBody(raw: unknown): PalremitWithdrawalCreateResu
     typeof candidate.client_reference === 'string' ? candidate.client_reference.trim() : '';
   const state = typeof candidate.state === 'string' ? candidate.state.trim() : '';
   if (!id || !clientRef) return null;
-  return { id, client_reference: clientRef, state, raw };
+  const senderName =
+    typeof candidate.sender_name === 'string' && candidate.sender_name.trim()
+      ? candidate.sender_name.trim()
+      : null;
+  return { id, client_reference: clientRef, state, sender_name: senderName, raw };
 }
 
 /** GET /v1/withdrawals/:id */

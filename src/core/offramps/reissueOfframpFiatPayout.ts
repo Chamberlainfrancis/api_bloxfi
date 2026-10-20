@@ -153,6 +153,7 @@ export async function reissueOfframpFiatPayout(
         palremitOrchestrator: {
           ...orch,
           palremitWithdrawalId: newId,
+          senderName: created.sender_name ?? (typeof orch.senderName === 'string' ? orch.senderName : null),
           withdrawalStatus: 'pending',
           markedManually: false,
           completedAt: null,

@@ -454,6 +454,7 @@ All `offramp.*` events share this `data` shape.
 | `status` | string | Offramp status at this event (same as the GET offramp response) |
 | `failedReason` | string | Optional. On `offramp.failed` when a reason is available. |
 | `transactionHash` | string | Optional. Hash when known (typically `offramp.completed`). |
+| `senderName` | string \| null | Name the beneficiary sees as the payout originator on the incoming payment, when known (set from `offramp.fiat_initiated` onward). `null` when not configured, for manually completed payouts, and for off-ramps created before this field existed. Also available as `receipt.withdrawal.sender_name` on `GET /api/v1/offramps/{id}` once the payout completes or fails. Informational only. |
 
 Typical `status` values you will see on each event:
 

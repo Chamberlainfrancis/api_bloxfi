@@ -403,7 +403,7 @@ export function sourceAmountCapFromProviderRefs(refs: unknown): string | undefin
 }
 
 export type PalremitOfframpFiatWithdrawalResult =
-  | { ok: true; withdrawalId: string; rawRequest: Record<string, unknown>; rawResponse: unknown }
+  | { ok: true; withdrawalId: string; senderName: string | null; rawRequest: Record<string, unknown>; rawResponse: unknown }
   | { ok: false; error: string; httpStatus: number; rawResponse?: unknown };
 
 export async function createPalremitOfframpFiatWithdrawal(
@@ -428,6 +428,7 @@ export async function createPalremitOfframpFiatWithdrawal(
   return {
     ok: true,
     withdrawalId: created.id,
+    senderName: created.sender_name ?? null,
     rawRequest: body,
     rawResponse: created.raw,
   };

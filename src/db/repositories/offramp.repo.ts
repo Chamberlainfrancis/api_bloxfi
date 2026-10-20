@@ -9,6 +9,7 @@ import { mapOfframpStatusToEvent, schedulePartnerWebhook } from '@/core/partnerW
 import { shouldEmitRampEvent } from '@/core/partnerWebhooks/rampTransition';
 import { blocksOfframpTransition, heldFailureRecord } from '@/core/ramps/fundsReceivedGuard';
 import { logger } from '@/lib/logger';
+import { senderNameFromRow } from '@/core/offramps/senderName';
 import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
 
 const STATUS_VALUES = [
@@ -92,6 +93,7 @@ function offrampWebhookData(row: OfframpRow) {
     status: row.status,
     ...(failedReason ? { failedReason } : {}),
     ...(hash ? { transactionHash: hash } : {}),
+    senderName: senderNameFromRow(row.providerRefs, receipt),
   };
 }
 
