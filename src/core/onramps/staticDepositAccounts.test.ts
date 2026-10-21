@@ -17,11 +17,11 @@ describe('staticDepositAccounts', () => {
     expect(isStaticDepositCurrency('KES')).toBe(false);
   });
 
-  it('marks GBP, EUR, GHS and NGN as preferred static (not USD)', () => {
+  it('marks GBP, EUR and GHS as preferred static (not USD or NGN)', () => {
     expect(isPreferredStaticDepositCurrency('GBP')).toBe(true);
     expect(isPreferredStaticDepositCurrency('EUR')).toBe(true);
     expect(isPreferredStaticDepositCurrency('ghs')).toBe(true);
-    expect(isPreferredStaticDepositCurrency('NGN')).toBe(true);
+    expect(isPreferredStaticDepositCurrency('NGN')).toBe(false);
     expect(isPreferredStaticDepositCurrency('USD')).toBe(false);
   });
 
@@ -119,11 +119,11 @@ describe('staticDepositAccounts', () => {
     expect(ngn?.instruction).toContain('transfer narration / description: ON-NGN');
   });
 
-  it('gives preferred-static rails 24h to deposit and others 3h', () => {
+  it('gives preferred-static rails 24h to deposit and others (incl. NGN Kuda) 3h', () => {
     expect(onrampDepositWindowMinutes('GHS')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('gbp')).toBe(24 * 60);
     expect(onrampDepositWindowMinutes('EUR')).toBe(24 * 60);
-    expect(onrampDepositWindowMinutes('NGN')).toBe(24 * 60);
+    expect(onrampDepositWindowMinutes('NGN')).toBe(180);
     expect(onrampDepositWindowMinutes('USD')).toBe(180);
     expect(onrampDepositWindowMinutes('KES')).toBe(180);
   });

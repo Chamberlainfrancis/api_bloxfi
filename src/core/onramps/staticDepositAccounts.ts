@@ -2,11 +2,11 @@
  * Platform receiving accounts for GBP / EUR / USD / GHS / NGN onramps.
  * Ops marks fiat received manually (no provider deposit webhook).
  *
- * GBP / EUR / GHS / NGN: preferred first (skip orchestrator provision for now).
+ * GBP / EUR / GHS: preferred first (skip orchestrator provision for now).
  *   EUR SEPA is a shared house account for every business — including
  *   Graph/Bancara-pinned ones (Carlston, Briana, SMS Data).
- *   NGN Wema is temporary — revert to Kuda pooled VAs when ready.
- * USD: still try orchestrator first; use these only if provision fails.
+ * NGN / USD: orchestrator first (NGN = Kuda VA per onramp); these accounts
+ *   are used only if provision fails.
  *
  * Each deposit gets a unique payment reference (from the onramp txnRef).
  * Customers must put that exact value in the bank transfer narration so
@@ -70,7 +70,7 @@ const STATIC: Record<
     bic: 'INCEGHAC',
     country: 'GH',
   },
-  // TEMP: Wema pooled RA — remove when Kuda VAs are restored.
+  // Fallback only, when the Kuda VA provision fails.
   NGN: {
     bankName: 'wema',
     accountName: 'Palremit limited',
@@ -103,7 +103,7 @@ export function isStaticDepositCurrency(asset: string): asset is StaticDepositCu
 /** Currencies that should skip orchestrator and use platform accounts immediately. */
 export function isPreferredStaticDepositCurrency(asset: string): boolean {
   const a = asset.trim().toUpperCase();
-  return a === 'GBP' || a === 'EUR' || a === 'GHS' || a === 'NGN';
+  return a === 'GBP' || a === 'EUR' || a === 'GHS';
 }
 
 /** Default onramp deposit window (orchestrator-provisioned rails with webhooks). */
@@ -111,7 +111,7 @@ export const DEFAULT_ONRAMP_DEPOSIT_WINDOW_MINUTES = 180;
 
 /**
  * Preferred-static rails need ops to match and mark fiat received — 3h is too
- * short for Ghana/UK/NG/EUR SEPA transfers plus manual credit.
+ * short for Ghana/UK/EUR SEPA transfers plus manual credit.
  */
 export const STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES = 24 * 60;
 

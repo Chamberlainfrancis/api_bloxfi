@@ -104,17 +104,18 @@ describe('USD onramp account_reference', () => {
     expect(body.provider_extras).not.toHaveProperty('contact_email');
   });
 
-  // TEMP: NGN preferred Wema static skips provision (no account_reference path).
-  it('skips provision for preferred static NGN', async () => {
+  it('never sends the USD identity hints on an NGN (Kuda) provision', async () => {
     const calls: { path: string; body: unknown }[] = [];
-    const result = await createOnrampPalremitFiatDeposit(stubRequest(calls), {
+    await createOnrampPalremitFiatDeposit(stubRequest(calls), {
       ...baseParams,
       currency: 'NGN',
       accountReference: 'acc_swx_1',
       contactEmail: 'jehinc26@gmail.com',
     });
 
-    expect(calls).toHaveLength(0);
-    expect(result?.depositInfo.wire?.accountNumber).toBe('7943896852');
+    expect(calls).toHaveLength(1);
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.account_reference).toBeUndefined();
+    expect(body.provider_extras).toEqual({ account_name: 'LTD.' });
   });
 });

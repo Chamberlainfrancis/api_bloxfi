@@ -4,9 +4,8 @@
  * - pooled: platform / LP shared account label (not the end customer).
  *   NGN Kuda VAs → "Palremit LTD"; USD SwipeLux → LP holder (e.g. Veem).
  * - named: VA / instructions under the user's or business name (KYC path).
- * - static: hardcoded platform receiving accounts (GBP / EUR / GHS / NGN preferred;
- *   USD on provision failure) — see staticDepositAccounts.ts.
- *   NGN Wema is temporary.
+ * - static: hardcoded platform receiving accounts (GBP / EUR / GHS preferred;
+ *   NGN / USD on provision failure) — see staticDepositAccounts.ts.
  */
 
 export type DepositAccountStyle = 'pooled' | 'named' | 'static';

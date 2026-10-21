@@ -319,10 +319,28 @@ describe('createOnrampPalremitFiatDeposit', () => {
     expect(result?.depositInfo.beneficiary.name).toBe('Veem');
   });
 
-  // TEMP: NGN uses preferred Wema static — restore Kuda pooled VA tests when removed.
-  it('prefers static NGN Wema account without calling provision', async () => {
-    const request: PalremitLiquidityRequestFn = vi.fn(async () => {
-      throw new Error('should not call liquidity for preferred NGN static');
+  it('provisions an NGN Kuda VA (FIAT_DEPOSIT_NO_KYC, pooled name) instead of the static account', async () => {
+    const calls: { path: string; body: unknown }[] = [];
+    const request: PalremitLiquidityRequestFn = vi.fn(async (path, options) => {
+      calls.push({ path, body: options?.body });
+      if (path === '/v1/provisioned-accounts') {
+        return {
+          status: 201,
+          data: {
+            id: 'acct_kuda_1',
+            state: 'active',
+            deposit_instructions: {
+              kind: 'fiat_account',
+              account_number: '3001234567',
+              bank_code: '999129',
+              bank_name: 'Kuda',
+              account_holder_name: 'Palremit-LTD.',
+              reference: null,
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected path ${path}`);
     });
 
     const result = await createOnrampPalremitFiatDeposit(request, {
@@ -331,20 +349,35 @@ describe('createOnrampPalremitFiatDeposit', () => {
       businessName: 'BloxFi Test Corp',
     });
 
-    expect(request).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(1);
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body.asset).toBe('NGN');
+    expect(body.mode).toBe('FIAT_DEPOSIT_NO_KYC');
+    expect(body.client_reference).toBe('ON1234567890');
+    expect(body.provider_extras).toEqual({ account_name: 'LTD.' });
+    expect(body.kyc_input).toBeUndefined();
+    expect(result?.depositInfo.bankName).toBe('Kuda');
+    expect(result?.providerRefs).toMatchObject({
+      palremitOrchestrator: { provisionedAccountId: 'acct_kuda_1' },
+    });
+  });
+
+  it('falls back to the static NGN account when the Kuda provision fails', async () => {
+    const request: PalremitLiquidityRequestFn = vi.fn(async () => ({
+      status: 502,
+      data: { error: { kind: 'provider_unavailable', message: 'kuda down' } },
+    })) as unknown as PalremitLiquidityRequestFn;
+
+    const result = await createOnrampPalremitFiatDeposit(request, {
+      ...baseParams,
+      currency: 'NGN',
+      businessName: 'BloxFi Test Corp',
+    });
+
+    expect(request).toHaveBeenCalled();
     expect(result).toMatchObject({
-      depositInfo: {
-        bankName: 'wema',
-        beneficiary: { name: 'Palremit limited', country: 'NG' },
-        wire: { accountNumber: '7943896852', routingNumber: '035' },
-        reference: 'ON1234567890',
-      },
-      providerRefs: {
-        palremitOrchestrator: {
-          providerName: 'static_fallback',
-          staticFallbackReason: 'preferred_static',
-        },
-      },
+      depositInfo: { bankName: 'wema', reference: 'ON1234567890' },
+      providerRefs: { palremitOrchestrator: { providerName: 'static_fallback' } },
     });
   });
 
