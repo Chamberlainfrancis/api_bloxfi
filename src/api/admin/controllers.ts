@@ -4,6 +4,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
 import { env } from '@/config';
@@ -11,6 +12,7 @@ import * as dashboard from '@/core/admin/dashboard';
 import * as providerCustomer from '@/core/admin/providerCustomer';
 import * as dakotaKyb from '@/core/admin/dakotaKyb';
 import * as heldPayouts from '@/core/admin/heldPayouts';
+import * as senderInfo from '@/core/admin/senderInfo';
 import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
@@ -603,6 +605,111 @@ export async function acceptOfframpPayoutRate(
       note: typeof body.note === 'string' ? body.note : undefined,
     });
     sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+// --- Sender info (ops-editable sender / payee name per currency) ----------
+
+const SENDER_INFO_SECRET_SCHEMA = z.object({ secret: z.string().optional() });
+
+const senderInfoPutSchema = z.object({
+  rampType: z.enum(['onramp', 'offramp']),
+  currency: z
+    .string()
+    .trim()
+    .min(2, 'currency is required')
+    .max(10)
+    .regex(/^[A-Za-z0-9]+$/, 'currency must be alphanumeric'),
+  rail: z.string().trim().max(40).optional().nullable(),
+  // Blank name removes the setting (same as DELETE).
+  senderName: z.string().trim().max(senderInfo.SENDER_NAME_MAX_LENGTH),
+  actor: z.string().trim().max(120).optional().nullable(),
+  secret: z.string().optional(),
+});
+
+function requireDashboardSecret(req: Request, body: unknown): void {
+  const parsed = SENDER_INFO_SECRET_SCHEMA.safeParse(body ?? {});
+  const fromBody = parsed.success ? parsed.data.secret : undefined;
+  const provided =
+    (typeof req.headers['x-dashboard-secret'] === 'string'
+      ? (req.headers['x-dashboard-secret'] as string)
+      : undefined) ?? fromBody ?? '';
+  if (!env.DASHBOARD_MARK_SECRET || provided !== env.DASHBOARD_MARK_SECRET) {
+    throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
+  }
+}
+
+// Repos are imported lazily (as for held payouts) so loading this module
+// does not pull in the Prisma client.
+async function senderInfoDeps(): Promise<senderInfo.SenderInfoDeps> {
+  const [repo, adminActionRepo] = await Promise.all([
+    import('@/db/repositories/senderInfo.repo'),
+    import('@/db/repositories/adminAction.repo'),
+  ]);
+  return { repo, audit: adminActionRepo };
+}
+
+function zodMessage(error: z.ZodError): string {
+  return error.errors.map((e) => `${e.path.join('.') || 'body'}: ${e.message}`).join('; ');
+}
+
+export async function listSenderInfo(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const items = await senderInfo.listSenderInfoSettings(await senderInfoDeps());
+    sendSuccess(res, { items });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function putSenderInfo(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    requireDashboardSecret(req, req.body);
+    const parsed = senderInfoPutSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(zodMessage(parsed.error), 'INVALID_REQUEST', 400);
+    }
+    const setting = await senderInfo.saveSenderInfoSetting(await senderInfoDeps(), {
+      rampType: parsed.data.rampType,
+      currency: parsed.data.currency,
+      rail: parsed.data.rail ?? null,
+      senderName: parsed.data.senderName,
+      actor: parsed.data.actor ?? null,
+    });
+    sendSuccess(res, { setting });
+  } catch (e) {
+    if (e instanceof senderInfo.SenderInfoValidationError) {
+      next(new AppError(e.message, 'INVALID_REQUEST', 400));
+      return;
+    }
+    next(e);
+  }
+}
+
+export async function deleteSenderInfo(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    requireDashboardSecret(req, req.body);
+    const body = (req.body ?? {}) as { actor?: unknown };
+    const actor = typeof body.actor === 'string' ? body.actor : null;
+    const removed = await senderInfo.deleteSenderInfoSetting(await senderInfoDeps(), req.params.id, actor);
+    if (!removed) {
+      throw new AppError('Sender info setting not found', 'NOT_FOUND', 404);
+    }
+    sendSuccess(res, { ok: true });
   } catch (e) {
     next(e);
   }

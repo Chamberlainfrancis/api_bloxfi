@@ -15,6 +15,7 @@ import type {
   RefundDetails,
 } from '@/types/offramp';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
+import { senderNameFromRow } from '@/core/offramps/senderName';
 import { expireOfframpIfDepositPastDue } from '@/core/ramps/depositExpiry';
 
 export interface OfframpRepoGet {
@@ -33,6 +34,7 @@ export interface OfframpRepoGet {
     receipt: unknown;
     refundDetails: unknown;
     failedReason: string | null;
+    providerRefs?: unknown;
     createdAt: Date;
     updatedAt: Date;
   } | null>;
@@ -57,10 +59,15 @@ function rowToTransferDetails(row: {
   receipt: unknown;
   refundDetails: unknown;
   failedReason: string | null;
+  providerRefs?: unknown;
   createdAt: Date;
   updatedAt: Date;
 }): OfframpTransferDetails {
   const ref = row.txnRef ?? '';
+  const receipt =
+    row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
+      ? (row.receipt as Record<string, unknown>)
+      : null;
   return {
     id: row.id,
     requestId: row.requestId,
@@ -78,6 +85,7 @@ function rowToTransferDetails(row: {
     receipt: (row.receipt as { transactionHash?: string }) ?? null,
     refundDetails: (row.refundDetails as RefundDetails) ?? null,
     failedReason: row.failedReason ?? null,
+    senderName: senderNameFromRow(row.providerRefs, receipt),
   };
 }
 

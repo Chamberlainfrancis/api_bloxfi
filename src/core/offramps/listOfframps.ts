@@ -9,6 +9,7 @@ import type {
   OfframpStatus,
 } from '@/types/offramp';
 import { expireStaleOfframps } from '@/core/ramps/depositExpiry';
+import { senderNameFromRow } from '@/core/offramps/senderName';
 
 export interface OfframpRepoList {
   listOfframps(params: {
@@ -25,6 +26,8 @@ export interface OfframpRepoList {
       createdAt: Date;
       source: unknown;
       destination: unknown;
+      providerRefs?: unknown;
+      receipt?: unknown;
     }>;
     nextCursor: Date | null;
   }>;
@@ -49,9 +52,15 @@ function toListItem(row: {
   createdAt: Date;
   source: unknown;
   destination: unknown;
+  providerRefs?: unknown;
+  receipt?: unknown;
 }): ListOfframpItem {
   const source = row.source as { currency?: string; amount?: number; chain?: string };
   const destination = row.destination as { currency?: string; amount?: number };
+  const receipt =
+    row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
+      ? (row.receipt as Record<string, unknown>)
+      : null;
   return {
     id: row.id,
     status: row.status as OfframpStatus,
@@ -65,6 +74,7 @@ function toListItem(row: {
       currency: destination?.currency ?? '',
       amount: Number(destination?.amount) ?? 0,
     },
+    senderName: senderNameFromRow(row.providerRefs, receipt),
   };
 }
 

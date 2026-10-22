@@ -34,6 +34,12 @@ router.delete(
   controllers.deleteBusinessProviderCustomer
 );
 
+// Sender / payee name settings (core/admin/senderInfo.ts). Writes are
+// passcode-gated like every other mutating dashboard action.
+router.get('/sender-info', controllers.listSenderInfo);
+router.put('/sender-info', controllers.putSenderInfo);
+router.delete('/sender-info/:id', controllers.deleteSenderInfo);
+
 router.get('/dakota/applications', controllers.listDakotaKybApplicants);
 router.get('/dakota/applications/:applicationId', controllers.getDakotaKybApplicant);
 router.post('/dakota/applications/:applicationId/attestations', controllers.postDakotaKybAttestations);

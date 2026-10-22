@@ -6,7 +6,8 @@
 import { prisma } from '@/db/prisma/client';
 
 export interface CreateAdminActionData {
-  txnType: 'onramp' | 'offramp';
+  /** 'sender_info' rows audit dashboard setting changes (txnId = setting key). */
+  txnType: 'onramp' | 'offramp' | 'sender_info';
   txnId: string;
   fromStatus: string;
   toStatus: string;

@@ -45,6 +45,8 @@ import {
   validateUsdOfframpMetadata,
 } from '@/core/quotes/hydrateCreateFromQuote';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import * as senderInfoRepo from '@/db/repositories/senderInfo.repo';
+import { resolveSenderInfoForTransfer } from '@/core/admin/senderInfo';
 import type { OfframpQuoteSnapshot } from '@/types/quote';
 
 const REQUEST_ID_HEADER = 'requestid';
@@ -388,6 +390,7 @@ export async function createOfframp(
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
         lockedQuote: snapshot,
+        resolveSenderInfo: (input) => resolveSenderInfoForTransfer(senderInfoRepo, input),
       }
     );
     sendSuccess(res, result, 201);

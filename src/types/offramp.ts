@@ -167,6 +167,8 @@ export interface OfframpTransferDetails {
   receipt?: { transactionHash?: string } | null;
   refundDetails?: RefundDetails | null;
   failedReason?: string | null;
+  /** Name the beneficiary sees as the payout sender, when known. Informational only. */
+  senderName?: string | null;
 }
 
 export interface RefundDetails {
@@ -317,6 +319,8 @@ export interface ListOfframpItem {
   createdAt: string;
   source: { currency: string; amount: number; chain: string };
   destination: { currency: string; amount: number };
+  /** Name the beneficiary sees as the payout sender, when known. Informational only. */
+  senderName: string | null;
 }
 
 export interface ListOfframpsResponse {

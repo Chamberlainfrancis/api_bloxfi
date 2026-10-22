@@ -158,6 +158,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <div class="tab" data-view="settlements">Fee settlements</div>
   <div class="tab" data-view="businesses">Businesses</div>
   <div class="tab" data-view="dakota">Dakota KYB</div>
+  <div class="tab" data-view="senderinfo">Sender info</div>
 </div>
 <div class="toolbar" id="txnToolbar">
   <label class="muted" id="statusLabel">Status</label>
@@ -175,6 +176,10 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <span class="muted">Dakota applications that still need legal attestations</span>
   <button class="ghost" id="dakReload">Reload</button>
 </div>
+<div class="toolbar" id="siToolbar" style="display:none">
+  <span class="muted">Sender / payee name per currency. Offramp: the name shown as the payout sender. Onramp: the payee name shown on deposit details. Applies to new transfers only.</span>
+  <button class="ghost" id="siReload">Reload</button>
+</div>
 <div id="err" class="err" style="display:none"></div>
 <table id="txnTable">
   <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
@@ -184,6 +189,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div id="bizResults" class="biz-results"></div>
 <div id="bizMoreWrap" class="biz-more" style="display:none"><button class="ghost" id="bizMore" style="display:none">Load more</button></div>
 <div id="dakResults" class="biz-results" style="display:none"></div>
+<div id="siResults" class="biz-results" style="display:none"></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
@@ -305,7 +311,7 @@ function payoutRetryFormHtml(reissue) {
 }
 
 function readPasscode() {
-  const candidates = [$("approveFeePasscode"), $("holdPasscode"), $("markPasscode"), $("retryFiatPasscode")];
+  const candidates = [$("approveFeePasscode"), $("holdPasscode"), $("markPasscode"), $("retryFiatPasscode"), $("siPasscode")];
   for (var i = 0; i < candidates.length; i++) {
     var el = candidates[i];
     var v = el && el.value ? el.value.trim() : "";
@@ -328,7 +334,7 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
@@ -346,7 +352,7 @@ function focusPasscode() {
 }
 
 function clearPasscodeFields() {
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -1842,6 +1848,175 @@ async function submitDakotaAttest(applicationId) {
   if ($("dakAttestPasscode")) $("dakAttestPasscode").value = "";
 }
 
+// --- sender info: sender / payee name per currency ---------------------------
+
+var siState = { items: [], loaded: false, editingId: null, msg: null };
+
+async function loadSenderInfo() {
+  var el = $("siResults");
+  el.style.display = "block";
+  if (!siState.loaded) el.innerHTML = '<div class="biz-results-empty">Loading sender info…</div>';
+  try {
+    var res = await api("/sender-info");
+    siState.items = (res && res.items) ? res.items : [];
+    siState.loaded = true;
+    renderSenderInfo();
+  } catch (err) {
+    el.innerHTML = '<div class="biz-results-empty">' + esc(err.message || "Failed to load sender info") + "</div>";
+  }
+}
+
+function senderInfoFormHtml(editing) {
+  var e = editing || {};
+  var lock = editing ? " disabled" : "";
+  return '<div class="payout-retry-form" style="margin-bottom:16px">' +
+    '<div class="notice">Offramp: the name the beneficiary sees as the payout sender. Onramp: the payee name shown on the customer\\'s deposit details. Changes apply to new transfers only; existing transfers keep the name they were created with.</div>' +
+    '<div class="payout-retry-fields">' +
+    '<label for="siType">Type</label>' +
+    '<select id="siType"' + lock + '><option value="offramp"' + (e.rampType === "offramp" ? " selected" : "") + '>Offramp (payout sender)</option><option value="onramp"' + (e.rampType === "onramp" ? " selected" : "") + '>Onramp (deposit payee)</option></select>' +
+    '<label for="siCurrency">Currency</label>' +
+    '<input type="text" id="siCurrency" placeholder="e.g. NGN" style="min-width:90px;text-transform:uppercase" maxlength="10" value="' + esc(e.currency || "") + '"' + lock + ' />' +
+    '<label for="siRail">Rail</label>' +
+    '<input type="text" id="siRail" placeholder="Optional, e.g. local_bank" maxlength="40" value="' + esc(e.rail || "") + '"' + lock + ' />' +
+    '<label for="siName">Name</label>' +
+    '<input type="text" id="siName" placeholder="Name shown to the customer" style="min-width:260px" maxlength="140" value="' + esc(e.senderName || "") + '" />' +
+    "</div>" +
+    '<div class="payout-retry-fields">' +
+    '<label for="siActor">Your name</label>' +
+    '<input type="text" id="siActor" placeholder="Saved in the audit trail" autocomplete="name" />' +
+    '<label for="siPasscode">Passcode</label>' +
+    '<input type="password" id="siPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+    '<button type="button" class="ok" id="siSave">' + (editing ? "Save changes" : "Add") + "</button>" +
+    (editing ? '<button type="button" class="ghost" id="siCancelEdit">Cancel</button>' : "") +
+    "</div>" +
+    '<div id="siMsg" class="payout-retry-msg" style="display:none"></div>' +
+    "</div>";
+}
+
+function senderInfoRowHtml(row) {
+  var editing = siState.editingId === row.id;
+  return '<tr' + (editing ? ' style="background:var(--bg)"' : "") + ">" +
+    "<td>" + (row.rampType === "offramp" ? "Offramp" : "Onramp") + "</td>" +
+    "<td>" + esc(row.currency) + "</td>" +
+    "<td>" + (row.rail ? esc(row.rail) : '<span class="muted">any</span>') + "</td>" +
+    "<td>" + esc(row.senderName) + "</td>" +
+    "<td>" + (row.updatedBy ? esc(row.updatedBy) : '<span class="muted">—</span>') + "</td>" +
+    '<td class="muted">' + esc(new Date(row.updatedAt).toLocaleString()) + "</td>" +
+    '<td style="white-space:nowrap"><button type="button" class="ghost si-edit-btn" data-id="' + esc(row.id) + '">Edit</button> ' +
+    '<button type="button" class="danger si-delete-btn" data-id="' + esc(row.id) + '">Delete</button></td>' +
+    "</tr>";
+}
+
+function renderSenderInfo() {
+  var el = $("siResults");
+  if (state.view !== "senderinfo") { el.style.display = "none"; return; }
+  var editing = siState.editingId
+    ? siState.items.filter(function (r) { return r.id === siState.editingId; })[0] || null
+    : null;
+  if (!editing) siState.editingId = null;
+  var table = siState.items.length
+    ? '<table><thead><tr><th>Type</th><th>Currency</th><th>Rail</th><th>Name</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>' +
+      siState.items.map(senderInfoRowHtml).join("") +
+      "</tbody></table>"
+    : '<div class="biz-results-empty">No sender names configured yet. Transfers use the provider default.</div>';
+  el.innerHTML = senderInfoFormHtml(editing) + table;
+  el.style.display = "block";
+  restorePasscodeField();
+  if (siState.msg) { showSiMsg(siState.msg.text, siState.msg.kind); siState.msg = null; }
+}
+
+function showSiMsg(text, kind) {
+  var el = $("siMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.className = "payout-retry-msg" + (kind ? " " + kind : "");
+  el.textContent = text || "";
+}
+
+function startSenderInfoEdit(id) {
+  siState.editingId = id;
+  renderSenderInfo();
+  var nameEl = $("siName");
+  if (nameEl) { nameEl.focus(); nameEl.select(); }
+}
+
+async function saveSenderInfo() {
+  var rampType = $("siType") ? $("siType").value : "offramp";
+  var currency = ($("siCurrency") ? $("siCurrency").value : "").trim().toUpperCase();
+  var rail = ($("siRail") ? $("siRail").value : "").trim().toLowerCase();
+  var senderName = ($("siName") ? $("siName").value : "").trim();
+  var actor = ($("siActor") ? $("siActor").value : "").trim();
+  var secret = ($("siPasscode") ? $("siPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
+  if (!currency) { showSiMsg("Enter a currency, e.g. NGN.", "bad"); return; }
+  if (!senderName) { showSiMsg("Enter the name to show. To remove a setting use Delete.", "bad"); return; }
+  if (senderName.length > 140) { showSiMsg("Name must be 140 characters or fewer.", "bad"); return; }
+  if (!secret) { showSiMsg("Enter the dashboard passcode, then save.", "bad"); return; }
+  sessionStorage.setItem("dashSecret", secret);
+  var btn = $("siSave");
+  setBtnLoading(btn, true, "Saving");
+  showSiMsg("Saving…", "info");
+  try {
+    await api("/sender-info", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ rampType: rampType, currency: currency, rail: rail, senderName: senderName, actor: actor || undefined, secret: secret })
+    });
+    siState.editingId = null;
+    siState.msg = { text: "Saved " + rampType + " " + currency + (rail ? " (" + rail + ")" : "") + " → " + senderName + ". New transfers will use it.", kind: "ok" };
+    await loadSenderInfo();
+  } catch (err) {
+    setBtnLoading(btn, false);
+    if (err.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      showSiMsg("Incorrect passcode — try again.", "bad");
+      return;
+    }
+    showSiMsg(err.message || "Save failed", "bad");
+  }
+}
+
+async function deleteSenderInfo(id) {
+  var row = siState.items.filter(function (r) { return r.id === id; })[0];
+  if (!row) return;
+  var label = (row.rampType === "offramp" ? "Offramp" : "Onramp") + " " + row.currency + (row.rail ? " (" + row.rail + ")" : " (any rail)");
+  if (!confirm("Remove the sender name for " + label + "? New transfers will fall back to the provider default.")) return;
+  var secret = ($("siPasscode") ? $("siPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
+  if (!secret) { showSiMsg("Enter the dashboard passcode, then delete.", "bad"); if ($("siPasscode")) $("siPasscode").focus(); return; }
+  var actor = ($("siActor") ? $("siActor").value : "").trim();
+  sessionStorage.setItem("dashSecret", secret);
+  showSiMsg("Removing…", "info");
+  try {
+    await api("/sender-info/" + encodeURIComponent(id), {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ actor: actor || undefined, secret: secret })
+    });
+    if (siState.editingId === id) siState.editingId = null;
+    siState.msg = { text: "Removed " + label + ".", kind: "ok" };
+    await loadSenderInfo();
+  } catch (err) {
+    if (err.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      showSiMsg("Incorrect passcode — try again.", "bad");
+      return;
+    }
+    showSiMsg(err.message || "Delete failed", "bad");
+  }
+}
+
+$("siReload").addEventListener("click", function () { loadSenderInfo(); });
+$("siResults").addEventListener("click", function (e) {
+  if (e.target.closest("#siSave")) { saveSenderInfo(); return; }
+  if (e.target.closest("#siCancelEdit")) { siState.editingId = null; renderSenderInfo(); return; }
+  var editBtn = e.target.closest(".si-edit-btn");
+  if (editBtn) { startSenderInfoEdit(editBtn.dataset.id); return; }
+  var delBtn = e.target.closest(".si-delete-btn");
+  if (delBtn) { deleteSenderInfo(delBtn.dataset.id); return; }
+});
+$("siResults").addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && e.target && (e.target.id === "siName" || e.target.id === "siPasscode")) { e.preventDefault(); saveSenderInfo(); }
+});
+
 document.querySelectorAll(".tab").forEach(function (el) {
   el.addEventListener("click", function () {
     document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
@@ -1857,15 +2032,22 @@ document.querySelectorAll(".tab").forEach(function (el) {
 
     var isBusinesses = state.view === "businesses";
     var isDakota = state.view === "dakota";
-    var hideTxns = isBusinesses || isDakota;
+    var isSenderInfo = state.view === "senderinfo";
+    var hideTxns = isBusinesses || isDakota || isSenderInfo;
     $("txnToolbar").style.display = hideTxns ? "none" : "flex";
     $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
     $("dakToolbar").style.display = isDakota ? "flex" : "none";
+    $("siToolbar").style.display = isSenderInfo ? "flex" : "none";
     $("txnTable").style.display = hideTxns ? "none" : "table";
     $("txnMoreWrap").style.display = hideTxns ? "none" : "block";
     $("more").style.display = "none";
     $("bizResults").style.display = isBusinesses ? "block" : "none";
     $("dakResults").style.display = isDakota ? "block" : "none";
+    $("siResults").style.display = isSenderInfo ? "block" : "none";
+    if (isSenderInfo) {
+      loadSenderInfo();
+      return;
+    }
     if (isBusinesses) {
       if (!bizState.results.length) loadBusinessList(true);
       else {

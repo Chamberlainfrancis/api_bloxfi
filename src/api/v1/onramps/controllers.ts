@@ -38,6 +38,8 @@ import {
 import { applyPairMarkupIfMatched } from '@/core/quotes/pairMarkup';
 import { ceilPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import * as senderInfoRepo from '@/db/repositories/senderInfo.repo';
+import { resolveSenderInfoForTransfer } from '@/core/admin/senderInfo';
 import { findOnrampAccountsByUser, findAccountById } from '@/db/repositories/account.repo';
 import { buildAccountCapabilities } from '@/core/accounts/accountCapabilities';
 import { isDakotaUsdBusiness } from '@/core/integrations/palremitOnramp';
@@ -391,6 +393,7 @@ export async function createOnramp(
         convertToUsdc: (from, amount) =>
           getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
         ...(lockedQuote ? { lockedQuote } : {}),
+        resolveSenderInfo: (input) => resolveSenderInfoForTransfer(senderInfoRepo, input),
       }
     );
     if (parsed.data.quoteId) {

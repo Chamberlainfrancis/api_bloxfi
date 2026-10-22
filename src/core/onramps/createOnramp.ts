@@ -39,6 +39,7 @@ import {
   isOwlPayUsdBusiness,
 } from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
+import type { ResolvedSenderInfo } from '@/core/admin/senderInfo';
 
 export interface CreateOnrampOptions {
   getQuoteFromPalremit?: (
@@ -136,6 +137,28 @@ export interface CreateOnrampOptions {
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
   /** When set, pricing is taken from the locked quote (POST /onramps/quotes). */
   lockedQuote?: OnrampQuoteSnapshot;
+  /**
+   * Ops "sender info" setting for (onramp, deposit currency, transfer type).
+   * When it matches, the payee name on the new onramp's deposit details is
+   * replaced. Resolved once here; later setting edits leave this onramp alone.
+   */
+  resolveSenderInfo?: (input: {
+    rampType: 'onramp';
+    currency: string;
+    rail?: string | null;
+  }) => Promise<ResolvedSenderInfo | null>;
+}
+
+/** Swap the payee name on deposit details for the ops-configured one. */
+export function applySenderInfoToDepositInfo(
+  depositInfo: DepositInfo,
+  senderInfo: ResolvedSenderInfo | null
+): DepositInfo {
+  if (!senderInfo) return depositInfo;
+  return {
+    ...depositInfo,
+    beneficiary: { ...depositInfo.beneficiary, name: senderInfo.senderName },
+  };
 }
 
 export interface OnrampRepoCreate {
@@ -689,7 +712,15 @@ export async function createOnramp(
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
   }
 
-  const { depositInfo, providerRefs } = fiatResult;
+  const senderInfo = options.resolveSenderInfo
+    ? await options.resolveSenderInfo({
+        rampType: 'onramp',
+        currency: fromCurrency,
+        rail: src.transferType ? src.transferType.toLowerCase() : null,
+      })
+    : null;
+  const depositInfo = applySenderInfoToDepositInfo(fiatResult.depositInfo, senderInfo);
+  const providerRefs = senderInfo ? { ...fiatResult.providerRefs, senderInfo } : fiatResult.providerRefs;
 
   const row = await onrampRepo.createOnramp({
     requestId,

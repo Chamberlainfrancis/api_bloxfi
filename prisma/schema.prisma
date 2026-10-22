@@ -429,3 +429,21 @@ model AdminAction {
   @@index([txnType, txnId])
   @@index([createdAt])
 }
+
+/**
+ * Ops-editable sender / payee name per (ramp type, currency, rail).
+ * Resolved onto a transfer when it is created; later edits never touch
+ * existing rows. rail '' (not NULL) means "any rail" so the unique key works.
+ */
+model SenderInfoSetting {
+  id         String   @id @default(uuid())
+  rampType   String // "onramp" | "offramp"
+  currency   String // upper-case, e.g. "NGN"
+  rail       String   @default("") // lower-case rail, '' = any rail
+  senderName String
+  updatedBy  String? // free-form name typed in the dashboard (optional; no auth)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([rampType, currency, rail])
+}

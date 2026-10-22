@@ -17,6 +17,7 @@ import type {
   OfframpTransferDetails,
 } from '@/types/offramp';
 import type { OfframpQuoteSnapshot } from '@/types/quote';
+import type { ResolvedSenderInfo } from '@/core/admin/senderInfo';
 import { assertOfframpQuoteCorridorMatchesAccount } from '@/core/quotes/assertOfframpQuoteCorridor';
 
 export interface CreateOfframpOptions {
@@ -46,6 +47,16 @@ export interface CreateOfframpOptions {
   } | null>;
   /** Pricing is always taken from the locked quote (POST /offramps/quotes). */
   lockedQuote: OfframpQuoteSnapshot;
+  /**
+   * Ops "sender info" setting for (offramp, payout currency, payout rail).
+   * Resolved once here and saved on the row; later setting edits do not
+   * change this offramp. Optional so callers without the setting store work.
+   */
+  resolveSenderInfo?: (input: {
+    rampType: 'offramp';
+    currency: string;
+    rail?: string | null;
+  }) => Promise<ResolvedSenderInfo | null>;
 }
 
 export interface OfframpRepoCreate {
@@ -277,13 +288,25 @@ export async function createOfframp(
     createdAt: new Date().toISOString(),
   };
 
-  const row = await offrampRepo.createOfframp({
-    requestId,
-    txnRef,
-    providerRefs: mergeSourceAmountCapIntoProviderRefs(
+  const senderInfo = options.resolveSenderInfo
+    ? await options.resolveSenderInfo({
+        rampType: 'offramp',
+        currency: toCurrency,
+        rail: (destinationPayload.transferType ?? account.paymentRail ?? '').toLowerCase(),
+      })
+    : null;
+  const providerRefs = {
+    ...mergeSourceAmountCapIntoProviderRefs(
       palremitDeposit.providerRefs,
       snap.sourceAmountCap ?? snap.quote.sendNet?.amount
     ),
+    ...(senderInfo ? { senderInfo } : {}),
+  };
+
+  const row = await offrampRepo.createOfframp({
+    requestId,
+    txnRef,
+    providerRefs,
     userId,
     status: 'AWAITING_CRYPTO',
     source: sourcePayload,
@@ -317,6 +340,7 @@ export async function createOfframp(
     receipt: null,
     refundDetails: null,
     failedReason: row.failedReason ?? null,
+    senderName: senderInfo?.senderName ?? null,
   };
 
   return {

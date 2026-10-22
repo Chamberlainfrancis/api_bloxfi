@@ -134,6 +134,40 @@ describe('createOfframp — quote-first only', () => {
     ).toBe('99.000000');
   });
 
+  it('saves the ops sender info on providerRefs and returns senderName when a setting matches', async () => {
+    const d = makeDeps();
+    const resolveSenderInfo = vi.fn(async () => ({ senderName: 'Palremit LTD', settingId: 's1', source: 'ops_setting' as const }));
+    const res = await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', body(), {
+      ...d.options,
+      resolveSenderInfo,
+    });
+    expect(resolveSenderInfo).toHaveBeenCalledWith({ rampType: 'offramp', currency: 'ngn', rail: 'local_bank' });
+    const refs = d.created.data!.providerRefs as Record<string, unknown>;
+    expect(refs.senderInfo).toEqual({ senderName: 'Palremit LTD', settingId: 's1', source: 'ops_setting' });
+    // Existing refs (source amount cap) are kept alongside.
+    expect((refs.palremitOrchestrator as { sourceAmountCap: string }).sourceAmountCap).toBe('99.000000');
+    expect(res.transferDetails.senderName).toBe('Palremit LTD');
+  });
+
+  it('uses the client transferType as the rail for non-USD payouts', async () => {
+    const d = makeDeps();
+    const resolveSenderInfo = vi.fn(async () => null);
+    const b = body();
+    b.destination.transferType = 'Mobile_Money';
+    await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', b, { ...d.options, resolveSenderInfo });
+    expect(resolveSenderInfo).toHaveBeenCalledWith({ rampType: 'offramp', currency: 'ngn', rail: 'mobile_money' });
+  });
+
+  it('leaves providerRefs untouched and senderName null when no setting matches', async () => {
+    const d = makeDeps();
+    const res = await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', body(), {
+      ...d.options,
+      resolveSenderInfo: vi.fn(async () => null),
+    });
+    expect(d.created.data!.providerRefs).not.toHaveProperty('senderInfo');
+    expect(res.transferDetails.senderName).toBeNull();
+  });
+
   it('throws QUOTE_REQUIRED when no lockedQuote is supplied', async () => {
     const d = makeDeps();
     const opts = { ...d.options };
