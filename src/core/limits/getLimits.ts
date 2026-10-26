@@ -59,6 +59,21 @@ const DEFAULT_RAILS: RailLimits[] = [
     highValueSupport: true,
     processingTime: '1-2 business days',
   },
+  {
+    rail: 'AUD',
+    currency: 'AUD',
+    // OwlPay BSB BANK_TRANSFER. API bound is 1.44–428610 AUD; live quotes need ≥~100.
+    // No AUD collection rail — do not advertise onramp here.
+    offramp: {
+      minAmount: '100',
+      maxAmount: '428610',
+      currency: 'AUD',
+      dailyLimit: '100000',
+      monthlyLimit: '428610',
+    },
+    highValueSupport: true,
+    processingTime: '1-2 business days',
+  },
 ];
 
 const DEFAULT_GLOBAL: GlobalLimits = {

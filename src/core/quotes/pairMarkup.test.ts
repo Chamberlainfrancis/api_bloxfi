@@ -57,6 +57,16 @@ describe('findPairMarkup', () => {
     expect(findPairMarkup('usdt', 'jpy')?.side).toBe('sell');
   });
 
+  it('returns 0.5% buy and sell for AUD ↔ USD/USDT/USDC', () => {
+    expect(findPairMarkup('USDC', 'AUD')).toEqual({
+      fiat: 'AUD',
+      markup: 0.005,
+      side: 'sell',
+    });
+    expect(findPairMarkup('usdt', 'aud')?.side).toBe('sell');
+    expect(findPairMarkup('AUD', 'USD')?.markup).toBe(0.005);
+  });
+
   it('returns 45 bps buy for GBP onramp only (GBP → USD/USDT/USDC)', () => {
     expect(findPairMarkup('gbp', 'usdt')).toEqual({
       fiat: 'GBP',
