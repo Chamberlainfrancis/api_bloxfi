@@ -37,4 +37,22 @@ describe('getLimits', () => {
       monthlyLimit: '46853070',
     });
   });
+
+  it('advertises an AUD offramp rail without claiming onramp', () => {
+    const aud = getLimits().rails.find((r) => r.rail === 'AUD');
+    expect(aud).toMatchObject({
+      rail: 'AUD',
+      currency: 'AUD',
+      highValueSupport: true,
+      processingTime: '1-2 business days',
+    });
+    expect(aud?.onramp).toBeUndefined();
+    expect(aud?.offramp).toEqual({
+      minAmount: '100',
+      maxAmount: '428610',
+      currency: 'AUD',
+      dailyLimit: '100000',
+      monthlyLimit: '428610',
+    });
+  });
 });

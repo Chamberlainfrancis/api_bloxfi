@@ -10,6 +10,7 @@
  * named-deposit 40 bps / currency-api B2B — no buy rule here.
  * CAD onramp buy is 50 bps; CAD offramp sell is 20 bps (was 50 until 2026-10-12).
  * JPY buy and sell are 50 bps (OwlPay Zengin BANK_TRANSFER, 2026-09-07).
+ * AUD buy and sell are 50 bps (OwlPay BSB BANK_TRANSFER, 2026-10-26).
  * GBP onramp buy is 45 bps (Noones, 2026-09-21). Offramp sell stays on
  * currency-api 12 bps — a sell rule would also require an OwlPay executable
  * rate, and GBP OwlPay is ~12% below mid.
@@ -28,5 +29,6 @@ export const PAIR_MARKUP_RULES: readonly PairMarkupRule[] = [
   { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005, sides: ['buy'] },
   { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
   { fiat: 'JPY', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
+  { fiat: 'AUD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
   { fiat: 'GBP', crypto: ['USD', 'USDT', 'USDC'], markup: 0.0045, sides: ['buy'] },
 ];
