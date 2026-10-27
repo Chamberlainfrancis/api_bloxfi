@@ -46,6 +46,15 @@ describe('pair markup store', () => {
     expect(findPairMarkup('USDC', 'JPY')).toEqual({ fiat: 'JPY', markup: 0.005, side: 'sell' });
   });
 
+  it('drops a reload that finishes after a newer one was applied', async () => {
+    let finishOld: (rows: { fiat: string; side: string; cryptos: string; markupBps: number }[]) => void = () => {};
+    const older = refreshPairMarkupRules(() => new Promise((resolve) => { finishOld = resolve; }));
+    await refreshPairMarkupRules(async () => [{ fiat: 'EUR', side: 'sell', cryptos: 'USDC', markupBps: 25 }]);
+    finishOld([{ fiat: 'EUR', side: 'sell', cryptos: 'USDC', markupBps: 20 }]);
+    await older;
+    expect(findPairMarkup('USDC', 'EUR')).toEqual({ fiat: 'EUR', markup: 0.0025, side: 'sell' });
+  });
+
   it('skips rows with an unknown side, no cryptos or a negative markup', () => {
     expect(
       rulesFromSettings([

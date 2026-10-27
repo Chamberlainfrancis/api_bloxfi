@@ -104,13 +104,16 @@ export function normalizePairMarkupInput(input: {
   // Keep a stable order so "USDC,USD" and "USD,USDC" are the same setting.
   const ordered = PAIR_MARKUP_CRYPTOS.filter((c) => cryptos.includes(c));
 
-  const markupBps = Number(input.markupBps);
-  if (!Number.isFinite(markupBps) || markupBps < 0 || markupBps > PAIR_MARKUP_MAX_BPS) {
+  const rawBps = Number(input.markupBps);
+  if (!Number.isFinite(rawBps) || rawBps < 0 || rawBps > PAIR_MARKUP_MAX_BPS) {
     throw new PairMarkupValidationError(`markup must be between 0 and ${PAIR_MARKUP_MAX_BPS} bps`);
   }
-  if (Math.round(markupBps * 100) !== markupBps * 100) {
+  // Compare in hundredths with a tolerance: 1.1 * 100 is 110.00000000000001 in floats.
+  const hundredths = Math.round(rawBps * 100);
+  if (Math.abs(rawBps * 100 - hundredths) > 1e-6) {
     throw new PairMarkupValidationError('markup can have at most 2 decimal places (e.g. 12.5 bps)');
   }
+  const markupBps = hundredths / 100;
 
   return { key: { fiat, side: input.side }, cryptos: ordered.join(','), markupBps };
 }

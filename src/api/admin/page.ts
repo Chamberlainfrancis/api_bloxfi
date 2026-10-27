@@ -2103,7 +2103,7 @@ function renderRates() {
     : null;
   if (!editing) rmState.editingId = null;
   var status = rmState.pricingSource === "database"
-    ? '<div class="muted" style="margin-bottom:8px">Pricing on this server last loaded these rows at ' + esc(new Date(rmState.pricingLoadedAt).toLocaleString()) + ".</div>"
+    ? '<div class="muted" style="margin-bottom:8px">The server that answered last loaded these rows at ' + esc(new Date(rmState.pricingLoadedAt).toLocaleString()) + ". Other servers pick up changes within 30 seconds.</div>"
     : '<div class="notice" style="margin-bottom:8px">This server has not loaded the table yet and is pricing from the built-in defaults. It retries every 30 seconds.</div>';
   var table = rmState.items.length
     ? "<table><thead><tr><th>Currency</th><th>Direction</th><th>Applies to</th><th>Markup</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>" +

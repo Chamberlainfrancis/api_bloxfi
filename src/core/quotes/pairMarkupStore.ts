@@ -24,6 +24,9 @@ export type PairMarkupRulesSource = 'config' | 'database';
 let rules: readonly PairMarkupRule[] = PAIR_MARKUP_RULES;
 let source: PairMarkupRulesSource = 'config';
 let loadedAt: Date | null = null;
+// Each reload takes a ticket; a slower, older reload never overwrites a newer one.
+let loadsStarted = 0;
+let newestApplied = 0;
 
 export function getPairMarkupRules(): readonly PairMarkupRule[] {
   return rules;
@@ -64,12 +67,20 @@ export function setPairMarkupRulesFromSettings(rows: ReadonlyArray<PairMarkupSet
   loadedAt = new Date();
 }
 
-/** Returns false (and keeps the current rules) when the load fails. */
+/**
+ * Returns false (and keeps the current rules) when the load fails. A load that
+ * finishes after a newer one was applied is dropped, so a background tick that
+ * started before a dashboard edit can't put the old value back.
+ */
 export async function refreshPairMarkupRules(
   load: () => Promise<PairMarkupSettingRow[]>
 ): Promise<boolean> {
+  const ticket = ++loadsStarted;
   try {
-    setPairMarkupRulesFromSettings(await load());
+    const rows = await load();
+    if (ticket < newestApplied) return true;
+    setPairMarkupRulesFromSettings(rows);
+    newestApplied = ticket;
     return true;
   } catch (err) {
     logger.error({ err, source }, 'pair markup reload failed; keeping current rules');
@@ -81,4 +92,6 @@ export function _resetPairMarkupRulesForTests(): void {
   rules = PAIR_MARKUP_RULES;
   source = 'config';
   loadedAt = null;
+  loadsStarted = 0;
+  newestApplied = 0;
 }

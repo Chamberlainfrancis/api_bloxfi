@@ -723,7 +723,11 @@ const pairMarkupPutSchema = z.object({
   fiat: z.string().trim().min(3).max(3),
   side: z.enum(['buy', 'sell']),
   cryptos: z.union([z.array(z.string().trim().max(10)).max(5), z.string().trim().max(40)]).optional().nullable(),
-  markupBps: z.coerce.number(),
+  // z.coerce.number() alone turns '' and null into 0, which would silently remove a spread.
+  markupBps: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.coerce.number({ invalid_type_error: 'markupBps must be a number' })
+  ),
   actor: z.string().trim().max(120).optional().nullable(),
   secret: z.string().optional(),
 });

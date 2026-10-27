@@ -76,6 +76,17 @@ describe('putPairMarkup', () => {
     expect(pairMarkupRepo.upsertPairMarkupSetting).not.toHaveBeenCalled();
   });
 
+  it.each(['', null])('rejects a blank markup (%o) with 400 instead of saving 0', async (markupBps) => {
+    const next = vi.fn() as unknown as NextFunction;
+    await putPairMarkup(
+      req({ body: { fiat: 'EUR', side: 'buy', markupBps }, headers: { 'x-dashboard-secret': 'pr2026' } }),
+      buildResponse(),
+      next
+    );
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+    expect(pairMarkupRepo.upsertPairMarkupSetting).not.toHaveBeenCalled();
+  });
+
   it('saves, audits and reloads pricing with the right passcode', async () => {
     vi.mocked(pairMarkupRepo.findPairMarkupSettingByKey).mockResolvedValue(ROW);
     vi.mocked(pairMarkupRepo.upsertPairMarkupSetting).mockResolvedValue({ ...ROW, markupBps: 25 });

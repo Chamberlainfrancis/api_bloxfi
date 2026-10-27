@@ -45,6 +45,10 @@ describe('normalizePairMarkupInput', () => {
     });
   });
 
+  it.each([1.1, 0.29, 0.07, 12.35])('accepts %s bps despite float rounding', (bps) => {
+    expect(normalizePairMarkupInput({ fiat: 'EUR', side: 'sell', markupBps: bps }).markupBps).toBe(bps);
+  });
+
   it('defaults cryptos to USD/USDT/USDC minus the fiat itself', () => {
     expect(normalizePairMarkupInput({ fiat: 'USD', side: 'sell', markupBps: 20 }).cryptos).toBe('USDT,USDC');
     expect(normalizePairMarkupInput({ fiat: 'AUD', side: 'buy', markupBps: 50 }).cryptos).toBe('USD,USDT,USDC');
