@@ -6,8 +6,10 @@ import app from '@/app';
 import { env } from '@/config';
 import { closeRedis } from '@/services/redis';
 import { startWebhookRetentionSchedule } from '@/jobs/webhookRetention';
+import { startPairMarkupRefreshSchedule } from '@/jobs/pairMarkupRefresh';
 
 const stopWebhookRetention = startWebhookRetentionSchedule();
+const stopPairMarkupRefresh = startPairMarkupRefreshSchedule();
 
 const server = app.listen(env.PORT, () => {
   console.info(`BloxFi API listening on port ${env.PORT} (${env.NODE_ENV})`);
@@ -15,6 +17,7 @@ const server = app.listen(env.PORT, () => {
 
 const shutdown = async (): Promise<void> => {
   stopWebhookRetention();
+  stopPairMarkupRefresh();
   server.close(async () => {
     await closeRedis();
     process.exit(0);

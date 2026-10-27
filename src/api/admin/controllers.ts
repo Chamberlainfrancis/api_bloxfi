@@ -13,6 +13,8 @@ import * as providerCustomer from '@/core/admin/providerCustomer';
 import * as dakotaKyb from '@/core/admin/dakotaKyb';
 import * as heldPayouts from '@/core/admin/heldPayouts';
 import * as senderInfo from '@/core/admin/senderInfo';
+import * as pairMarkup from '@/core/admin/pairMarkup';
+import { getPairMarkupRulesStatus } from '@/core/quotes/pairMarkupStore';
 import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 
@@ -708,6 +710,93 @@ export async function deleteSenderInfo(
     const removed = await senderInfo.deleteSenderInfoSetting(await senderInfoDeps(), req.params.id, actor);
     if (!removed) {
       throw new AppError('Sender info setting not found', 'NOT_FOUND', 404);
+    }
+    sendSuccess(res, { ok: true });
+  } catch (e) {
+    next(e);
+  }
+}
+
+// --- Rates (bloxfi FX spread per fiat and side) ------------------------------
+
+const pairMarkupPutSchema = z.object({
+  fiat: z.string().trim().min(3).max(3),
+  side: z.enum(['buy', 'sell']),
+  cryptos: z.union([z.array(z.string().trim().max(10)).max(5), z.string().trim().max(40)]).optional().nullable(),
+  markupBps: z.coerce.number(),
+  actor: z.string().trim().max(120).optional().nullable(),
+  secret: z.string().optional(),
+});
+
+async function pairMarkupDeps(): Promise<pairMarkup.PairMarkupDeps> {
+  const [repo, adminActionRepo, refresh] = await Promise.all([
+    import('@/db/repositories/pairMarkup.repo'),
+    import('@/db/repositories/adminAction.repo'),
+    import('@/jobs/pairMarkupRefresh'),
+  ]);
+  return { repo, audit: adminActionRepo, reload: refresh.reloadPairMarkupRules };
+}
+
+export async function listPairMarkups(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const items = await pairMarkup.listPairMarkupSettings(await pairMarkupDeps());
+    const status = getPairMarkupRulesStatus();
+    sendSuccess(res, {
+      items,
+      maxBps: pairMarkup.PAIR_MARKUP_MAX_BPS,
+      cryptos: pairMarkup.PAIR_MARKUP_CRYPTOS,
+      pricingSource: status.source,
+      pricingLoadedAt: status.loadedAt,
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function putPairMarkup(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    requireDashboardSecret(req, req.body);
+    const parsed = pairMarkupPutSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError(zodMessage(parsed.error), 'INVALID_REQUEST', 400);
+    }
+    const setting = await pairMarkup.savePairMarkupSetting(await pairMarkupDeps(), {
+      fiat: parsed.data.fiat,
+      side: parsed.data.side,
+      cryptos: parsed.data.cryptos ?? null,
+      markupBps: parsed.data.markupBps,
+      actor: parsed.data.actor ?? null,
+    });
+    sendSuccess(res, { setting });
+  } catch (e) {
+    if (e instanceof pairMarkup.PairMarkupValidationError) {
+      next(new AppError(e.message, 'INVALID_REQUEST', 400));
+      return;
+    }
+    next(e);
+  }
+}
+
+export async function deletePairMarkup(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    requireDashboardSecret(req, req.body);
+    const body = (req.body ?? {}) as { actor?: unknown };
+    const actor = typeof body.actor === 'string' ? body.actor : null;
+    const removed = await pairMarkup.deletePairMarkupSetting(await pairMarkupDeps(), req.params.id, actor);
+    if (!removed) {
+      throw new AppError('Rate markup not found', 'NOT_FOUND', 404);
     }
     sendSuccess(res, { ok: true });
   } catch (e) {
