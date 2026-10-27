@@ -40,6 +40,12 @@ router.get('/sender-info', controllers.listSenderInfo);
 router.put('/sender-info', controllers.putSenderInfo);
 router.delete('/sender-info/:id', controllers.deleteSenderInfo);
 
+// Rates: bloxfi FX spread per (fiat, side) (core/admin/pairMarkup.ts).
+// Writes are passcode-gated like every other mutating dashboard action.
+router.get('/pair-markups', controllers.listPairMarkups);
+router.put('/pair-markups', controllers.putPairMarkup);
+router.delete('/pair-markups/:id', controllers.deletePairMarkup);
+
 router.get('/dakota/applications', controllers.listDakotaKybApplicants);
 router.get('/dakota/applications/:applicationId', controllers.getDakotaKybApplicant);
 router.post('/dakota/applications/:applicationId/attestations', controllers.postDakotaKybAttestations);

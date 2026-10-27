@@ -1,5 +1,9 @@
 /**
  * Corridor FX markup on currency-api marketRate.
+ *
+ * Live values are edited on the dashboard Rates tab (PairMarkupSetting). These
+ * rules are only the fallback used until a server first loads that table, and
+ * the seed in migration 20261027090000_add_pair_markup_setting.
  * 0.002 = 20 bps, 0.0025 = 25 bps, 0.005 = 0.5%, 0.024 = 2.4%. Same
  * decimal-fraction convention as platformFee. `sides` defaults to both
  * buy (onramp) and sell (offramp).

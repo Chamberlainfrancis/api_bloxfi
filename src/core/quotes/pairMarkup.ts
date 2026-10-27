@@ -1,13 +1,14 @@
 /**
- * Pair-level FX markup (USD↔EUR, USDT/USDC→USD, USD↔CAD, USD↔JPY, USD↔AUD, GBP onramp today).
- * Applied on currency-api marketRate; does not change currency-api.
+ * Pair-level FX markup, edited on the dashboard Rates tab (PairMarkupSetting;
+ * defaults in pairMarkup.config.ts). Applied on currency-api marketRate; does
+ * not change currency-api.
  *
  * Buy (onramp, fiat → crypto): customerRate = marketRate × (1 + markup)
  * Sell (offramp, crypto → fiat): customerRate = marketRate × (1 − markup)
  */
 
 import { applyOnrampAccountMarkup } from '@/core/quotes/onrampAccountMarkup';
-import { PAIR_MARKUP_RULES } from '@/core/quotes/pairMarkup.config';
+import { getPairMarkupRules } from '@/core/quotes/pairMarkupStore';
 import { FIAT_TO_FIAT_CONFIG, isFiatToFiatFlow } from '@/config/fiatToFiat';
 
 export type { PairMarkupRule } from '@/core/quotes/pairMarkup.config';
@@ -45,7 +46,7 @@ function findBasePairMarkup(fromCurrency: string, toCurrency: string): PairMarku
   const to = norm(toCurrency);
   if (!from || !to) return null;
 
-  for (const rule of PAIR_MARKUP_RULES) {
+  for (const rule of getPairMarkupRules()) {
     const fiat = norm(rule.fiat);
     const crypto = new Set(rule.crypto.map(norm));
     const sides = sidesOf(rule);

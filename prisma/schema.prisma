@@ -447,3 +447,19 @@ model SenderInfoSetting {
 
   @@unique([rampType, currency, rail])
 }
+
+/// Ops-editable bloxfi FX spread on the currency-api marketRate, one row per
+/// (fiat, side). buy = onramp (fiat → crypto), sell = offramp (crypto → fiat).
+/// Loaded into memory by core/quotes/pairMarkupStore.ts.
+model PairMarkupSetting {
+  id        String   @id @default(uuid())
+  fiat      String // upper-case, e.g. "EUR"
+  side      String // "buy" | "sell"
+  cryptos   String // comma-separated upper-case codes, e.g. "USD,USDT,USDC"
+  markupBps Float // 20 = 0.20%
+  updatedBy String? // free-form name typed in the dashboard
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fiat, side])
+}

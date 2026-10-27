@@ -159,6 +159,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <div class="tab" data-view="businesses">Businesses</div>
   <div class="tab" data-view="dakota">Dakota KYB</div>
   <div class="tab" data-view="senderinfo">Sender info</div>
+  <div class="tab" data-view="rates">Rates</div>
 </div>
 <div class="toolbar" id="txnToolbar">
   <label class="muted" id="statusLabel">Status</label>
@@ -180,6 +181,10 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <span class="muted">Sender / payee name per currency. Offramp: the name shown as the payout sender. Onramp: the payee name shown on deposit details. Applies to new transfers only.</span>
   <button class="ghost" id="siReload">Reload</button>
 </div>
+<div class="toolbar" id="rmToolbar" style="display:none">
+  <span class="muted">BloxFi spread on the currency-api market rate, per currency. Offramp customers get market &times; (1 &minus; markup); onramp customers pay market &times; (1 + markup). Currency-api rates are not changed here.</span>
+  <button class="ghost" id="rmReload">Reload</button>
+</div>
 <div id="err" class="err" style="display:none"></div>
 <table id="txnTable">
   <thead id="tableHead"><tr><th>Reference</th><th>Status</th><th>Amount</th><th>Beneficiary</th><th>Created</th></tr></thead>
@@ -190,6 +195,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div id="bizMoreWrap" class="biz-more" style="display:none"><button class="ghost" id="bizMore" style="display:none">Load more</button></div>
 <div id="dakResults" class="biz-results" style="display:none"></div>
 <div id="siResults" class="biz-results" style="display:none"></div>
+<div id="rmResults" class="biz-results" style="display:none"></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
@@ -334,7 +340,7 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
@@ -352,7 +358,7 @@ function focusPasscode() {
 }
 
 function clearPasscodeFields() {
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -2017,6 +2023,201 @@ $("siResults").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && e.target && (e.target.id === "siName" || e.target.id === "siPasscode")) { e.preventDefault(); saveSenderInfo(); }
 });
 
+// --- rates: bloxfi FX spread per currency and side ---------------------------
+
+var rmState = { items: [], loaded: false, editingId: null, msg: null, maxBps: 1000, pricingSource: null, pricingLoadedAt: null };
+
+function rmSideLabel(side) { return side === "sell" ? "Offramp (sell)" : "Onramp (buy)"; }
+function rmPct(bps) { var n = Number(bps); return isFinite(n) ? String(Number((n / 100).toFixed(4))) + "%" : ""; }
+
+async function loadRates() {
+  var el = $("rmResults");
+  el.style.display = "block";
+  if (!rmState.loaded) el.innerHTML = '<div class="biz-results-empty">Loading rates…</div>';
+  try {
+    var res = await api("/pair-markups");
+    rmState.items = (res && res.items) ? res.items : [];
+    rmState.maxBps = (res && res.maxBps) || 1000;
+    rmState.pricingSource = res ? res.pricingSource : null;
+    rmState.pricingLoadedAt = res ? res.pricingLoadedAt : null;
+    rmState.loaded = true;
+    renderRates();
+  } catch (err) {
+    el.innerHTML = '<div class="biz-results-empty">' + esc(err.message || "Failed to load rates") + "</div>";
+  }
+}
+
+function rmCryptoChecks(selected, lock) {
+  var sel = (selected || "USD,USDT,USDC").split(",");
+  return ["USD", "USDT", "USDC"].map(function (c) {
+    return '<label class="muted" style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="rm-crypto" value="' + c + '"' + (sel.indexOf(c) >= 0 ? " checked" : "") + lock + " /> " + c + "</label>";
+  }).join(" ");
+}
+
+function ratesFormHtml(editing) {
+  var e = editing || {};
+  var lock = editing ? " disabled" : "";
+  return '<div class="payout-retry-form" style="margin-bottom:16px">' +
+    '<div class="notice">A row sets the BloxFi markup for one currency and direction. Changes apply to new quotes within about 30 seconds; quotes already issued keep their rate. Removing a row means that pair gets no BloxFi markup (the currency-api B2B rate is used).</div>' +
+    '<div class="payout-retry-fields">' +
+    '<label for="rmFiat">Currency</label>' +
+    '<input type="text" id="rmFiat" placeholder="e.g. EUR" style="min-width:80px;text-transform:uppercase" maxlength="3" value="' + esc(e.fiat || "") + '"' + lock + " />" +
+    '<label for="rmSide">Direction</label>' +
+    '<select id="rmSide"' + lock + '><option value="sell"' + (e.side !== "buy" ? " selected" : "") + '>Offramp (sell)</option><option value="buy"' + (e.side === "buy" ? " selected" : "") + ">Onramp (buy)</option></select>" +
+    '<label>Applies to</label>' + rmCryptoChecks(e.cryptos, "") +
+    "</div>" +
+    '<div class="payout-retry-fields">' +
+    '<label for="rmBps">Markup (bps)</label>' +
+    '<input type="number" id="rmBps" min="0" max="' + rmState.maxBps + '" step="0.01" style="width:110px" value="' + (e.markupBps != null ? esc(String(e.markupBps)) : "") + '" />' +
+    '<span class="muted" id="rmPctPreview">' + (e.markupBps != null ? "= " + rmPct(e.markupBps) : "100 bps = 1%") + "</span>" +
+    '<label for="rmActor">Your name</label>' +
+    '<input type="text" id="rmActor" placeholder="Saved in the audit trail" autocomplete="name" />' +
+    '<label for="rmPasscode">Passcode</label>' +
+    '<input type="password" id="rmPasscode" placeholder="Dashboard passcode" autocomplete="current-password" />' +
+    '<button type="button" class="ok" id="rmSave">' + (editing ? "Save changes" : "Add") + "</button>" +
+    (editing ? '<button type="button" class="ghost" id="rmCancelEdit">Cancel</button>' : "") +
+    "</div>" +
+    '<div id="rmMsg" class="payout-retry-msg" style="display:none"></div>' +
+    "</div>";
+}
+
+function ratesRowHtml(row) {
+  var editing = rmState.editingId === row.id;
+  return "<tr" + (editing ? ' style="background:var(--bg)"' : "") + ">" +
+    "<td>" + esc(row.fiat) + "</td>" +
+    "<td>" + rmSideLabel(row.side) + "</td>" +
+    "<td>" + esc(String(row.cryptos).split(",").join(", ")) + "</td>" +
+    '<td style="font-variant-numeric:tabular-nums">' + esc(String(row.markupBps)) + ' bps <span class="muted">(' + rmPct(row.markupBps) + ")</span></td>" +
+    "<td>" + (row.updatedBy ? esc(row.updatedBy) : '<span class="muted">—</span>') + "</td>" +
+    '<td class="muted">' + esc(new Date(row.updatedAt).toLocaleString()) + "</td>" +
+    '<td style="white-space:nowrap"><button type="button" class="ghost rm-edit-btn" data-id="' + esc(row.id) + '">Edit</button> ' +
+    '<button type="button" class="danger rm-delete-btn" data-id="' + esc(row.id) + '">Delete</button></td>' +
+    "</tr>";
+}
+
+function renderRates() {
+  var el = $("rmResults");
+  if (state.view !== "rates") { el.style.display = "none"; return; }
+  var editing = rmState.editingId
+    ? rmState.items.filter(function (r) { return r.id === rmState.editingId; })[0] || null
+    : null;
+  if (!editing) rmState.editingId = null;
+  var status = rmState.pricingSource === "database"
+    ? '<div class="muted" style="margin-bottom:8px">The server that answered last loaded these rows at ' + esc(new Date(rmState.pricingLoadedAt).toLocaleString()) + ". Other servers pick up changes within 30 seconds.</div>"
+    : '<div class="notice" style="margin-bottom:8px">This server has not loaded the table yet and is pricing from the built-in defaults. It retries every 30 seconds.</div>';
+  var table = rmState.items.length
+    ? "<table><thead><tr><th>Currency</th><th>Direction</th><th>Applies to</th><th>Markup</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>" +
+      rmState.items.map(ratesRowHtml).join("") +
+      "</tbody></table>"
+    : '<div class="biz-results-empty">No markups configured. Every pair uses the currency-api B2B rate.</div>';
+  el.innerHTML = ratesFormHtml(editing) + status + table;
+  el.style.display = "block";
+  restorePasscodeField();
+  if (rmState.msg) { showRmMsg(rmState.msg.text, rmState.msg.kind); rmState.msg = null; }
+}
+
+function showRmMsg(text, kind) {
+  var el = $("rmMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.className = "payout-retry-msg" + (kind ? " " + kind : "");
+  el.textContent = text || "";
+}
+
+function startRatesEdit(id) {
+  rmState.editingId = id;
+  renderRates();
+  var bpsEl = $("rmBps");
+  if (bpsEl) { bpsEl.focus(); bpsEl.select(); }
+}
+
+async function saveRate() {
+  var fiat = ($("rmFiat") ? $("rmFiat").value : "").trim().toUpperCase();
+  var side = $("rmSide") ? $("rmSide").value : "sell";
+  var cryptos = Array.prototype.slice.call(document.querySelectorAll(".rm-crypto:checked")).map(function (c) { return c.value; });
+  var bpsRaw = ($("rmBps") ? $("rmBps").value : "").trim();
+  var bps = Number(bpsRaw);
+  var actor = ($("rmActor") ? $("rmActor").value : "").trim();
+  var secret = ($("rmPasscode") ? $("rmPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
+  if (!/^[A-Z]{3}$/.test(fiat)) { showRmMsg("Enter a 3-letter currency, e.g. EUR.", "bad"); return; }
+  if (!cryptos.length) { showRmMsg("Tick at least one of USD, USDT, USDC.", "bad"); return; }
+  if (bpsRaw === "" || !isFinite(bps) || bps < 0 || bps > rmState.maxBps) { showRmMsg("Enter a markup between 0 and " + rmState.maxBps + " bps.", "bad"); return; }
+  if (!secret) { showRmMsg("Enter the dashboard passcode, then save.", "bad"); return; }
+  var current = rmState.items.filter(function (r) { return r.fiat === fiat && r.side === side; })[0];
+  var from = current ? current.markupBps + " bps" : "none";
+  if (!confirm("Set " + fiat + " " + rmSideLabel(side).toLowerCase() + " markup from " + from + " to " + bps + " bps (" + rmPct(bps) + ")? New quotes will use it.")) return;
+  sessionStorage.setItem("dashSecret", secret);
+  var btn = $("rmSave");
+  setBtnLoading(btn, true, "Saving");
+  showRmMsg("Saving…", "info");
+  try {
+    await api("/pair-markups", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ fiat: fiat, side: side, cryptos: cryptos, markupBps: bps, actor: actor || undefined, secret: secret })
+    });
+    rmState.editingId = null;
+    rmState.msg = { text: "Saved " + fiat + " " + rmSideLabel(side).toLowerCase() + " at " + bps + " bps (" + rmPct(bps) + ").", kind: "ok" };
+    await loadRates();
+  } catch (err) {
+    setBtnLoading(btn, false);
+    if (err.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      showRmMsg("Incorrect passcode — try again.", "bad");
+      return;
+    }
+    showRmMsg(err.message || "Save failed", "bad");
+  }
+}
+
+async function deleteRate(id) {
+  var row = rmState.items.filter(function (r) { return r.id === id; })[0];
+  if (!row) return;
+  var label = row.fiat + " " + rmSideLabel(row.side).toLowerCase();
+  if (!confirm("Remove the " + label + " markup (" + row.markupBps + " bps)? New quotes for this pair will use the currency-api B2B rate.")) return;
+  var secret = ($("rmPasscode") ? $("rmPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
+  if (!secret) { showRmMsg("Enter the dashboard passcode, then delete.", "bad"); if ($("rmPasscode")) $("rmPasscode").focus(); return; }
+  var actor = ($("rmActor") ? $("rmActor").value : "").trim();
+  sessionStorage.setItem("dashSecret", secret);
+  showRmMsg("Removing…", "info");
+  try {
+    await api("/pair-markups/" + encodeURIComponent(id), {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ actor: actor || undefined, secret: secret })
+    });
+    if (rmState.editingId === id) rmState.editingId = null;
+    rmState.msg = { text: "Removed " + label + ".", kind: "ok" };
+    await loadRates();
+  } catch (err) {
+    if (err.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      showRmMsg("Incorrect passcode — try again.", "bad");
+      return;
+    }
+    showRmMsg(err.message || "Delete failed", "bad");
+  }
+}
+
+$("rmReload").addEventListener("click", function () { loadRates(); });
+$("rmResults").addEventListener("click", function (e) {
+  if (e.target.closest("#rmSave")) { saveRate(); return; }
+  if (e.target.closest("#rmCancelEdit")) { rmState.editingId = null; renderRates(); return; }
+  var editBtn = e.target.closest(".rm-edit-btn");
+  if (editBtn) { startRatesEdit(editBtn.dataset.id); return; }
+  var delBtn = e.target.closest(".rm-delete-btn");
+  if (delBtn) { deleteRate(delBtn.dataset.id); return; }
+});
+$("rmResults").addEventListener("input", function (e) {
+  if (e.target && e.target.id === "rmBps" && $("rmPctPreview")) {
+    var v = e.target.value.trim();
+    $("rmPctPreview").textContent = v === "" ? "100 bps = 1%" : "= " + rmPct(v);
+  }
+});
+$("rmResults").addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && e.target && (e.target.id === "rmBps" || e.target.id === "rmPasscode")) { e.preventDefault(); saveRate(); }
+});
+
 document.querySelectorAll(".tab").forEach(function (el) {
   el.addEventListener("click", function () {
     document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
@@ -2033,17 +2234,24 @@ document.querySelectorAll(".tab").forEach(function (el) {
     var isBusinesses = state.view === "businesses";
     var isDakota = state.view === "dakota";
     var isSenderInfo = state.view === "senderinfo";
-    var hideTxns = isBusinesses || isDakota || isSenderInfo;
+    var isRates = state.view === "rates";
+    var hideTxns = isBusinesses || isDakota || isSenderInfo || isRates;
     $("txnToolbar").style.display = hideTxns ? "none" : "flex";
     $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
     $("dakToolbar").style.display = isDakota ? "flex" : "none";
     $("siToolbar").style.display = isSenderInfo ? "flex" : "none";
+    $("rmToolbar").style.display = isRates ? "flex" : "none";
     $("txnTable").style.display = hideTxns ? "none" : "table";
     $("txnMoreWrap").style.display = hideTxns ? "none" : "block";
     $("more").style.display = "none";
     $("bizResults").style.display = isBusinesses ? "block" : "none";
     $("dakResults").style.display = isDakota ? "block" : "none";
     $("siResults").style.display = isSenderInfo ? "block" : "none";
+    $("rmResults").style.display = isRates ? "block" : "none";
+    if (isRates) {
+      loadRates();
+      return;
+    }
     if (isSenderInfo) {
       loadSenderInfo();
       return;
