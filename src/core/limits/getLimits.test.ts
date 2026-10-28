@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { getLimits } from '@/core/limits/getLimits';
 
 describe('getLimits', () => {
-  it('advertises a GHS onramp rail without claiming offramp', () => {
+  it('advertises GHS onramp and offramp rails', () => {
     const ghs = getLimits().rails.find((r) => r.rail === 'GHS');
     expect(ghs).toMatchObject({
       rail: 'GHS',
@@ -17,7 +17,13 @@ describe('getLimits', () => {
       dailyLimit: '600000',
       monthlyLimit: '6000000',
     });
-    expect(ghs?.offramp).toBeUndefined();
+    expect(ghs?.offramp).toEqual({
+      minAmount: '100',
+      maxAmount: '1000000',
+      currency: 'GHS',
+      dailyLimit: '600000',
+      monthlyLimit: '6000000',
+    });
   });
 
   it('advertises a JPY offramp rail without claiming onramp', () => {
