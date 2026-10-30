@@ -211,6 +211,52 @@ export async function updateOfframpStatus(
   return row as OfframpRow | null;
 }
 
+/** Offramps of this business still waiting for crypto at `address` (fiat-to-fiat pairing). */
+export async function findOpenOfframpsByDepositAddress(
+  userId: string,
+  address: string
+): Promise<OfframpRow[]> {
+  const rows = await prisma.offramp.findMany({
+    where: {
+      userId,
+      status: { in: ['AWAITING_CRYPTO', 'CRYPTO_PENDING'] },
+      depositInstructions: { path: ['address'], equals: address },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  return rows as OfframpRow[];
+}
+
+/**
+ * Marks the offramp CRYPTO_CONFIRMED only while it is still in one of
+ * `fromStatuses`, so two writers cannot both fund it. Emits the partner
+ * webhook like updateOfframpStatus. Returns false when nothing was updated.
+ */
+export async function claimOfframpCrypto(
+  id: string,
+  fromStatuses: readonly OfframpStatus[],
+  updates: { timeline: object; providerRefs: object; receipt: object }
+): Promise<boolean> {
+  const existing = await prisma.offramp.findUnique({ where: { id } });
+  if (!existing || !fromStatuses.includes(String(existing.status) as OfframpStatus)) return false;
+  const mergedProviderRefs = { ...((existing.providerRefs as object) ?? {}), ...updates.providerRefs };
+  const res = await prisma.offramp.updateMany({
+    where: { id, status: { in: fromStatuses.map(toPrismaStatus) } },
+    data: {
+      status: 'CRYPTO_CONFIRMED',
+      timeline: updates.timeline,
+      providerRefs: mergedProviderRefs,
+      receipt: updates.receipt,
+      failedReason: null,
+    },
+  });
+  if (res.count !== 1) return false;
+  const row = await prisma.offramp.findUnique({ where: { id } });
+  const eventType = row ? shouldEmitRampEvent(existing.status, row.status, mapOfframpStatusToEvent) : null;
+  if (row && eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
+  return true;
+}
+
 export interface ListOfframpsParams {
   userId?: string;
   status?: OfframpStatus;

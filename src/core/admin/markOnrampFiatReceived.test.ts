@@ -30,6 +30,10 @@ vi.mock('@/services/palremitAdapters', () => ({
   createPalremitLiquidityAdapter: vi.fn(() => vi.fn()),
 }));
 
+vi.mock('@/core/fiatToFiat/settler', () => ({
+  createFiatToFiatSettler: vi.fn(() => vi.fn().mockResolvedValue(false)),
+}));
+
 vi.mock('@/db/repositories/offramp.repo', () => ({
   findOfframpById: vi.fn(),
   updateOfframpStatus: vi.fn(),
@@ -159,6 +163,7 @@ describe('markOnrampFiatReceived', () => {
     expect(advance).toHaveBeenCalledWith(
       expect.objectContaining({ findOnrampById: onrampRepo.findOnrampById }),
       'on1',
+      expect.any(Function),
       expect.any(Function)
     );
   });

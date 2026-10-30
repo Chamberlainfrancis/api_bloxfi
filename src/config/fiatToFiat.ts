@@ -29,6 +29,12 @@ export const FIAT_TO_FIAT_CONFIG = {
   offrampWindowMinutes: 26 * 60,
   /** Palremit's normal pair markup is multiplied by this in the flow (2 = double). */
   markupMultiplier: 2,
+  /**
+   * When the onramp's fiat lands, settle its crypto leg into the paired
+   * offramp internally instead of sending it on-chain to our own deposit
+   * address (core/fiatToFiat/internalSettlement.ts). false = always send.
+   */
+  internalSettlement: true,
 };
 
 export function isFiatToFiatFlow(flow: string | undefined | null): boolean {

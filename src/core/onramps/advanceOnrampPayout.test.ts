@@ -91,4 +91,31 @@ describe('advanceOnrampIfFiatProcessed', () => {
       })
     );
   });
+
+  it('skips the on-chain send when the fiat-to-fiat leg settles internally', async () => {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const findOnrampById = vi.fn().mockResolvedValue({ ...baseRow, status: 'FIAT_PROCESSED', quoteInformation: { flow: 'FIAT_TO_FIAT' } });
+    const execute = vi.fn();
+    const settle = vi.fn().mockResolvedValue(true);
+
+    await advanceOnrampIfFiatProcessed({ findOnrampById, updateOnrampStatus }, 'onramp-1', execute, settle);
+
+    expect(settle).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'onramp-1', status: 'FIAT_PROCESSED', quoteInformation: { flow: 'FIAT_TO_FIAT' } })
+    );
+    expect(execute).not.toHaveBeenCalled();
+    expect(updateOnrampStatus).not.toHaveBeenCalled();
+  });
+
+  it('sends on-chain as before when internal settlement declines', async () => {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const findOnrampById = vi.fn().mockResolvedValue({ ...baseRow, status: 'FIAT_PROCESSED' });
+    const execute = vi.fn().mockResolvedValue({ withdrawalId: 'w-1', rawWithdrawalRequest: {}, rawWithdrawalResponse: {} });
+    const settle = vi.fn().mockResolvedValue(false);
+
+    await advanceOnrampIfFiatProcessed({ findOnrampById, updateOnrampStatus }, 'onramp-1', execute, settle);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(updateOnrampStatus).toHaveBeenCalledWith('onramp-1', 'CRYPTO_INITIATED');
+  });
 });
