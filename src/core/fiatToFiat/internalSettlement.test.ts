@@ -187,6 +187,23 @@ describe('trySettleFiatToFiatInternally', () => {
     expect(d.claimOfframpCrypto).not.toHaveBeenCalled();
   });
 
+  it('uses the explicit destination.offrampId link instead of searching by address', async () => {
+    const findOfframpByTxnRef = vi.fn().mockResolvedValue(offramp());
+    const d = deps({ findOfframpByTxnRef });
+    const linked = onramp({ destination: { ...(onramp().destination as object), offrampId: 'OFF-184dbea0aeb86b5b605ba95a' } });
+    await expect(trySettleFiatToFiatInternally(d, linked)).resolves.toBe(true);
+    expect(findOfframpByTxnRef).toHaveBeenCalledWith('OFF-184dbea0aeb86b5b605ba95a');
+    expect(d.findOpenOfframpsByDepositAddress).not.toHaveBeenCalled();
+    expect(d.claimOfframpCrypto).toHaveBeenCalledWith('off-1', expect.anything(), expect.anything());
+  });
+
+  it('falls back to on-chain when the linked offramp no longer qualifies', async () => {
+    const d = deps({ findOfframpByTxnRef: vi.fn().mockResolvedValue(offramp({ status: 'EXPIRED' })) });
+    const linked = onramp({ destination: { ...(onramp().destination as object), offrampId: 'OFF-184dbea0aeb86b5b605ba95a' } });
+    await expect(trySettleFiatToFiatInternally(d, linked)).resolves.toBe(false);
+    expect(d.claimOfframpCrypto).not.toHaveBeenCalled();
+  });
+
   it('skips plain crypto onramps without looking anything up', async () => {
     const d = deps();
     await expect(trySettleFiatToFiatInternally(d, onramp({ quoteInformation: {} }))).resolves.toBe(false);

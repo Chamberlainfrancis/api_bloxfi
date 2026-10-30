@@ -132,7 +132,6 @@ export async function advanceOnrampIfFiatProcessed(
     !destination.userId ||
     !destination.currency ||
     !destination.chain ||
-    !destination.externalWalletId ||
     !destination.walletAddress ||
     !Number.isFinite(receiveNet)
   ) {
@@ -165,7 +164,7 @@ export async function advanceOnrampIfFiatProcessed(
           currency: destination.currency,
           chain: destination.chain,
           userId: destination.userId,
-          externalWalletId: destination.externalWalletId,
+          externalWalletId: destination.externalWalletId ?? '',
         },
         platformFee: {
           type: 'FLAT',

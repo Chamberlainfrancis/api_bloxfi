@@ -30,6 +30,8 @@ const createOnrampDestinationSchema = z.object({
   userld: z.string().uuid().optional(),
   externalWalletId: z.string().uuid().optional(),
   externalWalletld: z.string().uuid().optional(),
+  /** Fiat-to-fiat: the offramp (OFF- txnRef) whose deposit address this onramp pays. */
+  offrampId: z.string().trim().regex(/^OFF-[A-Za-z0-9]+$/, 'destination.offrampId must be an OFF- reference').optional(),
 });
 
 export const createOnrampBodySchema = z
@@ -71,11 +73,18 @@ export const createOnrampBodySchema = z
         message: 'destination.userId is required',
       });
     }
-    if (!val.destination.externalWalletId) {
+    if (!val.destination.externalWalletId && !val.destination.offrampId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['destination', 'externalWalletId'],
-        message: 'destination.externalWalletId is required',
+        message: 'destination.externalWalletId is required (or destination.offrampId in the fiat-to-fiat flow)',
+      });
+    }
+    if (val.destination.offrampId && !val.quoteId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destination', 'offrampId'],
+        message: 'destination.offrampId requires a fiat-to-fiat quoteId',
       });
     }
 

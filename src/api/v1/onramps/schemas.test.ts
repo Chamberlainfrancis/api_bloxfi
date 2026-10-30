@@ -203,3 +203,63 @@ describe('createOnrampQuoteBodySchema fiat-to-fiat flow', () => {
     expect(quote('NGN', 'OTHER').success).toBe(false);
   });
 });
+
+describe('createOnrampBodySchema destination.offrampId (fiat-to-fiat link)', () => {
+  const quoteBody = {
+    requestId: '11111111-1111-4111-8111-111111111111',
+    quoteId: '55555555-5555-4555-8555-555555555555',
+    source: { userId: '22222222-2222-4222-8222-222222222222' },
+    destination: { userId: '22222222-2222-4222-8222-222222222222' },
+  };
+
+  it('accepts offrampId instead of externalWalletId on a quoted onramp', () => {
+    const r = createOnrampBodySchema.safeParse({
+      ...quoteBody,
+      destination: { ...quoteBody.destination, offrampId: 'OFF-184dbea0aeb86b5b605ba95a' },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.destination.offrampId).toBe('OFF-184dbea0aeb86b5b605ba95a');
+      expect(r.data.destination.externalWalletId).toBeUndefined();
+    }
+  });
+
+  it('accepts both offrampId and externalWalletId', () => {
+    const r = createOnrampBodySchema.safeParse({
+      ...quoteBody,
+      destination: {
+        ...quoteBody.destination,
+        offrampId: 'OFF-184dbea0aeb86b5b605ba95a',
+        externalWalletId: '33333333-3333-4333-8333-333333333333',
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('still requires externalWalletId when offrampId is absent (current integrations)', () => {
+    const r = createOnrampBodySchema.safeParse(quoteBody);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('destination.externalWalletId');
+    }
+  });
+
+  it('rejects offrampId without a quoteId', () => {
+    const r = createOnrampBodySchema.safeParse({
+      ...baseBody,
+      destination: { ...baseBody.destination, offrampId: 'OFF-184dbea0aeb86b5b605ba95a' },
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.map((i) => i.path.join('.'))).toContain('destination.offrampId');
+    }
+  });
+
+  it('rejects a value that is not an OFF- reference', () => {
+    const r = createOnrampBodySchema.safeParse({
+      ...quoteBody,
+      destination: { ...quoteBody.destination, offrampId: 'ON-4b971078d973eea2be71dbfa' },
+    });
+    expect(r.success).toBe(false);
+  });
+});

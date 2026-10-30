@@ -40,6 +40,11 @@ import {
 } from '@/core/integrations/palremitOnramp';
 import type { AccountDepositDetails, AccountMetadata } from '@/types/account';
 import type { ResolvedSenderInfo } from '@/core/admin/senderInfo';
+import {
+  resolveOfframpLink,
+  type OfframpLink,
+  type OfframpLinkDeps,
+} from '@/core/fiatToFiat/offrampLink';
 
 export interface CreateOnrampOptions {
   getQuoteFromPalremit?: (
@@ -137,6 +142,8 @@ export interface CreateOnrampOptions {
   }) => Promise<PalremitWithdrawalFeeQuote | null>;
   /** When set, pricing is taken from the locked quote (POST /onramps/quotes). */
   lockedQuote?: OnrampQuoteSnapshot;
+  /** Lookups for destination.offrampId (fiat-to-fiat link). Required when it is sent. */
+  offrampLink?: OfframpLinkDeps;
   /**
    * Ops "sender info" setting for (onramp, deposit currency, transfer type).
    * When it matches, the payee name on the new onramp's deposit details is
@@ -363,8 +370,34 @@ export async function createOnramp(
   const approved = railStatuses.some((r) => r.status === 'approved');
   if (!approved) throw new Error('USER_NOT_KYB_VERIFIED');
 
-  const wallet = await walletRepo.findExternalWalletByIdAndUser(dest.externalWalletId, userId);
-  if (!wallet) throw new Error('WALLET_NOT_FOUND');
+  const wallet = dest.externalWalletId
+    ? await walletRepo.findExternalWalletByIdAndUser(dest.externalWalletId, userId)
+    : null;
+  if (dest.externalWalletId && !wallet) throw new Error('WALLET_NOT_FOUND');
+
+  // Fiat-to-fiat link: the offramp's deposit instructions become the crypto
+  // destination. Validated here, before the fiat deposit account is created.
+  let offrampLink: OfframpLink | null = null;
+  if (dest.offrampId) {
+    if (!options.offrampLink) throw new Error('OFFRAMP_LINK_UNAVAILABLE');
+    offrampLink = await resolveOfframpLink(options.offrampLink, {
+      offrampId: dest.offrampId,
+      userId,
+      quote: options.lockedQuote
+        ? {
+            flow: options.lockedQuote.flow,
+            toCurrency: options.lockedQuote.toCurrency,
+            destinationChain: options.lockedQuote.destinationChain,
+            receiveNet: options.lockedQuote.receiveNet,
+          }
+        : null,
+      walletAddress: wallet?.address ?? null,
+    });
+  } else if (!wallet) {
+    throw new Error('WALLET_NOT_FOUND');
+  }
+  const destinationAddress = offrampLink?.address ?? wallet!.address;
+  const destinationMemo = offrampLink ? offrampLink.memo : wallet!.memo;
 
   const destinationNetwork = options.lockedQuote
     ? options.lockedQuote.destinationChain
@@ -581,12 +614,13 @@ export async function createOnramp(
     userId,
     currency: toCurrency,
     chain: destinationNetwork,
-    walletAddress: wallet.address,
-    externalWalletId: dest.externalWalletId,
+    walletAddress: destinationAddress,
+    ...(dest.externalWalletId ? { externalWalletId: dest.externalWalletId } : {}),
+    ...(offrampLink ? { offrampId: offrampLink.offrampId } : {}),
     amount: receiveNet,
     user: userDisplayInfo,
-    ...(wallet.memo != null && wallet.memo.trim() !== ''
-      ? { memo: wallet.memo.trim() }
+    ...(destinationMemo != null && destinationMemo.trim() !== ''
+      ? { memo: destinationMemo.trim() }
       : {}),
   };
 
