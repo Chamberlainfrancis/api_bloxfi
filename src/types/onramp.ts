@@ -62,7 +62,10 @@ export interface OnrampDestination {
   walletAddress: string;
   /** Copied from external wallet when present; forwarded to LP crypto withdrawal `destination.memo`. */
   memo?: string;
-  externalWalletId: string;
+  /** Absent when the destination came from destination.offrampId. */
+  externalWalletId?: string;
+  /** Fiat-to-fiat: the offramp (OFF- txnRef) this onramp funds. */
+  offrampId?: string;
   amount: number;
   user?: {
     email: string;
@@ -203,7 +206,10 @@ export interface CreateOnrampDestinationInput {
   currency: string;
   chain: string;
   userId: string;
-  externalWalletId: string;
+  /** Required unless offrampId is given. */
+  externalWalletId?: string;
+  /** Fiat-to-fiat: pay this offramp's deposit address (OFF- txnRef). */
+  offrampId?: string;
 }
 
 export interface CreateOnrampRequest {

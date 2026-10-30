@@ -175,6 +175,28 @@ export async function updateOnrampStatus(
   return row as OnrampRow;
 }
 
+/**
+ * Onramps that can still fund this offramp: linked by destination.offrampId or
+ * paying its deposit address, and not expired or fiat-failed.
+ */
+export async function findLiveOnrampsForOfframp(
+  offrampTxnRef: string,
+  address: string
+): Promise<Array<{ txnRef: string | null }>> {
+  const rows = await prisma.onramp.findMany({
+    where: {
+      status: { notIn: ['EXPIRED', 'FIAT_FAILED', 'FIAT_RETURNED'] },
+      OR: [
+        { destination: { path: ['offrampId'], equals: offrampTxnRef } },
+        { destination: { path: ['walletAddress'], equals: address } },
+      ],
+    },
+    select: { txnRef: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return rows;
+}
+
 /** Writes `fees` only. Never changes status or emits a partner webhook. */
 export async function updateOnrampFees(id: string, fees: object): Promise<OnrampRow> {
   const row = await prisma.onramp.update({

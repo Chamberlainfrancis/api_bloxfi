@@ -18,6 +18,7 @@ export function createFiatToFiatSettler(palremitLiquidity: PalremitLiquidityRequ
     trySettleFiatToFiatInternally(
       {
         findOpenOfframpsByDepositAddress: offrampRepo.findOpenOfframpsByDepositAddress,
+        findOfframpByTxnRef: offrampRepo.findOfframpByTxnRef,
         claimOfframpCrypto: offrampRepo.claimOfframpCrypto,
         updateOnrampStatus: onrampRepo.updateOnrampStatus,
         afterOnrampCompleted: scheduleOnrampPlatformFeeSettlement,

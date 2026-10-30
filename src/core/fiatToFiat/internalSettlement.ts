@@ -50,6 +50,8 @@ export interface SettlementOfframp {
 
 export interface FiatToFiatSettlementDeps {
   findOpenOfframpsByDepositAddress(userId: string, address: string): Promise<SettlementOfframp[]>;
+  /** Used when the onramp names its offramp (destination.offrampId). */
+  findOfframpByTxnRef?(txnRef: string): Promise<SettlementOfframp | null>;
   /**
    * Moves the offramp to CRYPTO_CONFIRMED only if it is still in one of
    * `fromStatuses`. Returns false when another writer got there first.
@@ -83,7 +85,7 @@ function num(v: unknown): number | null {
 }
 
 /** EVM addresses are case-insensitive; Tron, Solana and others are not. */
-function sameAddress(a: string, b: string): boolean {
+export function sameAddress(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (/^0x[0-9a-f]{40}$/i.test(a) && /^0x[0-9a-f]{40}$/i.test(b)) return a.toLowerCase() === b.toLowerCase();
   return a === b;
@@ -139,7 +141,16 @@ export async function trySettleFiatToFiatInternally(
   if (!address) return false;
 
   const now = (deps.now ?? (() => new Date()))();
-  const candidates = await deps.findOpenOfframpsByDepositAddress(onramp.userId, address);
+  // An explicit link (destination.offrampId) names the one offramp; otherwise
+  // the deposit address does, since every offramp has its own.
+  const linkedRef = str(asRecord(onramp.destination).offrampId);
+  let candidates: SettlementOfframp[];
+  if (linkedRef && deps.findOfframpByTxnRef) {
+    const linked = await deps.findOfframpByTxnRef(linkedRef);
+    candidates = linked ? [linked] : [];
+  } else {
+    candidates = await deps.findOpenOfframpsByDepositAddress(onramp.userId, address);
+  }
   const reasons: string[] = [];
   const matches: { offramp: SettlementOfframp; amount: number }[] = [];
   for (const offramp of candidates) {

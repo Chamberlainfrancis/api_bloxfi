@@ -7,6 +7,7 @@ import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
 import * as onrampCore from '@/core/onramps';
 import * as onrampRepo from '@/db/repositories/onramp.repo';
+import * as offrampRepo from '@/db/repositories/offramp.repo';
 import * as userRepo from '@/db/repositories/user.repo';
 import * as walletRepo from '@/db/repositories/wallet.repo';
 import {
@@ -22,6 +23,7 @@ import {
   getPalremitConversionAmount,
 } from '@/core/integrations';
 import { createFiatToFiatSettler } from '@/core/fiatToFiat/settler';
+import { OfframpLinkError } from '@/core/fiatToFiat/offrampLink';
 import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 import { buildRampFeePreview } from '@/core/payments';
 import {
@@ -363,7 +365,8 @@ export async function createOnramp(
         },
         destination: {
           userId: parsed.data.destination.userId!,
-          externalWalletId: parsed.data.destination.externalWalletId!,
+          externalWalletId: parsed.data.destination.externalWalletId,
+          offrampId: parsed.data.destination.offrampId,
         },
         purposeOfPayment: parsed.data.purposeOfPayment,
       });
@@ -395,6 +398,10 @@ export async function createOnramp(
           getPalremitConversionAmount(palremitCurrency, from, 'USDC', amount),
         ...(lockedQuote ? { lockedQuote } : {}),
         resolveSenderInfo: (input) => resolveSenderInfoForTransfer(senderInfoRepo, input),
+        offrampLink: {
+          findOfframpByTxnRef: offrampRepo.findOfframpByTxnRef,
+          findLiveOnrampsForOfframp: onrampRepo.findLiveOnrampsForOfframp,
+        },
       }
     );
     if (parsed.data.quoteId) {
@@ -408,6 +415,11 @@ export async function createOnramp(
     }
     if (e instanceof Error && e.message === 'USER_NOT_KYB_VERIFIED') {
       next(new AppError('User not KYB verified for this currency', 'UNPROCESSABLE_ENTITY', 422));
+      return;
+    }
+    if (e instanceof OfframpLinkError) {
+      const status = e.code === 'NOT_FOUND' ? 404 : e.code === 'CONFLICT' ? 409 : 400;
+      next(new AppError(e.message, e.code, status, { field: 'destination.offrampId' }));
       return;
     }
     if (e instanceof Error && e.message === 'WALLET_NOT_FOUND') {

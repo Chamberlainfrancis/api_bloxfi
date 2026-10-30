@@ -118,4 +118,20 @@ describe('advanceOnrampIfFiatProcessed', () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(updateOnrampStatus).toHaveBeenCalledWith('onramp-1', 'CRYPTO_INITIATED');
   });
+
+  it('sends on-chain for an offramp-linked onramp that has no externalWalletId', async () => {
+    const updateOnrampStatus = vi.fn().mockResolvedValue({});
+    const { externalWalletId: _omit, ...destination } = baseRow.destination;
+    const findOnrampById = vi.fn().mockResolvedValue({
+      ...baseRow,
+      status: 'FIAT_PROCESSED',
+      destination: { ...destination, offrampId: 'OFF-abc' },
+    });
+    const execute = vi.fn().mockResolvedValue({ withdrawalId: 'w-1', rawWithdrawalRequest: {}, rawWithdrawalResponse: {} });
+
+    await advanceOnrampIfFiatProcessed({ findOnrampById, updateOnrampStatus }, 'onramp-1', execute, async () => false);
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]![3]).toBe('0xabc');
+  });
 });
