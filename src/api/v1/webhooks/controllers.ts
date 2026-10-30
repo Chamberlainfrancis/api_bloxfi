@@ -19,6 +19,7 @@ import {
   scheduleOnrampPlatformFeeSettlement,
 } from "@/core/onramps/triggerOnrampPlatformFeeSettlement";
 import { executePalremitOnrampCryptoWithdrawal } from "@/core/integrations";
+import { createFiatToFiatSettler } from "@/core/fiatToFiat/settler";
 import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import { logger } from "@/lib/logger";
 import * as userRepo from "@/db/repositories/user.repo";
@@ -36,6 +37,19 @@ import type { InboundWebhookPayload } from "@/types/webhook";
 const WEBHOOK_SIGNATURE_HEADER = "x-webhook-signature";
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
+const settleFiatToFiat = createFiatToFiatSettler(palremitLiquidity);
+
+async function advanceOfframpPayout(offrampId: string): Promise<void> {
+  await advanceOfframpIfDepositReady(
+    {
+      findOfframpById: offrampRepo.findOfframpById,
+      updateOfframpStatus: offrampRepo.updateOfframpStatus,
+    },
+    { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
+    palremitLiquidity,
+    offrampId,
+  );
+}
 
 const webhookRepos = {
   user: {
@@ -68,6 +82,7 @@ const webhookRepos = {
             txnRef,
             destMemo
           ),
+        settleFiatToFiat,
       );
     },
     afterOnrampCompleted: scheduleOnrampPlatformFeeSettlement,
@@ -89,17 +104,7 @@ const webhookRepos = {
     findOfframpById: offrampRepo.findOfframpById,
     findOfframpByTxnRef: offrampRepo.findOfframpByTxnRef,
     updateOfframpStatus: offrampRepo.updateOfframpStatus,
-    advanceOfframpAfterCryptoWebhook: async (offrampId: string) => {
-      await advanceOfframpIfDepositReady(
-        {
-          findOfframpById: offrampRepo.findOfframpById,
-          updateOfframpStatus: offrampRepo.updateOfframpStatus,
-        },
-        { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
-        palremitLiquidity,
-        offrampId,
-      );
-    },
+    advanceOfframpAfterCryptoWebhook: advanceOfframpPayout,
     afterOfframpCompleted: scheduleOfframpPlatformFeeSettlement,
     applyPlatformFeeWithdrawalWebhook: (
       parentTxnRef: string,

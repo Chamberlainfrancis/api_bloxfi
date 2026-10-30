@@ -21,6 +21,7 @@ import {
   fetchPalremitWithdrawalFeeQuote,
   getPalremitConversionAmount,
 } from '@/core/integrations';
+import { createFiatToFiatSettler } from '@/core/fiatToFiat/settler';
 import { GraphOnrampKycError } from '@/core/integrations/graphOnrampKyc';
 import { buildRampFeePreview } from '@/core/payments';
 import {
@@ -534,7 +535,8 @@ export async function getOnramp(
           destAddr,
           txnRef,
           destMemo
-        )
+        ),
+      createFiatToFiatSettler(palremitLiquidity)
     );
     const result = await onrampCore.getOnramp(repos.onramp, onrampId);
     if (!result) {

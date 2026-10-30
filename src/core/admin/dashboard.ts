@@ -622,6 +622,7 @@ export async function markOnrampFiatReceived(
     const { advanceOnrampIfFiatProcessed } = await import('@/core/onramps/advanceOnrampPayout');
     const { executePalremitOnrampCryptoWithdrawal } = await import('@/core/integrations');
     const { createPalremitLiquidityAdapter } = await import('@/services/palremitAdapters');
+    const { createFiatToFiatSettler } = await import('@/core/fiatToFiat/settler');
     const palremitLiquidity = createPalremitLiquidityAdapter();
     await advanceOnrampIfFiatProcessed(
       {
@@ -638,7 +639,8 @@ export async function markOnrampFiatReceived(
           destAddr,
           txnRef,
           destMemo
-        )
+        ),
+      createFiatToFiatSettler(palremitLiquidity)
     );
   } catch (e) {
     logger.error({ onrampId: params.id, err: e }, 'markOnrampFiatReceived advance failed');

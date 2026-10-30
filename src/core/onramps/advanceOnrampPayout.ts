@@ -20,6 +20,7 @@ export interface OnrampRepoAdvance {
     fees: unknown;
     receipt: unknown;
     providerRefs: unknown;
+    quoteInformation?: unknown;
   } | null>;
   updateOnrampStatus(
     id: string,
@@ -53,13 +54,41 @@ export interface ExecutePalremitOnrampWithdrawalFn {
   } | null>;
 }
 
+/**
+ * Fiat-to-fiat: settle the crypto leg into the paired offramp instead of
+ * sending it. Returns true when settled; the on-chain send is then skipped.
+ */
+export type SettleOnrampInternallyFn = (row: {
+  id: string;
+  userId: string;
+  txnRef: string | null;
+  status: string;
+  destination: unknown;
+  quoteInformation: unknown;
+  providerRefs: unknown;
+}) => Promise<boolean>;
+
 export async function advanceOnrampIfFiatProcessed(
   onrampRepo: OnrampRepoAdvance,
   onrampId: string,
-  executePalremitCryptoWithdrawal: ExecutePalremitOnrampWithdrawalFn
+  executePalremitCryptoWithdrawal: ExecutePalremitOnrampWithdrawalFn,
+  settleInternally?: SettleOnrampInternallyFn
 ): Promise<void> {
   const row = await onrampRepo.findOnrampById(onrampId);
   if (!row?.txnRef) return;
+
+  if (row.status === 'FIAT_PROCESSED' && settleInternally) {
+    const settled = await settleInternally({
+      id: row.id,
+      userId: row.userId,
+      txnRef: row.txnRef,
+      status: row.status,
+      destination: row.destination,
+      quoteInformation: row.quoteInformation ?? null,
+      providerRefs: row.providerRefs,
+    });
+    if (settled) return;
+  }
 
   const receipt = row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
     ? (row.receipt as Record<string, unknown>)
