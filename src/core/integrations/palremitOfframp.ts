@@ -281,9 +281,11 @@ function mergeOfframpExtrasIntoDestination(
       ? { ...(out.extras as Record<string, unknown>) }
       : {};
 
+  // The offramp's purpose wins over the one saved on the account; the account's
+  // stays only as a fallback (a stale SALARY on the account failed EUR payouts).
   if (purposeOfPayment?.trim()) {
     const pp = usdPalremitTransferPurposeSchema.safeParse(purposeOfPayment.trim());
-    if (pp.success && extras.transfer_purpose == null) {
+    if (pp.success) {
       extras.transfer_purpose = pp.data;
     }
   }

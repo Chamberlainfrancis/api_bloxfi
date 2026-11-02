@@ -115,6 +115,45 @@ describe('buildWithdrawalFromAccount', () => {
     });
   });
 
+  it('uses the offramp purposeOfPayment over the purpose saved on the account', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        ...providerPayout.destination,
+        extras: { transfer_purpose: 'SALARY', is_self_transfer: false },
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout: pp,
+      purposeOfPayment: 'ADVERTISING',
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toEqual({
+      transfer_purpose: 'ADVERTISING',
+      is_self_transfer: false,
+    });
+  });
+
+  it('keeps the account purpose when the offramp has none', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        ...providerPayout.destination,
+        extras: { transfer_purpose: 'SALARY', is_self_transfer: false },
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout: pp,
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toEqual({
+      transfer_purpose: 'SALARY',
+      is_self_transfer: false,
+    });
+  });
+
   it('returns null without providerPayout', () => {
     expect(
       buildWithdrawalFromAccount({
