@@ -196,6 +196,134 @@ function withdrawalClientReference(
   return typeof data.client_reference === 'string' ? data.client_reference.trim() : '';
 }
 
+type OfframpForWithdrawal = NonNullable<
+  Awaited<ReturnType<WebhookRepos['offramp']['findOfframpByTxnRef']>>
+>;
+
+function offrampTimeline(offramp: { timeline?: unknown }): Record<string, unknown> {
+  return offramp.timeline != null && typeof offramp.timeline === 'object' && !Array.isArray(offramp.timeline)
+    ? (offramp.timeline as Record<string, unknown>)
+    : {};
+}
+
+/** The withdrawal id this offramp expects, from providerRefs or the timeline. */
+function expectedFiatWithdrawalId(offramp: OfframpForWithdrawal): string {
+  const orch = getPalremitOrchestrator(offramp.providerRefs);
+  const fromOrch =
+    typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
+  if (fromOrch) return fromOrch;
+  const t = offrampTimeline(offramp);
+  return typeof t.fiatWithdrawalId === 'string' ? t.fiatWithdrawalId.trim() : '';
+}
+
+/**
+ * Marks a fiat offramp COMPLETED from an orchestrator withdrawal event.
+ * `funded`: the payout reached the provider and is funded (we have done our part).
+ * `paid`: the provider reported the payout paid out.
+ */
+async function completeFiatOfframpFromWithdrawal(
+  repos: WebhookRepos,
+  clientRef: string,
+  w: Record<string, unknown>,
+  d: Record<string, unknown>,
+  eventType: string,
+  stage: 'funded' | 'paid'
+): Promise<void> {
+  const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
+  if (!offramp) return;
+  const orch = getPalremitOrchestrator(offramp.providerRefs);
+  const wid = typeof w.id === 'string' ? w.id.trim() : '';
+  const expected = expectedFiatWithdrawalId(offramp);
+  if (expected && wid && expected !== wid) return;
+  const timeline = offrampTimeline(offramp);
+  const now = new Date().toISOString();
+
+  // Already completed when the payout was funded: record the final paid
+  // status only (same status, so no partner webhook and no second fee run).
+  if (offramp.status === 'COMPLETED') {
+    if (stage !== 'paid' || timeline.fiatWithdrawalCompleted === true) return;
+    await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
+      timeline: { ...timeline, fiatPaidAt: now, fiatWithdrawalCompleted: true } as object,
+      providerRefs: {
+        palremitOrchestrator: {
+          ...(orch ?? {}),
+          withdrawalStatus: 'successful',
+          rawWithdrawalSuccessfulPayload: d,
+        },
+      },
+    });
+    return;
+  }
+
+  // Include CRYPTO_CONFIRMED: fiat can move at the LP while our row never reached FIAT_*
+  // (e.g. advanceOfframpIfDepositReady returned early or LP lag vs DB).
+  // Include FAILED/FIAT_FAILED so a late LP event can recover a row the
+  // operator marked failed while the withdrawal was still in flight.
+  if (!['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED', 'FAILED', 'FIAT_FAILED'].includes(offramp.status)) {
+    return;
+  }
+  // Only recover terminal failure rows the operator marked manually while the
+  // LP withdrawal was still in flight, not genuine LP failures.
+  if (['FAILED', 'FIAT_FAILED'].includes(offramp.status) && orch?.markedManually !== true) {
+    return;
+  }
+
+  await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
+    failedReason: null,
+    receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
+    timeline: {
+      ...timeline,
+      completedAt: now,
+      fiatFundedAt: typeof timeline.fiatFundedAt === 'string' ? timeline.fiatFundedAt : now,
+      ...(stage === 'paid' ? { fiatPaidAt: now, fiatWithdrawalCompleted: true } : { completedOn: 'payout_funded' }),
+    } as object,
+    lpReference: wid || clientRef,
+    providerRefs: {
+      palremitOrchestrator: {
+        ...(orch ?? {}),
+        withdrawalStatus: stage === 'paid' ? 'successful' : 'funded',
+        ...(stage === 'paid' ? { rawWithdrawalSuccessfulPayload: d } : { rawWithdrawalFundedPayload: d }),
+      },
+    },
+  });
+  repos.offramp.afterOfframpCompleted?.(offramp.id);
+}
+
+/**
+ * The provider failed a payout after it was funded and the offramp was already
+ * COMPLETED. Keep the status (the partner was told it completed) but record the
+ * failure so ops can follow it up with the provider.
+ */
+async function recordFailureAfterFundedCompletion(
+  repos: WebhookRepos,
+  offramp: OfframpForWithdrawal,
+  w: Record<string, unknown>,
+  d: Record<string, unknown>,
+  reason: string
+): Promise<void> {
+  const orch = getPalremitOrchestrator(offramp.providerRefs);
+  const wid = typeof w.id === 'string' ? w.id.trim() : '';
+  const expected = expectedFiatWithdrawalId(offramp);
+  if (expected && wid && expected !== wid) return;
+  if (orch?.withdrawalStatus !== 'funded') return;
+  logger.error(
+    { offrampId: offramp.id, withdrawalId: wid || undefined, reason },
+    'provider failed a fiat payout after it was funded; offramp stays COMPLETED, follow up with the provider'
+  );
+  const timeline = offrampTimeline(offramp);
+  await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
+    timeline: { ...timeline, fiatFailedAfterFundingAt: new Date().toISOString() } as object,
+    providerRefs: {
+      palremitOrchestrator: {
+        ...(orch ?? {}),
+        withdrawalStatus: 'failed_after_funding',
+        failedAfterFundingReason: reason,
+        rawWithdrawalFailedPayload: d,
+      },
+    },
+  });
+}
+
 async function applyFiatDepositAccountIssuanceWebhook(
   repos: WebhookRepos,
   params: {
@@ -489,56 +617,28 @@ export async function processWebhookEvent(
 
       if (isOfframpTxnRef(clientRef)) {
         if (wmode !== 'FIAT_WITHDRAWAL') break;
-        const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
-        if (!offramp) break;
-        // Include CRYPTO_CONFIRMED: fiat can succeed at LP while our row never reached FIAT_*
-        // (e.g. advanceOfframpIfDepositReady returned early or LP lag vs DB).
-        // Include FAILED/FIAT_FAILED so a late LP success webhook can recover a row
-        // the operator marked failed while the withdrawal was still in flight.
-        if (
-          !['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED', 'FAILED', 'FIAT_FAILED'].includes(
-            offramp.status
-          )
-        ) {
-          break;
-        }
-        const orch = getPalremitOrchestrator(offramp.providerRefs);
-        // Only recover terminal failure rows the operator marked manually while the
-        // LP withdrawal was still in flight — not genuine LP failures.
-        if (['FAILED', 'FIAT_FAILED'].includes(offramp.status) && orch?.markedManually !== true) {
-          break;
-        }
-        const wid = typeof w.id === 'string' ? w.id.trim() : '';
-        const expectedWid =
-          typeof orch?.palremitWithdrawalId === 'string' ? orch.palremitWithdrawalId.trim() : '';
-        const timeline =
-          offramp.timeline != null && typeof offramp.timeline === 'object' && !Array.isArray(offramp.timeline)
-            ? (offramp.timeline as Record<string, unknown>)
-            : {};
-        const timelineWd =
-          typeof timeline.fiatWithdrawalId === 'string' ? timeline.fiatWithdrawalId.trim() : '';
-        const expectedFromDb = expectedWid || timelineWd;
-        if (expectedFromDb && wid && expectedFromDb !== wid) break;
-
-        await repos.offramp.updateOfframpStatus(offramp.id, 'COMPLETED', {
-          failedReason: null,
-          receipt: { provider: 'palremit', eventType, withdrawal: w } as object,
-          timeline: {
-            ...timeline,
-            completedAt: new Date().toISOString(),
-            fiatWithdrawalCompleted: true,
-          } as object,
-          lpReference: wid || clientRef,
-          providerRefs: {
-            palremitOrchestrator: {
-              ...(orch ?? {}),
-              withdrawalStatus: 'successful',
-              rawWithdrawalSuccessfulPayload: d,
-            },
-          },
-        });
-        repos.offramp.afterOfframpCompleted?.(offramp.id);
+        await completeFiatOfframpFromWithdrawal(repos, clientRef, w, d, eventType, 'paid');
       }
+      break;
+    }
+
+    // The orchestrator handed the payout to the provider and funded it (for
+    // OwlPay: transfer created and the USDC funding sent; for prefunded
+    // providers: the provider accepted the payout against our balance). From
+    // here the rest is on the provider, so the offramp is COMPLETED for the
+    // partner. A later withdrawal.successful only records the final paid
+    // status; a later withdrawal.failed is recorded without reopening the row.
+    case 'withdrawal.funded': {
+      const withdrawalObj = d.withdrawal;
+      if (withdrawalObj == null || typeof withdrawalObj !== 'object' || Array.isArray(withdrawalObj)) {
+        break;
+      }
+      const w = withdrawalObj as Record<string, unknown>;
+      const clientRef = withdrawalClientReference(w, d);
+      const wmode = typeof w.mode === 'string' ? w.mode.trim() : '';
+      if (!clientRef || !isOfframpTxnRef(clientRef)) break;
+      if (wmode !== 'FIAT_WITHDRAWAL') break;
+      await completeFiatOfframpFromWithdrawal(repos, clientRef, w, d, eventType, 'funded');
       break;
     }
 
@@ -625,6 +725,10 @@ export async function processWebhookEvent(
         if (wmode !== 'FIAT_WITHDRAWAL') break;
         const offramp = await repos.offramp.findOfframpByTxnRef(clientRef);
         if (!offramp) break;
+        if (offramp.status === 'COMPLETED') {
+          await recordFailureAfterFundedCompletion(repos, offramp, w, d, reason);
+          break;
+        }
         if (!['FIAT_PENDING', 'FIAT_INITIATED', 'CRYPTO_CONFIRMED'].includes(offramp.status)) break;
         const orch = getPalremitOrchestrator(offramp.providerRefs);
         const wid = typeof w.id === 'string' ? w.id.trim() : '';

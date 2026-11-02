@@ -3,6 +3,7 @@ import { z } from 'zod';
 /** Palremit Liquidity Orchestrator `event_type` (webhooks-outbound). */
 export const palremitLiquidityWebhookEventTypeSchema = z.enum([
   'deposit.credited',
+  'withdrawal.funded',
   'withdrawal.successful',
   'withdrawal.failed',
   'provisioned_account.active',

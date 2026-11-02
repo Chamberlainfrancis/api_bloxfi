@@ -461,3 +461,120 @@ describe('processWebhookEvent offramp withdrawal.successful (fiat)', () => {
     expect(afterOfframpCompleted).not.toHaveBeenCalled();
   });
 });
+
+describe('processWebhookEvent offramp withdrawal.funded (fiat)', () => {
+  function fundedOfframp(overrides?: {
+    status?: string;
+    orch?: Record<string, unknown>;
+    timeline?: Record<string, unknown>;
+  }) {
+    return {
+      id: 'offramp-1',
+      status: overrides?.status ?? 'FIAT_PENDING',
+      txnRef: TXN_REF,
+      providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-fiat-1', ...(overrides?.orch ?? {}) } },
+      source: {},
+      depositInstructions: null,
+      timeline: overrides?.timeline ?? { fiatWithdrawalId: 'wd-fiat-1' },
+      rateInformation: {},
+    };
+  }
+
+  function repos(offramp: ReturnType<typeof fundedOfframp>) {
+    const updateOfframpStatus = vi.fn().mockResolvedValue({});
+    const afterOfframpCompleted = vi.fn();
+    return {
+      updateOfframpStatus,
+      afterOfframpCompleted,
+      repos: {
+        ...emptyRepos,
+        offramp: {
+          findOfframpById: vi.fn(),
+          findOfframpByTxnRef: vi.fn().mockResolvedValue(offramp),
+          updateOfframpStatus,
+          afterOfframpCompleted,
+        },
+      },
+    };
+  }
+
+  function event(eventType: string, withdrawal: Record<string, unknown>) {
+    return {
+      eventId: `evt-${eventType}`,
+      eventType,
+      timestamp: new Date().toISOString(),
+      data: { withdrawal: { id: 'wd-fiat-1', client_reference: TXN_REF, mode: 'FIAT_WITHDRAWAL', ...withdrawal } },
+    };
+  }
+
+  it('marks the offramp COMPLETED once the payout is funded at the provider', async () => {
+    const r = repos(fundedOfframp());
+    await processWebhookEvent(r.repos, event('withdrawal.funded', { state: 'processing' }));
+
+    expect(r.updateOfframpStatus).toHaveBeenCalledTimes(1);
+    const [id, status, updates] = r.updateOfframpStatus.mock.calls[0];
+    expect(id).toBe('offramp-1');
+    expect(status).toBe('COMPLETED');
+    expect(updates.timeline.completedOn).toBe('payout_funded');
+    expect(updates.timeline.fiatFundedAt).toEqual(expect.any(String));
+    expect(updates.timeline.fiatWithdrawalCompleted).toBeUndefined();
+    expect(updates.providerRefs.palremitOrchestrator.withdrawalStatus).toBe('funded');
+    expect(r.afterOfframpCompleted).toHaveBeenCalledWith('offramp-1');
+  });
+
+  it('ignores a funded event for a different withdrawal id', async () => {
+    const r = repos(fundedOfframp());
+    await processWebhookEvent(r.repos, event('withdrawal.funded', { id: 'wd-other' }));
+    expect(r.updateOfframpStatus).not.toHaveBeenCalled();
+  });
+
+  it('ignores a funded event for crypto withdrawals', async () => {
+    const r = repos(fundedOfframp());
+    await processWebhookEvent(r.repos, event('withdrawal.funded', { mode: 'CRYPTO_WITHDRAWAL' }));
+    expect(r.updateOfframpStatus).not.toHaveBeenCalled();
+  });
+
+  it('records the later paid event without re-running completion hooks', async () => {
+    const r = repos(
+      fundedOfframp({
+        status: 'COMPLETED',
+        orch: { withdrawalStatus: 'funded' },
+        timeline: { fiatWithdrawalId: 'wd-fiat-1', completedOn: 'payout_funded' },
+      })
+    );
+    await processWebhookEvent(r.repos, event('withdrawal.successful', { state: 'successful' }));
+
+    expect(r.updateOfframpStatus).toHaveBeenCalledTimes(1);
+    const [, status, updates] = r.updateOfframpStatus.mock.calls[0];
+    expect(status).toBe('COMPLETED');
+    expect(updates.timeline.fiatWithdrawalCompleted).toBe(true);
+    expect(updates.providerRefs.palremitOrchestrator.withdrawalStatus).toBe('successful');
+    expect(r.afterOfframpCompleted).not.toHaveBeenCalled();
+  });
+
+  it('records a provider failure after funding but keeps the offramp COMPLETED', async () => {
+    const r = repos(
+      fundedOfframp({
+        status: 'COMPLETED',
+        orch: { withdrawalStatus: 'funded' },
+        timeline: { fiatWithdrawalId: 'wd-fiat-1', completedOn: 'payout_funded' },
+      })
+    );
+    await processWebhookEvent(
+      r.repos,
+      event('withdrawal.failed', { state: 'failed', failure_reason: { message: 'Bank rejected' } })
+    );
+
+    expect(r.updateOfframpStatus).toHaveBeenCalledTimes(1);
+    const [, status, updates] = r.updateOfframpStatus.mock.calls[0];
+    expect(status).toBe('COMPLETED');
+    expect(updates.providerRefs.palremitOrchestrator.withdrawalStatus).toBe('failed_after_funding');
+    expect(updates.providerRefs.palremitOrchestrator.failedAfterFundingReason).toBe('Bank rejected');
+  });
+
+  it('leaves an offramp completed the normal way alone when a late failure arrives', async () => {
+    const r = repos(fundedOfframp({ status: 'COMPLETED', orch: { withdrawalStatus: 'successful' } }));
+    await processWebhookEvent(r.repos, event('withdrawal.failed', { state: 'failed' }));
+    expect(r.updateOfframpStatus).not.toHaveBeenCalled();
+  });
+});
