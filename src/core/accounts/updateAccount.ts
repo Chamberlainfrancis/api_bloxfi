@@ -2,6 +2,7 @@
  * Core: update offramp payout account destination (partial merge + live corridor re-validation).
  */
 
+import type { PurposePolicy } from '@/core/payoutPurposes';
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import { mergePalremitDestination } from '@/core/accounts/mergePalremitDestination';
 import {
@@ -27,6 +28,8 @@ export interface AccountRepoUpdate {
 
 export interface UpdateAccountOptions {
   palremitLiquidityRequest: PalremitLiquidityRequestFn;
+  /** Business's purpose policy (self transfers allowed by ops or not). */
+  purposePolicy?: PurposePolicy;
 }
 
 export async function updateAccount(
@@ -54,7 +57,8 @@ export async function updateAccount(
     providerPayout = await buildValidatedProviderPayout(
       options.palremitLiquidityRequest,
       existing.corridor,
-      mergedDestination
+      mergedDestination,
+      options.purposePolicy
     );
   } catch (e) {
     rethrowPalremitCorridorError(e);

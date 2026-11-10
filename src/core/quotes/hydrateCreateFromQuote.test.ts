@@ -75,4 +75,12 @@ describe('validateUsdOfframpMetadata', () => {
     expect(validateUsdOfframpMetadata('eur', 'SALARY', undefined)).toMatch(/SALARY/);
     expect(validateUsdOfframpMetadata('aud', 'TRANSFER_TO_OWN_ACCOUNT', undefined)).not.toBeNull();
   });
+
+  it('allows self transfers for a business ops allowed, never SALARY', () => {
+    const allowed = { allowSelfTransfer: true };
+    expect(
+      validateUsdOfframpMetadata('usd', 'TRANSFER_TO_OWN_ACCOUNT', { isSelfTransfer: true }, allowed)
+    ).toBeNull();
+    expect(validateUsdOfframpMetadata('eur', 'SALARY', undefined, allowed)).not.toBeNull();
+  });
 });

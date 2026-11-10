@@ -3,7 +3,12 @@
 This applies to offramp payout accounts (`POST /api/v1/accounts`, `PUT /api/v1/accounts/:id`)
 and offramps (`POST /api/v1/offramps`).
 
-## Self transfers are not supported
+## Self transfers are off by default
+
+Palremit can turn self transfers on for a specific business. When that is on, pass
+`userId` to `GET /api/v1/payout-corridors/requirements` to see `extras.is_self_transfer`
+and `TRANSFER_TO_OWN_ACCOUNT`, and the rules below do not apply to that business.
+For every other business:
 
 - `GET /api/v1/payout-corridors/requirements` no longer returns an `extras.is_self_transfer` field,
   and `destinationTemplate` no longer contains it.
@@ -19,7 +24,8 @@ Use the values in the `extras.transfer_purpose` enum returned by
 `destination.extras.transfer_purpose` on the account, or `destination.purposeOfPayment` on the
 offramp (the offramp's purpose wins over the account's).
 
-`SALARY` and `TRANSFER_TO_OWN_ACCOUNT` are not accepted on accounts or offramps (**400**).
+`SALARY` is never accepted, and `TRANSFER_TO_OWN_ACCOUNT` is only accepted for businesses with
+self transfers turned on (**400** otherwise).
 
 These business purposes are available on every corridor that offers the matching provider purpose:
 

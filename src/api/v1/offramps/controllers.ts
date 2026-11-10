@@ -8,6 +8,7 @@ import { AppError } from '@/types';
 import * as offrampCore from '@/core/offramps';
 import * as offrampRepo from '@/db/repositories/offramp.repo';
 import * as userRepo from '@/db/repositories/user.repo';
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import * as accountRepo from '@/db/repositories/account.repo';
 import * as walletRepo from '@/db/repositories/wallet.repo';
 import {
@@ -351,10 +352,12 @@ export async function createOfframp(
       next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
       return;
     }
+    const offrampUser = await userRepo.findUserById(parsed.data.destination.userId!);
     const usdErr = validateUsdOfframpMetadata(
       snapshot.toCurrency,
       parsed.data.destination.purposeOfPayment,
-      parsed.data.metadata
+      parsed.data.metadata,
+      purposePolicyForUser(offrampUser)
     );
     if (usdErr) {
       next(validationError(usdErr, { metadata: usdErr }));

@@ -60,6 +60,7 @@ describe('searchBusinesses', () => {
         kybStatus: 'approved',
         createdAt: '2026-01-01T00:00:00.000Z',
         lastTransactedAt: null,
+        allowSelfTransfer: false,
       },
     ]);
     const req = { query: { q: 'acme' } } as unknown as Request;
@@ -81,6 +82,7 @@ describe('searchBusinesses', () => {
             kybStatus: 'approved',
             createdAt: '2026-01-01T00:00:00.000Z',
             lastTransactedAt: null,
+            allowSelfTransfer: false,
           },
         ],
       },
@@ -108,6 +110,7 @@ describe('listBusinesses', () => {
           kybStatus: 'approved',
           createdAt: '2026-01-01T00:00:00.000Z',
           lastTransactedAt: '2026-06-15T10:00:00.000Z',
+          allowSelfTransfer: false,
         },
       ],
       nextCursor,
@@ -138,6 +141,7 @@ describe('listBusinesses', () => {
             kybStatus: 'approved',
             createdAt: '2026-01-01T00:00:00.000Z',
             lastTransactedAt: '2026-06-15T10:00:00.000Z',
+            allowSelfTransfer: false,
             providers: { owlpay: 'custom', yativo: 'inactive', swipelux: 'inactive' },
           },
         ],
@@ -175,6 +179,22 @@ describe('patchUserMetadata', () => {
       data: { ok: true },
     });
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('patches only allowSelfTransfer when that is the only flag sent', async () => {
+    mockedMergeUserMetadata.mockResolvedValue(undefined);
+    const req = {
+      params: { userId: 'user_789' },
+      body: { allowSelfTransfer: true },
+      headers: { 'x-dashboard-secret': 'pr2026' },
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+
+    await patchUserMetadata(req, res, next);
+
+    expect(mockedMergeUserMetadata).toHaveBeenCalledWith('user_789', { allowSelfTransfer: true });
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('accepts passcode via x-dashboard-secret header', async () => {

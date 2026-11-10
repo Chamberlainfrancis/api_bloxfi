@@ -8,7 +8,12 @@ import { getPalremitWithdrawalCorridorDetail } from '@/core/integrations/palremi
 import { validateDestinationAgainstCorridorFields } from '@/core/integrations/palremitCorridorValidate';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import type { PayoutCorridor, ProviderPayout } from '@/types/account';
-import { applyPurposePolicyToFields, destinationPurposeErrors } from '@/core/payoutPurposes';
+import {
+  applyPurposePolicyToFields,
+  DEFAULT_PURPOSE_POLICY,
+  destinationPurposeErrors,
+  type PurposePolicy,
+} from '@/core/payoutPurposes';
 
 export function ensureBeneficiaryType(
   destination: Record<string, unknown>,
@@ -26,7 +31,8 @@ export function ensureBeneficiaryType(
 export async function buildValidatedProviderPayout(
   liquidityRequest: PalremitLiquidityRequestFn,
   corridor: PayoutCorridor,
-  destinationInput: Record<string, unknown>
+  destinationInput: Record<string, unknown>,
+  policy: PurposePolicy = DEFAULT_PURPOSE_POLICY
 ): Promise<ProviderPayout> {
   const destination = normalizePalremitDestination({ ...destinationInput });
   ensureBeneficiaryType(destination, corridor.beneficiaryType);
@@ -40,9 +46,9 @@ export async function buildValidatedProviderPayout(
 
   const validation = validateDestinationAgainstCorridorFields(
     destination,
-    applyPurposePolicyToFields(detail.destination_fields)
+    applyPurposePolicyToFields(detail.destination_fields, policy)
   );
-  const errors = [...destinationPurposeErrors(destination), ...validation.errors];
+  const errors = [...destinationPurposeErrors(destination, policy), ...validation.errors];
   if (errors.length > 0) {
     const msg = errors.map((e) => `${e.path}: ${e.message}`).join('; ');
     throw new Error(`INVALID_ACCOUNT: ${msg}`);

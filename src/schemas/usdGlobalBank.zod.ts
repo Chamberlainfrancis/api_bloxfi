@@ -11,13 +11,11 @@ export const usdPalremitTransferPurposeSchema = z
   .regex(/^[A-Z][A-Z0-9_]*$/, 'must be UPPER_SNAKE (e.g. FAMILY_MAINTENANCE)');
 
 /**
- * Per-offramp metadata. Self transfers are not offered: **`isSelfTransfer`** is optional
- * and may only be `false` (Palremit always receives `extras.is_self_transfer: false`).
+ * Per-offramp metadata. **`isSelfTransfer`** is optional; `true` is only accepted for
+ * businesses ops allowed to self-transfer (checked in validateUsdOfframpMetadata).
  */
 export const usdOfframpOptionalMetadataSchema = z
   .object({
-    isSelfTransfer: z
-      .literal(false, { errorMap: () => ({ message: 'self transfers are not supported' }) })
-      .optional(),
+    isSelfTransfer: z.boolean().optional(),
   })
   .passthrough();

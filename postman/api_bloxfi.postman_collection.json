@@ -867,7 +867,7 @@
     },
     {
       "name": "Accounts",
-      "description": "**Offramp payout bank accounts** (fiat destination). All accounts use **`corridor`** + snake_case **`destination`** (stored as **`providerPayout`**). Run **Payout corridors** before **Create Account (offramp)**. Use **`accountId`** in **Create Offramp**. Optional per-transfer **`destination.purposeOfPayment`** when not in account `destination.extras`. Self transfers are not supported: omit `is_self_transfer` (or send `false`). `SALARY` and `TRANSFER_TO_OWN_ACCOUNT` are not accepted as purposes.",
+      "description": "**Offramp payout bank accounts** (fiat destination). All accounts use **`corridor`** + snake_case **`destination`** (stored as **`providerPayout`**). Run **Payout corridors** before **Create Account (offramp)**. Use **`accountId`** in **Create Offramp**. Optional per-transfer **`destination.purposeOfPayment`** when not in account `destination.extras`. Self transfers are off by default (Palremit can turn them on per business): omit `is_self_transfer` (or send `false`). `SALARY` is not accepted; `TRANSFER_TO_OWN_ACCOUNT` only for businesses with self transfers on.",
       "item": [
         {
           "name": "Create Account (offramp, NGN)",
@@ -1451,7 +1451,7 @@
     },
     {
       "name": "Offramps",
-      "description": "Crypto → fiat (Palremit). **Breaking change (quote-first only):** `POST /offramps` now requires a `quoteId`; call `POST /offramps/quotes` first. `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` must be omitted on create (they are fixed by the quote). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps need **`destination.purposeOfPayment`** (UPPER_SNAKE). Self transfers are not supported (`metadata.isSelfTransfer` may be omitted; `true` is rejected). `SALARY` and `TRANSFER_TO_OWN_ACCOUNT` are rejected. Response **`fees.transferFee`** itemizes the provider fee in its own currency. **`fees.platformFee.currency`** is the **source crypto** (e.g. `usdt`); settlement remains USDC after **COMPLETED**.",
+      "description": "Crypto → fiat (Palremit). **Breaking change (quote-first only):** `POST /offramps` now requires a `quoteId`; call `POST /offramps/quotes` first. `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` must be omitted on create (they are fixed by the quote). Fiat withdrawal uses account **`providerPayout`**. Palremit **`POST /v1/withdrawals`**: `destination_type` = `local_bank` | `wire`, top-level **`country`**. USD offramps need **`destination.purposeOfPayment`** (UPPER_SNAKE). Self transfers are off by default (`metadata.isSelfTransfer` may be omitted; `true` is rejected unless Palremit turned self transfers on for the business). `SALARY` is rejected. Response **`fees.transferFee`** itemizes the provider fee in its own currency. **`fees.platformFee.currency`** is the **source crypto** (e.g. `usdt`); settlement remains USDC after **COMPLETED**.",
       "item": [
         {
           "name": "Get Offramp Rates",
@@ -1774,7 +1774,7 @@
                 "offramps"
               ]
             },
-            "description": "**USD offramp — quote-first only.** Call **`POST /api/v1/offramps/quotes`** first (USD corridor); pass returned `id` as **`quoteId`**. Omit `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` — all are fixed by the quote. **`purposeOfPayment`:** UPPER_SNAKE, one of the `extras.transfer_purpose` values from **Get corridor requirements** (e.g. `PROFESSIONAL_FEES`). `SALARY` and `TRANSFER_TO_OWN_ACCOUNT` are rejected. Self transfers are not supported: `metadata.isSelfTransfer` may be omitted; `true` is rejected. `fees.platformFee.currency` is the source crypto (e.g. `usdt`); settlement remains USDC after **COMPLETED**."
+            "description": "**USD offramp — quote-first only.** Call **`POST /api/v1/offramps/quotes`** first (USD corridor); pass returned `id` as **`quoteId`**. Omit `source.amount/currency/chain`, `destination.currency/amount`, and `platformFee` — all are fixed by the quote. **`purposeOfPayment`:** UPPER_SNAKE, one of the `extras.transfer_purpose` values from **Get corridor requirements** (e.g. `PROFESSIONAL_FEES`). `SALARY` is rejected. Self transfers are off by default: `metadata.isSelfTransfer` may be omitted; `true` (and `TRANSFER_TO_OWN_ACCOUNT`) is rejected unless Palremit turned self transfers on for the business. `fees.platformFee.currency` is the source crypto (e.g. `usdt`); settlement remains USDC after **COMPLETED**."
           }
         },
         {

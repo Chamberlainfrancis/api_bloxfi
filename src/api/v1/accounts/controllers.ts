@@ -3,6 +3,7 @@
  * Validate → call core → return standardized response. No Prisma/Redis/business logic here.
  */
 
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import type { Request, Response, NextFunction } from "express";
 import { sendSuccess } from "@/utils";
 import { AppError } from "@/types";
@@ -218,7 +219,7 @@ export async function updateAccount(
       userId,
       accountId,
       parsed.data,
-      { palremitLiquidityRequest: palremitLiquidity }
+      { palremitLiquidityRequest: palremitLiquidity, purposePolicy: purposePolicyForUser(user) }
     );
     if (!result) {
       next(new AppError("Account not found", "NOT_FOUND", 404));

@@ -26,6 +26,8 @@ export const payoutCorridorRequirementsQuerySchema = z.object({
   country: iso2,
   destinationType: z.string().min(1),
   beneficiaryType: z.enum(['individual', 'business']),
+  /** Optional business (User id): shows self-transfer options when ops allowed them. */
+  userId: z.string().uuid().optional(),
 });
 
 export type ListPayoutCorridorsQuery = z.infer<typeof listPayoutCorridorsQuerySchema>;

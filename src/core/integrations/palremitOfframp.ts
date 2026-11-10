@@ -15,7 +15,12 @@ import type { DepositInstructions } from '@/types/offramp';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
 import { usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
-import { blockedPurposeError, toProviderTransferPurpose } from '@/core/payoutPurposes';
+import {
+  blockedPurposeError,
+  DEFAULT_PURPOSE_POLICY,
+  toProviderTransferPurpose,
+  type PurposePolicy,
+} from '@/core/payoutPurposes';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -232,6 +237,8 @@ export interface WithdrawalFromAccountInput {
   beneficiaryDob?: string;
   /** Locked quote sendNet — Palremit's max funding-leg spend. */
   sourceAmountCap?: string;
+  /** Business's purpose policy; defaults to self transfers off. */
+  purposePolicy?: PurposePolicy;
 }
 
 const DOB_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -271,7 +278,8 @@ export function beneficiaryDobFromCustomer(input: {
 function mergeOfframpExtrasIntoDestination(
   destination: Record<string, unknown>,
   purposeOfPayment?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  policy: PurposePolicy = DEFAULT_PURPOSE_POLICY
 ): Record<string, unknown> {
   const out = JSON.parse(JSON.stringify(destination)) as Record<string, unknown>;
   const extras =
@@ -291,12 +299,18 @@ function mergeOfframpExtrasIntoDestination(
     const purpose = toProviderTransferPurpose(extras.transfer_purpose);
     // Legacy accounts may still carry a purpose Bloxfi no longer offers; drop it so
     // Palremit rejects the payout for a missing purpose instead of paying it.
-    if (blockedPurposeError(purpose)) delete extras.transfer_purpose;
+    if (blockedPurposeError(purpose, policy)) delete extras.transfer_purpose;
     else extras.transfer_purpose = purpose;
   }
-  // Bloxfi does not offer self transfers: wherever the flag would have been sent
-  // (account extras or offramp metadata), send false.
-  if ('is_self_transfer' in extras || (metadata != null && 'isSelfTransfer' in metadata)) {
+  if (policy.allowSelfTransfer) {
+    // Business allowed to self-transfer by ops: account value, else offramp metadata.
+    const meta = metadata?.isSelfTransfer;
+    if (extras.is_self_transfer == null && typeof meta === 'boolean') {
+      extras.is_self_transfer = meta;
+    }
+  } else if ('is_self_transfer' in extras || (metadata != null && 'isSelfTransfer' in metadata)) {
+    // Self transfers are off for this business: wherever the flag would have been
+    // sent (account extras or offramp metadata), send false.
     extras.is_self_transfer = false;
   }
   if (Object.keys(extras).length > 0) out.extras = extras;
@@ -362,7 +376,8 @@ export function buildWithdrawalFromAccount(
   const destination = mergeOfframpExtrasIntoDestination(
     normalizePalremitDestination(pp.destination),
     input.purposeOfPayment,
-    input.metadata
+    input.metadata,
+    input.purposePolicy
   );
   ensureBeneficiaryEmail(destination, input.accountHolderEmail);
   ensureBeneficiaryDob(destination, input.beneficiaryDob);

@@ -5,6 +5,7 @@
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import {
   buildValidatedProviderPayout,
   rethrowPalremitCorridorError,
@@ -407,7 +408,8 @@ export async function createAccount(
     providerPayout = await buildValidatedProviderPayout(
       options.palremitLiquidityRequest,
       data.corridor,
-      data.destination
+      data.destination,
+      purposePolicyForUser(user)
     );
   } catch (e) {
     rethrowPalremitCorridorError(e);

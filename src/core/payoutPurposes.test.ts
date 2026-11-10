@@ -4,6 +4,7 @@ import {
   applyPurposePolicyToTemplate,
   blockedPurposeError,
   destinationPurposeErrors,
+  purposePolicyForUser,
   toProviderTransferPurpose,
 } from '@/core/payoutPurposes';
 
@@ -80,5 +81,27 @@ describe('payout purpose policy', () => {
       destinationPurposeErrors({ extras: { transfer_purpose: 'SALARY', is_self_transfer: true } }).map((e) => e.path)
     ).toEqual(['extras.is_self_transfer', 'extras.transfer_purpose']);
     expect(destinationPurposeErrors({ extras: { transfer_purpose: 'EDUCATION', is_self_transfer: false } })).toEqual([]);
+  });
+
+  it('keeps self transfer and TRANSFER_TO_OWN_ACCOUNT for a business ops allowed', () => {
+    const policy = purposePolicyForUser({ metadata: { allowSelfTransfer: true } });
+    expect(policy.allowSelfTransfer).toBe(true);
+    const out = applyPurposePolicyToFields(fields, policy);
+    expect(out.map((f) => f.path)).toContain('extras.is_self_transfer');
+    const values = out[1]!.enum!.map((c) => c.value);
+    expect(values).toContain('TRANSFER_TO_OWN_ACCOUNT');
+    expect(values).not.toContain('SALARY');
+    expect(
+      destinationPurposeErrors({ extras: { transfer_purpose: 'TRANSFER_TO_OWN_ACCOUNT', is_self_transfer: true } }, policy)
+    ).toEqual([]);
+    expect(blockedPurposeError('SALARY', policy)).not.toBeNull();
+    expect(applyPurposePolicyToTemplate({ extras: { is_self_transfer: false } }, policy)).toEqual({
+      extras: { is_self_transfer: false },
+    });
+  });
+
+  it('defaults to self transfers off', () => {
+    expect(purposePolicyForUser(null).allowSelfTransfer).toBe(false);
+    expect(purposePolicyForUser({ metadata: { allowSelfTransfer: 'yes' } }).allowSelfTransfer).toBe(false);
   });
 });

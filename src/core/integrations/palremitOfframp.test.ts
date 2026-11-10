@@ -174,6 +174,26 @@ describe('buildWithdrawalFromAccount', () => {
     }
   });
 
+  it('keeps self transfer for a business ops allowed', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        ...providerPayout.destination,
+        extras: { transfer_purpose: 'TRANSFER_TO_OWN_ACCOUNT', is_self_transfer: true },
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout: pp,
+      purposePolicy: { allowSelfTransfer: true },
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toEqual({
+      transfer_purpose: 'TRANSFER_TO_OWN_ACCOUNT',
+      is_self_transfer: true,
+    });
+  });
+
   it('sends the OwlPay code for a Bloxfi purpose alias', () => {
     const body = buildWithdrawalFromAccount({
       txnRef: 'OFF-x',

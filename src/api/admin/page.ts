@@ -1431,7 +1431,51 @@ function renderBizDetailsTab(biz) {
       ["OwlPay", providers.owlpay === "custom" || providers.owlpay === "active" ? "Custom" : providers.owlpay === "house" ? "House" : "Inactive"],
       ["Yativo", providers.yativo === "custom" || providers.yativo === "active" ? "Custom" : providers.yativo === "house" ? "House" : "Inactive"],
       ["SwipeLux", providers.swipelux === "custom" || providers.swipelux === "active" ? "Custom" : providers.swipelux === "house" ? "House" : "Inactive"],
-    ]);
+    ]) + selfTransferSectionHtml(biz);
+}
+
+function selfTransferSectionHtml(biz) {
+  var on = !!biz.allowSelfTransfer;
+  return '<div class="section"><h3>Self transfers</h3><div class="card">' +
+    '<div class="muted" style="margin-bottom:10px">' +
+    (on
+      ? "This business <strong>can</strong> send self transfers (is_self_transfer true, purpose TRANSFER_TO_OWN_ACCOUNT)."
+      : "Off. Payouts for this business always go to OwlPay with is_self_transfer false, and TRANSFER_TO_OWN_ACCOUNT is not offered.") +
+    "</div>" +
+    '<div class="actions" style="align-items:center">' +
+    '<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bizSelfTransfer"' + (on ? " checked" : "") + " /> Allow self transfers</label>" +
+    '<input type="password" id="bizSelfTransferPasscode" placeholder="Dashboard passcode" autocomplete="current-password" value="' + esc(sessionStorage.getItem("dashSecret") || "") + '" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)" />' +
+    '<button class="ok" id="bizSelfTransferSave">Save</button>' +
+    "</div>" +
+    '<div id="bizSelfTransferMsg" class="muted" style="margin-top:8px"></div>' +
+    "</div></div>";
+}
+
+async function saveSelfTransfer() {
+  var biz = bizState.selectedBusiness;
+  if (!biz) return;
+  var allow = $("bizSelfTransfer").checked;
+  var secret = ($("bizSelfTransferPasscode").value || "").trim();
+  var msg = $("bizSelfTransferMsg");
+  if (!secret) { msg.textContent = "Enter the dashboard passcode."; return; }
+  var btn = $("bizSelfTransferSave");
+  btn.disabled = true;
+  msg.textContent = "Saving…";
+  try {
+    await api("/users/" + encodeURIComponent(biz.id) + "/metadata", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify({ allowSelfTransfer: allow })
+    });
+    sessionStorage.setItem("dashSecret", secret);
+    biz.allowSelfTransfer = allow;
+    msg.textContent = allow ? "Saved. Self transfers are allowed for this business." : "Saved. Self transfers are off for this business.";
+  } catch (e) {
+    if (e.status === 401) sessionStorage.removeItem("dashSecret");
+    msg.textContent = e.status === 401 ? "Wrong passcode. Try again." : (e.message || "Could not save.");
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function bizTxnRowHtml(t) {
@@ -1726,6 +1770,7 @@ $("bizDetail").addEventListener("click", function (e) {
   }
   var removeBtn = e.target.closest(".biz-remove-btn");
   if (removeBtn) { removeBusinessProvider(removeBtn.dataset.provider); return; }
+  if (e.target.closest("#bizSelfTransferSave")) { saveSelfTransfer(); return; }
 });
 
 var dakState = { items: [], selectedId: null };

@@ -17,8 +17,8 @@ const baseBody = {
 };
 
 describe('createOfframpBodySchema', () => {
-  it('rejects SALARY and TRANSFER_TO_OWN_ACCOUNT as purposeOfPayment', () => {
-    for (const purposeOfPayment of ['SALARY', 'salary', 'TRANSFER_TO_OWN_ACCOUNT']) {
+  it('rejects SALARY as purposeOfPayment (self-transfer rules are per business, in the controller)', () => {
+    for (const purposeOfPayment of ['SALARY', 'salary']) {
       const r = createOfframpBodySchema.safeParse({
         ...baseBody,
         destination: { ...baseBody.destination, purposeOfPayment },
@@ -35,9 +35,9 @@ describe('createOfframpBodySchema', () => {
     expect(r.success).toBe(true);
   });
 
-  it('rejects metadata.isSelfTransfer true and accepts false', () => {
+  it('accepts metadata.isSelfTransfer as a boolean only', () => {
     expect(
-      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: true } }).success
+      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: 'yes' } }).success
     ).toBe(false);
     expect(
       createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: false } }).success

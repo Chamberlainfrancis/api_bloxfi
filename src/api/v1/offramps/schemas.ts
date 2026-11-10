@@ -121,7 +121,10 @@ export const createOfframpBodySchema = z
       }
     }
 
-    const purposeErr = blockedPurposeError(val.destination.purposeOfPayment);
+    // Business-specific rules (self transfers) are checked in the controller.
+    const purposeErr = blockedPurposeError(val.destination.purposeOfPayment, {
+      allowSelfTransfer: true,
+    });
     if (purposeErr) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
