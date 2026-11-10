@@ -394,6 +394,35 @@ export function buildWithdrawalFromAccount(
   };
 }
 
+/**
+ * Reissue overlay for the transfer purpose and self-transfer flag, built from the
+ * account and offramp as they are now. Palremit replaces the failed attempt's values
+ * with these, so a reissue follows the business's current purpose policy.
+ */
+export function reissueExtrasOverlay(input: {
+  providerPayout: unknown;
+  purposeOfPayment?: string;
+  metadata?: Record<string, unknown>;
+  purposePolicy?: PurposePolicy;
+}): { transfer_purpose?: string; is_self_transfer?: boolean } | undefined {
+  const policy = input.purposePolicy ?? DEFAULT_PURPOSE_POLICY;
+  const pp = parseProviderPayout(input.providerPayout);
+  const merged = mergeOfframpExtrasIntoDestination(
+    pp ? normalizePalremitDestination(pp.destination) : {},
+    input.purposeOfPayment,
+    input.metadata,
+    policy
+  );
+  const extras =
+    merged.extras != null && typeof merged.extras === 'object' && !Array.isArray(merged.extras)
+      ? (merged.extras as Record<string, unknown>)
+      : {};
+  const out: { transfer_purpose?: string; is_self_transfer?: boolean } = {};
+  if (typeof extras.transfer_purpose === 'string') out.transfer_purpose = extras.transfer_purpose;
+  if (typeof extras.is_self_transfer === 'boolean') out.is_self_transfer = extras.is_self_transfer;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Whether account has corridor-backed payout data for offramp fiat withdrawal. */
 export function isAccountReadyForOfframp(input: { providerPayout: unknown }): boolean {
   return parseProviderPayout(input.providerPayout) != null;

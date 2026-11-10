@@ -5,7 +5,11 @@
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import { reissuePalremitWithdrawal } from '@/core/integrations/palremitLiquidity';
-import { beneficiaryDobFromCustomer } from '@/core/integrations/palremitOfframp';
+import {
+  beneficiaryDobFromCustomer,
+  reissueExtrasOverlay,
+} from '@/core/integrations/palremitOfframp';
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import { findOfframpAccountByIdAndUser } from '@/db/repositories/account.repo';
 import { findUserById } from '@/db/repositories/user.repo';
 import type { OfframpStatus } from '@/types/offramp';
@@ -84,18 +88,35 @@ export async function reissueOfframpFiatPayout(
 
   const dest =
     row.destination != null && typeof row.destination === 'object' && !Array.isArray(row.destination)
-      ? (row.destination as { accountId?: unknown })
+      ? (row.destination as {
+          accountId?: unknown;
+          purposeOfPayment?: unknown;
+          metadata?: unknown;
+        })
       : {};
   const accountId = typeof dest.accountId === 'string' ? dest.accountId : '';
   const userId = typeof row.userId === 'string' ? row.userId : '';
   let accountHolder: unknown;
   let accountBankCode = '';
+  let providerPayout: unknown;
   if (accountId && userId) {
     const account = await findOfframpAccountByIdAndUser(accountId, userId);
     accountHolder = account?.accountHolder;
     accountBankCode = bankCodeFromProviderPayout(account?.providerPayout);
+    providerPayout = account?.providerPayout;
   }
   const user = userId ? await findUserById(userId) : null;
+  // Purpose + self-transfer follow the business's current policy; Palremit
+  // replaces the failed attempt's values with these.
+  const extras = reissueExtrasOverlay({
+    providerPayout,
+    purposeOfPayment: typeof dest.purposeOfPayment === 'string' ? dest.purposeOfPayment : undefined,
+    metadata:
+      dest.metadata != null && typeof dest.metadata === 'object' && !Array.isArray(dest.metadata)
+        ? (dest.metadata as Record<string, unknown>)
+        : undefined,
+    purposePolicy: purposePolicyForUser(user),
+  });
   const beneficiaryDob = beneficiaryDobFromCustomer({
     accountHolder,
     legalRepresentative: user?.legalRepresentative,
@@ -107,6 +128,7 @@ export async function reissueOfframpFiatPayout(
   const overlayDestination = {
     ...(beneficiaryDob ? { beneficiary: { dob: beneficiaryDob } } : {}),
     ...(accountBankCode ? { bank_code: accountBankCode } : {}),
+    ...(extras ? { extras } : {}),
   };
   const created = await reissuePalremitWithdrawal(
     liquidityRequest,

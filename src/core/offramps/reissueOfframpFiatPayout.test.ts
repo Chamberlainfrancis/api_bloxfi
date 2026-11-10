@@ -198,4 +198,47 @@ describe('reissueOfframpFiatPayout', () => {
       headers: { 'Idempotency-Key': 'offramp-fiat-reissue:OFF-abc:wd-old' },
     });
   });
+
+  it('sends the current purpose and is_self_transfer false so the reissue follows the self-transfer policy', async () => {
+    vi.mocked(findOfframpAccountByIdAndUser).mockResolvedValueOnce({
+      accountHolder: null,
+      providerPayout: {
+        provider: 'palremit',
+        schemaVersion: 2,
+        corridor: { asset: 'EUR', country: 'ES', destinationType: 'local_bank', beneficiaryType: 'business' },
+        destination: {
+          account_number: 'ES00',
+          bank_name: 'BBVA',
+          account_holder_name: 'ACME',
+          beneficiary: { type: 'business', name: 'ACME', address: { street: '1', country: 'ES' } },
+          extras: { transfer_purpose: 'TRANSFER_TO_OWN_ACCOUNT', is_self_transfer: true },
+        },
+      },
+    } as never);
+    const liquidityRequest = vi.fn().mockResolvedValue({
+      status: 202,
+      data: { id: 'wd-new', previous_id: 'wd-old', client_reference: 'OFF-abc', state: 'pending' },
+    });
+    await reissueOfframpFiatPayout(
+      {
+        findOfframpById: vi.fn().mockResolvedValue({
+          id: 'off-1',
+          txnRef: 'OFF-abc',
+          userId: 'u-1',
+          status: 'FAILED',
+          destination: { accountId: 'acct-1', purposeOfPayment: 'PROFESSIONAL_FEES' },
+          timeline: { fiatWithdrawalId: 'wd-old' },
+          providerRefs: { palremitOrchestrator: { palremitWithdrawalId: 'wd-old' } },
+        }),
+        updateOfframpStatus: vi.fn().mockResolvedValue({}),
+      },
+      liquidityRequest,
+      { offrampId: 'off-1', withdrawalId: 'wd-old' }
+    );
+    expect(liquidityRequest).toHaveBeenCalledWith('/v1/withdrawals/wd-old/reissue', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'offramp-fiat-reissue:OFF-abc:wd-old' },
+      body: { destination: { extras: { transfer_purpose: 'ADVISOR_FEES', is_self_transfer: false } } },
+    });
+  });
 });
