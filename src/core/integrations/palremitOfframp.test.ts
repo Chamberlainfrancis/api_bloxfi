@@ -91,7 +91,7 @@ describe('buildWithdrawalFromAccount', () => {
     ).toBe('5815.842362');
   });
 
-  it('merges purposeOfPayment into extras when missing on account', () => {
+  it('merges purposeOfPayment into extras and forces is_self_transfer false', () => {
     const pp = {
       ...providerPayout,
       destination: {
@@ -111,7 +111,7 @@ describe('buildWithdrawalFromAccount', () => {
     });
     expect((body?.destination as Record<string, unknown>).extras).toEqual({
       transfer_purpose: 'FAMILY_MAINTENANCE',
-      is_self_transfer: true,
+      is_self_transfer: false,
     });
   });
 
@@ -140,7 +140,7 @@ describe('buildWithdrawalFromAccount', () => {
       ...providerPayout,
       destination: {
         ...providerPayout.destination,
-        extras: { transfer_purpose: 'SALARY', is_self_transfer: false },
+        extras: { transfer_purpose: 'ADVISOR_FEES', is_self_transfer: true },
       },
     };
     const body = buildWithdrawalFromAccount({
@@ -149,9 +149,61 @@ describe('buildWithdrawalFromAccount', () => {
       providerPayout: pp,
     });
     expect((body?.destination as Record<string, unknown>).extras).toEqual({
-      transfer_purpose: 'SALARY',
+      transfer_purpose: 'ADVISOR_FEES',
       is_self_transfer: false,
     });
+  });
+
+  it('drops a SALARY or TRANSFER_TO_OWN_ACCOUNT purpose left on a legacy account', () => {
+    for (const legacy of ['SALARY', 'TRANSFER_TO_OWN_ACCOUNT']) {
+      const pp = {
+        ...providerPayout,
+        destination: {
+          ...providerPayout.destination,
+          extras: { transfer_purpose: legacy, is_self_transfer: false },
+        },
+      };
+      const body = buildWithdrawalFromAccount({
+        txnRef: 'OFF-x',
+        destinationAmount: 50,
+        providerPayout: pp,
+      });
+      expect((body?.destination as Record<string, unknown>).extras).toEqual({
+        is_self_transfer: false,
+      });
+    }
+  });
+
+  it('sends the OwlPay code for a Bloxfi purpose alias', () => {
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout,
+      purposeOfPayment: 'PROFESSIONAL_FEES',
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toEqual({
+      transfer_purpose: 'ADVISOR_FEES',
+      is_self_transfer: false,
+    });
+  });
+
+  it('does not add is_self_transfer to corridors that never sent it', () => {
+    const pp = {
+      ...providerPayout,
+      destination: {
+        account_number: 'GE00TB123',
+        bank_name: 'TBC',
+        account_holder_name: 'ACME',
+        beneficiary: providerPayout.destination.beneficiary,
+      },
+    };
+    const body = buildWithdrawalFromAccount({
+      txnRef: 'OFF-x',
+      destinationAmount: 50,
+      providerPayout: pp,
+      purposeOfPayment: 'not_upper_snake',
+    });
+    expect((body?.destination as Record<string, unknown>).extras).toBeUndefined();
   });
 
   it('returns null without providerPayout', () => {

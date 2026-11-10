@@ -4,6 +4,10 @@
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
+import {
+  applyPurposePolicyToFields,
+  applyPurposePolicyToTemplate,
+} from '@/core/payoutPurposes';
 
 export interface PalremitCorridorAmount {
   min: number | null;
@@ -181,8 +185,8 @@ export function mapPalremitCorridorDetailToApi(detail: PalremitCorridorDetailRes
       beneficiaryType: detail.corridor.beneficiary_type,
       payoutRailLabel: detail.corridor.payout_rail_label ?? null,
     },
-    destinationFields: detail.destination_fields,
-    destinationTemplate: detail.destination_template,
+    destinationFields: applyPurposePolicyToFields(detail.destination_fields),
+    destinationTemplate: applyPurposePolicyToTemplate(detail.destination_template),
     amount: detail.amount,
   };
 }

@@ -14,10 +14,8 @@ import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
-import {
-  usdOfframpOptionalMetadataSchema,
-  usdPalremitTransferPurposeSchema,
-} from '@/schemas/usdGlobalBank.zod';
+import { usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
+import { blockedPurposeError, toProviderTransferPurpose } from '@/core/payoutPurposes';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -289,9 +287,17 @@ function mergeOfframpExtrasIntoDestination(
       extras.transfer_purpose = pp.data;
     }
   }
-  const metaParsed = usdOfframpOptionalMetadataSchema.safeParse(metadata ?? {});
-  if (metaParsed.success && extras.is_self_transfer == null) {
-    extras.is_self_transfer = metaParsed.data.isSelfTransfer;
+  if (typeof extras.transfer_purpose === 'string') {
+    const purpose = toProviderTransferPurpose(extras.transfer_purpose);
+    // Legacy accounts may still carry a purpose Bloxfi no longer offers; drop it so
+    // Palremit rejects the payout for a missing purpose instead of paying it.
+    if (blockedPurposeError(purpose)) delete extras.transfer_purpose;
+    else extras.transfer_purpose = purpose;
+  }
+  // Bloxfi does not offer self transfers: wherever the flag would have been sent
+  // (account extras or offramp metadata), send false.
+  if ('is_self_transfer' in extras || (metadata != null && 'isSelfTransfer' in metadata)) {
+    extras.is_self_transfer = false;
   }
   if (Object.keys(extras).length > 0) out.extras = extras;
   return out;

@@ -5,7 +5,7 @@ const onrampSof = {
   employmentStatus: 'employed' as const,
   expectedMonthlyPayments: '0_4999' as const,
   primaryPurpose: 'personal' as const,
-  sourceOfFunds: 'salary' as const,
+  sourceOfFunds: 'savings' as const,
 };
 
 const onrampBase = {

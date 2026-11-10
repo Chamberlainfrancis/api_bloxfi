@@ -8,6 +8,7 @@ import { getPalremitWithdrawalCorridorDetail } from '@/core/integrations/palremi
 import { validateDestinationAgainstCorridorFields } from '@/core/integrations/palremitCorridorValidate';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import type { PayoutCorridor, ProviderPayout } from '@/types/account';
+import { applyPurposePolicyToFields, destinationPurposeErrors } from '@/core/payoutPurposes';
 
 export function ensureBeneficiaryType(
   destination: Record<string, unknown>,
@@ -39,10 +40,11 @@ export async function buildValidatedProviderPayout(
 
   const validation = validateDestinationAgainstCorridorFields(
     destination,
-    detail.destination_fields
+    applyPurposePolicyToFields(detail.destination_fields)
   );
-  if (!validation.valid) {
-    const msg = validation.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+  const errors = [...destinationPurposeErrors(destination), ...validation.errors];
+  if (errors.length > 0) {
+    const msg = errors.map((e) => `${e.path}: ${e.message}`).join('; ');
     throw new Error(`INVALID_ACCOUNT: ${msg}`);
   }
 

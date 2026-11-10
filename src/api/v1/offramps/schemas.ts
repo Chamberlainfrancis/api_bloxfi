@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { usdOfframpOptionalMetadataSchema, usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
+import { blockedPurposeError } from '@/core/payoutPurposes';
 
 const platformFeeSchema = z.object({
   type: z.enum(['PERCENTAGE', 'FLAT']),
@@ -120,6 +121,28 @@ export const createOfframpBodySchema = z
       }
     }
 
+    const purposeErr = blockedPurposeError(val.destination.purposeOfPayment);
+    if (purposeErr) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destination', 'purposeOfPayment'],
+        message: purposeErr,
+      });
+    }
+    const m = val.metadata;
+    if (m != null) {
+      const mp = usdOfframpOptionalMetadataSchema.safeParse(m);
+      if (!mp.success) {
+        for (const e of mp.error.errors) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: e.message,
+            path: ['metadata', ...e.path],
+          });
+        }
+      }
+    }
+
     const destCcy = (val.destination.currency ?? '').trim().toUpperCase();
     if (destCcy === 'USD') {
       const pp = usdPalremitTransferPurposeSchema.safeParse(val.destination.purposeOfPayment.trim());
@@ -129,26 +152,6 @@ export const createOfframpBodySchema = z
             code: z.ZodIssueCode.custom,
             message: e.message,
             path: ['destination', 'purposeOfPayment'],
-          });
-        }
-      }
-
-      const m = val.metadata;
-      if (m == null || typeof m !== 'object' || Array.isArray(m)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['metadata'],
-          message: 'metadata is required for USD offramp (isSelfTransfer)',
-        });
-        return;
-      }
-      const mp = usdOfframpOptionalMetadataSchema.safeParse(m);
-      if (!mp.success) {
-        for (const e of mp.error.errors) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: e.message,
-            path: ['metadata', ...e.path],
           });
         }
       }

@@ -1,4 +1,5 @@
 import { usdOfframpOptionalMetadataSchema, usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
+import { blockedPurposeError } from '@/core/payoutPurposes';
 import type {
   CreateOfframpDestinationInput,
   CreateOfframpRequest,
@@ -16,14 +17,15 @@ export function validateUsdOfframpMetadata(
   purposeOfPayment: string,
   metadata: Record<string, unknown> | undefined
 ): string | null {
+  const purposeErr = blockedPurposeError(purposeOfPayment);
+  if (purposeErr) return purposeErr;
+  if (metadata != null) {
+    const mp = usdOfframpOptionalMetadataSchema.safeParse(metadata);
+    if (!mp.success) return mp.error.errors[0]?.message ?? 'Invalid metadata for offramp';
+  }
   if (toCurrency.toLowerCase() !== 'usd') return null;
   const pp = usdPalremitTransferPurposeSchema.safeParse(purposeOfPayment.trim());
   if (!pp.success) return pp.error.errors[0]?.message ?? 'Invalid purposeOfPayment for USD';
-  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    return 'metadata is required for USD offramp (isSelfTransfer)';
-  }
-  const mp = usdOfframpOptionalMetadataSchema.safeParse(metadata);
-  if (!mp.success) return mp.error.errors[0]?.message ?? 'Invalid metadata for USD offramp';
   return null;
 }
 

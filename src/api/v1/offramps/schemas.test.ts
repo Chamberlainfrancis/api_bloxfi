@@ -17,6 +17,33 @@ const baseBody = {
 };
 
 describe('createOfframpBodySchema', () => {
+  it('rejects SALARY and TRANSFER_TO_OWN_ACCOUNT as purposeOfPayment', () => {
+    for (const purposeOfPayment of ['SALARY', 'salary', 'TRANSFER_TO_OWN_ACCOUNT']) {
+      const r = createOfframpBodySchema.safeParse({
+        ...baseBody,
+        destination: { ...baseBody.destination, purposeOfPayment },
+      });
+      expect(r.success).toBe(false);
+    }
+  });
+
+  it('accepts a Bloxfi business purpose alias', () => {
+    const r = createOfframpBodySchema.safeParse({
+      ...baseBody,
+      destination: { ...baseBody.destination, purposeOfPayment: 'PROFESSIONAL_FEES' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects metadata.isSelfTransfer true and accepts false', () => {
+    expect(
+      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: true } }).success
+    ).toBe(false);
+    expect(
+      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: false } }).success
+    ).toBe(true);
+  });
+
   it('accepts quote-first create without metadata', () => {
     const r = createOfframpBodySchema.safeParse(baseBody);
     expect(r.success).toBe(true);

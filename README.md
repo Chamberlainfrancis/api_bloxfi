@@ -174,7 +174,9 @@ When calling `POST /api/v1/offramps`, pass only:
 - `quoteId` — the id returned by `/offramps/quotes`
 - `source.userId`; `source.externalWalletId` is optional
 - `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`
-- `metadata` (required for USD; must include `isSelfTransfer`)
+- `metadata` (optional). Self transfers are not supported: `metadata.isSelfTransfer` may be omitted or `false`; `true` is rejected with **400**.
+
+**Purposes:** `destination.purposeOfPayment` must be one of the `extras.transfer_purpose` values returned by `GET /api/v1/payout-corridors/requirements`. `SALARY` and `TRANSFER_TO_OWN_ACCOUNT` are rejected. See [`docs/payout-purposes.md`](docs/payout-purposes.md).
 
 The following fields must be **omitted** — they are fixed by the quote and will cause a **400** if present:
 `source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, `platformFee`
