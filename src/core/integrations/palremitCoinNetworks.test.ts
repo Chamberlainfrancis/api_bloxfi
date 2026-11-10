@@ -3,7 +3,10 @@ import {
   palremitNetworkOptionsFromCoinData,
   palremitNetworkOptionsFromCoinNetworkList,
   resolvePalremitNetworkFromOptions,
+  resolvePalremitNetworkOrThrow,
+  isOfframpDepositNetworkDelisted,
 } from '@/core/integrations/palremitCoinNetworks';
+import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 
 describe('palremitCoinNetworks', () => {
   it('parses network_list from Palremit get_coin shape (network_code)', () => {
@@ -109,5 +112,39 @@ describe('palremitCoinNetworks', () => {
     const opts = palremitNetworkOptionsFromCoinNetworkList(rows);
     expect(opts.map((o) => o.code)).toEqual(['BSC', 'TRC20']);
     expect(opts[0]?.name).toBe('BNB Smart Chain (BEP20)');
+  });
+});
+
+describe('delisted offramp deposit networks', () => {
+  const rows = [
+    { network_code: 'TRC20', deposit_enabled: true, withdraw_enabled: true },
+    { network_code: 'ERC20', deposit_enabled: true, withdraw_enabled: true },
+    { network_code: 'TON', deposit_enabled: true, withdraw_enabled: true },
+  ];
+  const request = (async () => ({
+    status: 200,
+    data: { status: 'success', data: rows },
+  })) as unknown as PalremitLiquidityRequestFn;
+
+  it('flags Tron and TON, including the TRON / TRX aliases', () => {
+    for (const c of ['TRC20', 'trc20', 'TRON', 'TRX', 'TON']) {
+      expect(isOfframpDepositNetworkDelisted(c)).toBe(true);
+    }
+    for (const c of ['ERC20', 'BEP20', 'BSC', 'SOLANA']) {
+      expect(isOfframpDepositNetworkDelisted(c)).toBe(false);
+    }
+  });
+
+  it('refuses a delisted network for an offramp deposit (source.chain)', async () => {
+    for (const chain of ['TRC20', 'TRON', 'TON']) {
+      await expect(
+        resolvePalremitNetworkOrThrow(request, 'USDT', chain, 'source.chain')
+      ).rejects.toMatchObject({ name: 'UnsupportedPalremitNetworkError', validNetworkCodes: ['ERC20'] });
+    }
+    await expect(resolvePalremitNetworkOrThrow(request, 'USDT', 'ERC20', 'source.chain')).resolves.toBe('ERC20');
+  });
+
+  it('keeps Tron for onramp payouts (destination.chain)', async () => {
+    await expect(resolvePalremitNetworkOrThrow(request, 'USDT', 'TRON', 'destination.chain')).resolves.toBe('TRC20');
   });
 });

@@ -21,8 +21,8 @@ const LOCKED_QUOTE: OfframpQuoteSnapshot = {
   version: 1,
   fromCurrency: 'usdt',
   toCurrency: 'usd',
-  fromChain: 'TRC20',
-  clientFromChain: 'TRC20',
+  fromChain: 'BEP20',
+  clientFromChain: 'BEP20',
   sendAmount: 1000,
   corridor: { country: 'US', destinationType: 'local_bank', beneficiaryType: 'individual' },
   platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee' },
@@ -53,7 +53,7 @@ const LOCKED_QUOTE: OfframpQuoteSnapshot = {
     inverseRate: '1.031957',
     fromCurrency: 'usdt',
     toCurrency: 'usd',
-    fromChain: 'TRC20',
+    fromChain: 'BEP20',
   },
 };
 
@@ -105,7 +105,7 @@ function makeDeps() {
     findExternalWalletByIdAndUser: vi.fn(async () => ({
       id: 'wal_1',
       address: 'TXyz...',
-      chain: 'TRC20',
+      chain: 'BEP20',
       userId: 'user_1',
     })),
   };
@@ -113,13 +113,13 @@ function makeDeps() {
     getKybRailStatuses: vi.fn(async () => [{ rail: 'USD', status: 'approved' }]),
   };
   const options: CreateOfframpOptions = {
-    resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+    resolvePalremitNetwork: vi.fn(async () => 'BEP20'),
     createPalremitDeposit: vi.fn(async () => ({
       depositInstructions: {
         address: 'TDeposit...',
         amount: '1000',
         currency: 'USDT',
-        network: 'TRC20',
+        network: 'BEP20',
         depositBy: LOCKED_QUOTE.rateValidUntil,
         instruction: 'send',
       },
@@ -147,7 +147,7 @@ describe('createOfframp with lockedQuote', () => {
           externalWalletId: 'wal_1',
           amount: 1000,
           currency: 'usdt',
-          chain: 'TRC20',
+          chain: 'BEP20',
         },
         destination: {
           userId: 'user_1',

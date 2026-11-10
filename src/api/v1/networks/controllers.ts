@@ -6,7 +6,10 @@ import type { Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
-import { fetchPalremitNetworksForCoin } from '@/core/integrations/palremitCoinNetworks';
+import {
+  fetchPalremitNetworksForCoin,
+  isOfframpDepositNetworkDelisted,
+} from '@/core/integrations/palremitCoinNetworks';
 import { listNetworksQuerySchema } from '@/api/v1/networks/schemas';
 
 const palremitLiquidity = createPalremitLiquidityAdapter();
@@ -39,7 +42,8 @@ export async function listNetworks(
       networks: networks.map((n) => ({
         code: n.code,
         name: n.name ?? null,
-        depositEnabled: n.depositEnabled ?? null,
+        // Offramp deposits are switched off on delisted networks.
+        depositEnabled: isOfframpDepositNetworkDelisted(n.code) ? false : (n.depositEnabled ?? null),
         withdrawEnabled: n.withdrawEnabled ?? null,
       })),
     });

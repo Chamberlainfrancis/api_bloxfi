@@ -5,6 +5,10 @@
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 import { isAccountReadyForOfframp, mergeSourceAmountCapIntoProviderRefs } from '@/core/integrations/palremitOfframp';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
+import {
+  isOfframpDepositNetworkDelisted,
+  UnsupportedPalremitNetworkError,
+} from '@/core/integrations/palremitCoinNetworks';
 import type {
   CreateOfframpRequest,
   CreateOfframpResponse,
@@ -189,6 +193,10 @@ export async function createOfframp(
 
   const chain = options.lockedQuote.fromChain;
   const fromCurrency = options.lockedQuote.fromCurrency.trim().toLowerCase();
+  // A quote locked before a network was delisted must not open a deposit on it.
+  if (isOfframpDepositNetworkDelisted(chain)) {
+    throw new UnsupportedPalremitNetworkError('source.chain', fromCurrency.toUpperCase(), chain, []);
+  }
   const toCurrency = options.lockedQuote.toCurrency.trim().toLowerCase();
 
   const accountCurrency = account.currency.trim().toLowerCase();

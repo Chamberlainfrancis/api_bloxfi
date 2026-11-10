@@ -23,8 +23,8 @@ function snapshot(): OfframpQuoteSnapshot {
     version: 1,
     fromCurrency: 'usdt',
     toCurrency: 'ngn',
-    fromChain: 'TRC20',
-    clientFromChain: 'TRC20',
+    fromChain: 'BEP20',
+    clientFromChain: 'BEP20',
     sendAmount: 100,
     corridor: { country: 'NG', destinationType: 'local_bank', beneficiaryType: 'individual' },
     platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee', currency: 'USDC', network: 'MATIC' },
@@ -58,7 +58,7 @@ function snapshot(): OfframpQuoteSnapshot {
       inverseRate: '0.000673',
       fromCurrency: 'usdt',
       toCurrency: 'ngn',
-      fromChain: 'TRC20',
+      fromChain: 'BEP20',
       expiresAt: new Date(Date.now() + 300000).toISOString(),
     },
   };
@@ -92,16 +92,16 @@ function makeDeps() {
     })),
   };
   const walletRepo: WalletRepoForOfframp = {
-    findExternalWalletByIdAndUser: vi.fn(async () => ({ id: 'wal_1', address: 'TXyz...', chain: 'TRC20', userId: 'user_1' })),
+    findExternalWalletByIdAndUser: vi.fn(async () => ({ id: 'wal_1', address: 'TXyz...', chain: 'BEP20', userId: 'user_1' })),
   };
   const kybRepo: KybRepoForOfframp = {
     getKybRailStatuses: vi.fn(async () => [{ rail: 'NGN', status: 'approved' }]),
   };
   const options: CreateOfframpOptions = {
-    resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+    resolvePalremitNetwork: vi.fn(async () => 'BEP20'),
     createPalremitDeposit: vi.fn(async () => ({
       depositInstructions: {
-        address: 'TDeposit...', amount: '100', currency: 'USDT', network: 'TRC20',
+        address: 'TDeposit...', amount: '100', currency: 'USDT', network: 'BEP20',
         depositBy: new Date(Date.now() + 1e6).toISOString(), instruction: 'send',
       },
       correlationId: 'OFF-x', providerRefs: {},
@@ -113,13 +113,25 @@ function makeDeps() {
 
 function body(): Omit<CreateOfframpRequest, 'requestId'> {
   return {
-    source: { userId: 'user_1', externalWalletId: 'wal_1', amount: 100, currency: 'usdt', chain: 'TRC20' },
+    source: { userId: 'user_1', externalWalletId: 'wal_1', amount: 100, currency: 'usdt', chain: 'BEP20' },
     destination: { userId: 'user_1', accountId: 'acc_1', currency: 'ngn', amount: 148500, purposeOfPayment: 'family_support' },
     platformFee: { type: 'PERCENTAGE', value: 0.01, walletAddress: '0xFee', currency: 'USDC', network: 'MATIC' },
   } as Omit<CreateOfframpRequest, 'requestId'>;
 }
 
 describe('createOfframp — quote-first only', () => {
+  it('refuses a quote locked on a delisted network (Tron) without opening a deposit', async () => {
+    const d = makeDeps();
+    d.options.lockedQuote = { ...snapshot(), fromChain: 'TRC20', clientFromChain: 'TRON' };
+    const b = body();
+    b.source.chain = 'TRON';
+    await expect(
+      createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', b, d.options)
+    ).rejects.toMatchObject({ name: 'UnsupportedPalremitNetworkError', field: 'source.chain' });
+    expect(d.options.createPalremitDeposit).not.toHaveBeenCalled();
+    expect(d.offrampRepo.createOfframp).not.toHaveBeenCalled();
+  });
+
   it('persists fees and amounts from the locked quote snapshot', async () => {
     const d = makeDeps();
     await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', body(), d.options);

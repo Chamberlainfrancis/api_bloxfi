@@ -22,6 +22,20 @@ export class UnsupportedPalremitNetworkError extends Error {
   }
 }
 
+/**
+ * Networks Bloxfi does not take offramp crypto deposits on for now. Tron and
+ * TON deposits can only land on Quidax today, so they are switched off until
+ * Tatum serves them. Remove a line to re-list that network.
+ */
+export const DELISTED_OFFRAMP_DEPOSIT_NETWORKS: readonly string[] = ['TRC20', 'TON'];
+
+export function isOfframpDepositNetworkDelisted(chain: string): boolean {
+  const want = chain.trim().toUpperCase();
+  return DELISTED_OFFRAMP_DEPOSIT_NETWORKS.some(
+    (code) => code === want || (NETWORK_ALIASES[code] ?? []).includes(want)
+  );
+}
+
 export interface PalremitNetworkOption {
   /** Chain id from Palremit (`network_code` or `network_name`, e.g. BSC, TRC20) — use in ramp `chain` fields. */
   code: string;
@@ -152,8 +166,12 @@ export async function resolvePalremitNetworkOrThrow(
   if (options == null) {
     throw new Error('PALREMIT_COIN_UNAVAILABLE');
   }
-  const validCodes = options.map((o) => o.code);
-  const resolved = resolvePalremitNetworkFromOptions(options, clientChain);
+  const listed =
+    field === 'source.chain'
+      ? options.filter((o) => !isOfframpDepositNetworkDelisted(o.code))
+      : options;
+  const validCodes = listed.map((o) => o.code);
+  const resolved = resolvePalremitNetworkFromOptions(listed, clientChain);
   if (!resolved) {
     throw new UnsupportedPalremitNetworkError(field, coinCode, clientChain, validCodes);
   }
