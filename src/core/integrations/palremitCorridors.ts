@@ -4,6 +4,12 @@
  */
 
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
+import {
+  applyPurposePolicyToFields,
+  applyPurposePolicyToTemplate,
+  DEFAULT_PURPOSE_POLICY,
+  type PurposePolicy,
+} from '@/core/payoutPurposes';
 
 export interface PalremitCorridorAmount {
   min: number | null;
@@ -161,7 +167,10 @@ export function mapPalremitCorridorRowToApi(row: PalremitFiatCorridorRow): {
   };
 }
 
-export function mapPalremitCorridorDetailToApi(detail: PalremitCorridorDetailResponse): {
+export function mapPalremitCorridorDetailToApi(
+  detail: PalremitCorridorDetailResponse,
+  policy: PurposePolicy = DEFAULT_PURPOSE_POLICY
+): {
   corridor: {
     asset: string;
     country: string;
@@ -181,8 +190,8 @@ export function mapPalremitCorridorDetailToApi(detail: PalremitCorridorDetailRes
       beneficiaryType: detail.corridor.beneficiary_type,
       payoutRailLabel: detail.corridor.payout_rail_label ?? null,
     },
-    destinationFields: detail.destination_fields,
-    destinationTemplate: detail.destination_template,
+    destinationFields: applyPurposePolicyToFields(detail.destination_fields, policy),
+    destinationTemplate: applyPurposePolicyToTemplate(detail.destination_template, policy),
     amount: detail.amount,
   };
 }

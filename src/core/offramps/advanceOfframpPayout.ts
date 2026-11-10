@@ -3,6 +3,7 @@
  * Deposit confirmation is webhook-driven (`deposit.credited` → CRYPTO_CONFIRMED).
  */
 
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import type { PalremitLiquidityRequestFn } from '@/core/integrations/palremitLiquidity';
 import {
   beneficiaryDobFromCustomer,
@@ -107,6 +108,7 @@ export async function advanceOfframpIfDepositReady(
     accountHolderEmail: holderEmail,
     beneficiaryDob,
     sourceAmountCap: sourceAmountCapFromProviderRefs(row.providerRefs),
+    purposePolicy: purposePolicyForUser(user),
   });
   if (!withdrawalBody) return;
 

@@ -3,6 +3,7 @@
  * Per CURSOR_RULES: all DB access for users goes through this file.
  */
 
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import { prisma } from '@/db/prisma/client';
 import { Prisma } from '@/generated/prisma/client';
 import type {
@@ -231,6 +232,8 @@ export interface BusinessSearchRow {
   kybStatus: KYBStatus;
   createdAt: string;
   lastTransactedAt: string | null;
+  /** Ops allowed self transfers (is_self_transfer / TRANSFER_TO_OWN_ACCOUNT) for this business. */
+  allowSelfTransfer: boolean;
 }
 
 export interface ListBusinessesParams {
@@ -246,6 +249,7 @@ function mapUserToBusinessRow(
     businessEmailNorm: string | null;
     kybStatus: KYBStatus;
     createdAt: Date;
+    metadata?: unknown;
   },
   lastTransactedAt?: Date | null
 ): BusinessSearchRow {
@@ -257,6 +261,7 @@ function mapUserToBusinessRow(
     kybStatus: u.kybStatus,
     createdAt: u.createdAt.toISOString(),
     lastTransactedAt: lastTransactedAt ? lastTransactedAt.toISOString() : null,
+    allowSelfTransfer: purposePolicyForUser(u).allowSelfTransfer,
   };
 }
 
@@ -316,7 +321,14 @@ export async function listUsers(params: ListBusinessesParams = {}): Promise<{
 
   const users = await prisma.user.findMany({
     where,
-    select: { id: true, businessInfo: true, businessEmailNorm: true, kybStatus: true, createdAt: true },
+    select: {
+      id: true,
+      businessInfo: true,
+      businessEmailNorm: true,
+      kybStatus: true,
+      createdAt: true,
+      metadata: true,
+    },
     take: limit + 1,
     orderBy: { createdAt: 'desc' },
   });

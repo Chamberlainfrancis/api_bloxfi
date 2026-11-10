@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { hydrateOfframpCreateFromQuote } from '@/core/quotes/hydrateCreateFromQuote';
+import {
+  hydrateOfframpCreateFromQuote,
+  validateUsdOfframpMetadata,
+} from '@/core/quotes/hydrateCreateFromQuote';
 import type { OfframpQuoteSnapshot } from '@/types/quote';
 
 const snapshot: OfframpQuoteSnapshot = {
@@ -59,5 +62,25 @@ describe('hydrateOfframpCreateFromQuote', () => {
     expect(body.destination.amount).toBe(969.04);
     expect(body.platformFee?.value).toBe(0.01);
     expect(body.metadata).toEqual({ isSelfTransfer: false });
+  });
+});
+
+describe('validateUsdOfframpMetadata', () => {
+  it('does not require metadata for USD any more', () => {
+    expect(validateUsdOfframpMetadata('usd', 'FAMILY_MAINTENANCE', undefined)).toBeNull();
+  });
+
+  it('rejects self transfers and blocked purposes for every currency', () => {
+    expect(validateUsdOfframpMetadata('usd', 'FAMILY_MAINTENANCE', { isSelfTransfer: true })).toMatch(/self transfer/);
+    expect(validateUsdOfframpMetadata('eur', 'SALARY', undefined)).toMatch(/SALARY/);
+    expect(validateUsdOfframpMetadata('aud', 'TRANSFER_TO_OWN_ACCOUNT', undefined)).not.toBeNull();
+  });
+
+  it('allows self transfers for a business ops allowed, never SALARY', () => {
+    const allowed = { allowSelfTransfer: true };
+    expect(
+      validateUsdOfframpMetadata('usd', 'TRANSFER_TO_OWN_ACCOUNT', { isSelfTransfer: true }, allowed)
+    ).toBeNull();
+    expect(validateUsdOfframpMetadata('eur', 'SALARY', undefined, allowed)).not.toBeNull();
   });
 });

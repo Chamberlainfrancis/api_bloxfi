@@ -6,6 +6,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { sendSuccess } from '@/utils';
 import { AppError } from '@/types';
+import { findUserById } from '@/db/repositories/user.repo';
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import { isHttpError } from '@/services/http';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
 import {
@@ -106,14 +108,19 @@ export async function getPayoutCorridorRequirements(
       next(validationError(message, parsed.error.flatten()));
       return;
     }
-    const { asset, country, destinationType, beneficiaryType } = parsed.data;
+    const { asset, country, destinationType, beneficiaryType, userId } = parsed.data;
+    const user = userId ? await findUserById(userId) : null;
+    if (userId && !user) {
+      next(new AppError('User not found', 'NOT_FOUND', 404));
+      return;
+    }
     const detail = await getPalremitWithdrawalCorridorDetail(palremitLiquidity, {
       asset,
       country,
       destinationType,
       beneficiaryType,
     });
-    sendSuccess(res, mapPalremitCorridorDetailToApi(detail));
+    sendSuccess(res, mapPalremitCorridorDetailToApi(detail, purposePolicyForUser(user)));
   } catch (e) {
     handlePalremitCorridorError(e, next);
   }

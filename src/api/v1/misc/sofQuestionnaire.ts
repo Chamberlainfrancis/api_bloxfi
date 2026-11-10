@@ -95,7 +95,6 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
       options: [
         { value: 'personal', label: 'Personal' },
         { value: 'business', label: 'Business' },
-        { value: 'salary', label: 'Salary' },
         { value: 'freelance', label: 'Freelance' },
       ],
     },
@@ -105,7 +104,6 @@ export const SOF_QUESTIONNAIRE: SofQuestionnaire = {
       type: 'select',
       required: true,
       options: [
-        { value: 'salary', label: 'Salary' },
         { value: 'savings', label: 'Savings' },
         { value: 'business', label: 'Business' },
         { value: 'freelance', label: 'Freelance' },

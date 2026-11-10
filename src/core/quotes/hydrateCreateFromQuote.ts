@@ -1,4 +1,9 @@
 import { usdOfframpOptionalMetadataSchema, usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
+import {
+  blockedPurposeError,
+  DEFAULT_PURPOSE_POLICY,
+  type PurposePolicy,
+} from '@/core/payoutPurposes';
 import type {
   CreateOfframpDestinationInput,
   CreateOfframpRequest,
@@ -14,16 +19,21 @@ import type {
 export function validateUsdOfframpMetadata(
   toCurrency: string,
   purposeOfPayment: string,
-  metadata: Record<string, unknown> | undefined
+  metadata: Record<string, unknown> | undefined,
+  policy: PurposePolicy = DEFAULT_PURPOSE_POLICY
 ): string | null {
+  const purposeErr = blockedPurposeError(purposeOfPayment, policy);
+  if (purposeErr) return purposeErr;
+  if (metadata != null) {
+    const mp = usdOfframpOptionalMetadataSchema.safeParse(metadata);
+    if (!mp.success) return mp.error.errors[0]?.message ?? 'Invalid metadata for offramp';
+    if (mp.data.isSelfTransfer === true && !policy.allowSelfTransfer) {
+      return 'self transfers are not supported for this business';
+    }
+  }
   if (toCurrency.toLowerCase() !== 'usd') return null;
   const pp = usdPalremitTransferPurposeSchema.safeParse(purposeOfPayment.trim());
   if (!pp.success) return pp.error.errors[0]?.message ?? 'Invalid purposeOfPayment for USD';
-  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
-    return 'metadata is required for USD offramp (isSelfTransfer)';
-  }
-  const mp = usdOfframpOptionalMetadataSchema.safeParse(metadata);
-  if (!mp.success) return mp.error.errors[0]?.message ?? 'Invalid metadata for USD offramp';
   return null;
 }
 

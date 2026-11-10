@@ -174,7 +174,9 @@ When calling `POST /api/v1/offramps`, pass only:
 - `quoteId` — the id returned by `/offramps/quotes`
 - `source.userId`; `source.externalWalletId` is optional
 - `destination.userId`, `destination.accountId`, `destination.purposeOfPayment`
-- `metadata` (required for USD; must include `isSelfTransfer`)
+- `metadata` (optional). Self transfers are off by default: `metadata.isSelfTransfer: true` is rejected with **400** unless Palremit has turned self transfers on for the business.
+
+**Purposes:** `destination.purposeOfPayment` must be one of the `extras.transfer_purpose` values returned by `GET /api/v1/payout-corridors/requirements`. `SALARY` is rejected; `TRANSFER_TO_OWN_ACCOUNT` only for businesses with self transfers on. See [`docs/payout-purposes.md`](docs/payout-purposes.md).
 
 The following fields must be **omitted** — they are fixed by the quote and will cause a **400** if present:
 `source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, `platformFee`

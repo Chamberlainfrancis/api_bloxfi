@@ -3,6 +3,7 @@
  * Thin: parse/validate request, delegate to core/admin/dashboard.
  */
 
+import { ALLOW_SELF_TRANSFER_FLAG } from '@/core/payoutPurposes';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { sendSuccess } from '@/utils';
@@ -236,7 +237,11 @@ export async function patchUserMetadata(
   next: NextFunction
 ): Promise<void> {
   try {
-    const body = (req.body ?? {}) as { swipeluxBeneficiaryKycImport?: unknown; secret?: unknown };
+    const body = (req.body ?? {}) as {
+      swipeluxBeneficiaryKycImport?: unknown;
+      allowSelfTransfer?: unknown;
+      secret?: unknown;
+    };
     // Patching metadata mutates user state — require the shared passcode.
     // Accept it via header or body.
     const provided =
@@ -247,9 +252,18 @@ export async function patchUserMetadata(
       throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
     }
     const userId = req.params.userId;
-    // Coerce to boolean: === true for truthy, false otherwise
-    const swipeluxBeneficiaryKycImport = body.swipeluxBeneficiaryKycImport === true;
-    await mergeUserMetadata(userId, { swipeluxBeneficiaryKycImport });
+    // Only patch the flags the caller sent; coerce each to boolean (=== true).
+    const patch: Record<string, boolean> = {};
+    if ('swipeluxBeneficiaryKycImport' in body) {
+      patch.swipeluxBeneficiaryKycImport = body.swipeluxBeneficiaryKycImport === true;
+    }
+    if ('allowSelfTransfer' in body) {
+      patch[ALLOW_SELF_TRANSFER_FLAG] = body.allowSelfTransfer === true;
+    }
+    if (Object.keys(patch).length === 0) {
+      throw new AppError('No metadata flag to update', 'INVALID_REQUEST', 400);
+    }
+    await mergeUserMetadata(userId, patch);
     sendSuccess(res, { ok: true });
   } catch (e) {
     next(e);

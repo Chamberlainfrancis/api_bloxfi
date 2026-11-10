@@ -270,7 +270,13 @@ export async function reissuePalremitWithdrawal(
   request: PalremitLiquidityRequestFn,
   withdrawalId: string,
   idempotencyKey: string,
-  overlay?: { destination?: { beneficiary?: { dob?: string }; bank_code?: string } }
+  overlay?: {
+    destination?: {
+      beneficiary?: { dob?: string };
+      bank_code?: string;
+      extras?: { transfer_purpose?: string; is_self_transfer?: boolean };
+    };
+  }
 ): Promise<
   | ({ ok: true } & PalremitWithdrawalCreateResult & { reissue: PalremitReissueResult })
   | PalremitWithdrawalFailure

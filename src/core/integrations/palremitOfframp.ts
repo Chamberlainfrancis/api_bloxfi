@@ -14,10 +14,13 @@ import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
+import { usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
 import {
-  usdOfframpOptionalMetadataSchema,
-  usdPalremitTransferPurposeSchema,
-} from '@/schemas/usdGlobalBank.zod';
+  blockedPurposeError,
+  DEFAULT_PURPOSE_POLICY,
+  toProviderTransferPurpose,
+  type PurposePolicy,
+} from '@/core/payoutPurposes';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -234,6 +237,8 @@ export interface WithdrawalFromAccountInput {
   beneficiaryDob?: string;
   /** Locked quote sendNet — Palremit's max funding-leg spend. */
   sourceAmountCap?: string;
+  /** Business's purpose policy; defaults to self transfers off. */
+  purposePolicy?: PurposePolicy;
 }
 
 const DOB_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -273,7 +278,8 @@ export function beneficiaryDobFromCustomer(input: {
 function mergeOfframpExtrasIntoDestination(
   destination: Record<string, unknown>,
   purposeOfPayment?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  policy: PurposePolicy = DEFAULT_PURPOSE_POLICY
 ): Record<string, unknown> {
   const out = JSON.parse(JSON.stringify(destination)) as Record<string, unknown>;
   const extras =
@@ -289,9 +295,23 @@ function mergeOfframpExtrasIntoDestination(
       extras.transfer_purpose = pp.data;
     }
   }
-  const metaParsed = usdOfframpOptionalMetadataSchema.safeParse(metadata ?? {});
-  if (metaParsed.success && extras.is_self_transfer == null) {
-    extras.is_self_transfer = metaParsed.data.isSelfTransfer;
+  if (typeof extras.transfer_purpose === 'string') {
+    const purpose = toProviderTransferPurpose(extras.transfer_purpose);
+    // Legacy accounts may still carry a purpose Bloxfi no longer offers; drop it so
+    // Palremit rejects the payout for a missing purpose instead of paying it.
+    if (blockedPurposeError(purpose, policy)) delete extras.transfer_purpose;
+    else extras.transfer_purpose = purpose;
+  }
+  if (policy.allowSelfTransfer) {
+    // Business allowed to self-transfer by ops: account value, else offramp metadata.
+    const meta = metadata?.isSelfTransfer;
+    if (extras.is_self_transfer == null && typeof meta === 'boolean') {
+      extras.is_self_transfer = meta;
+    }
+  } else if ('is_self_transfer' in extras || (metadata != null && 'isSelfTransfer' in metadata)) {
+    // Self transfers are off for this business: wherever the flag would have been
+    // sent (account extras or offramp metadata), send false.
+    extras.is_self_transfer = false;
   }
   if (Object.keys(extras).length > 0) out.extras = extras;
   return out;
@@ -356,7 +376,8 @@ export function buildWithdrawalFromAccount(
   const destination = mergeOfframpExtrasIntoDestination(
     normalizePalremitDestination(pp.destination),
     input.purposeOfPayment,
-    input.metadata
+    input.metadata,
+    input.purposePolicy
   );
   ensureBeneficiaryEmail(destination, input.accountHolderEmail);
   ensureBeneficiaryDob(destination, input.beneficiaryDob);
@@ -371,6 +392,35 @@ export function buildWithdrawalFromAccount(
     ...(input.businessReference?.trim() ? { business_reference: input.businessReference.trim() } : {}),
     ...(sourceAmountCap ? { source_amount_cap: sourceAmountCap } : {}),
   };
+}
+
+/**
+ * Reissue overlay for the transfer purpose and self-transfer flag, built from the
+ * account and offramp as they are now. Palremit replaces the failed attempt's values
+ * with these, so a reissue follows the business's current purpose policy.
+ */
+export function reissueExtrasOverlay(input: {
+  providerPayout: unknown;
+  purposeOfPayment?: string;
+  metadata?: Record<string, unknown>;
+  purposePolicy?: PurposePolicy;
+}): { transfer_purpose?: string; is_self_transfer?: boolean } | undefined {
+  const policy = input.purposePolicy ?? DEFAULT_PURPOSE_POLICY;
+  const pp = parseProviderPayout(input.providerPayout);
+  const merged = mergeOfframpExtrasIntoDestination(
+    pp ? normalizePalremitDestination(pp.destination) : {},
+    input.purposeOfPayment,
+    input.metadata,
+    policy
+  );
+  const extras =
+    merged.extras != null && typeof merged.extras === 'object' && !Array.isArray(merged.extras)
+      ? (merged.extras as Record<string, unknown>)
+      : {};
+  const out: { transfer_purpose?: string; is_self_transfer?: boolean } = {};
+  if (typeof extras.transfer_purpose === 'string') out.transfer_purpose = extras.transfer_purpose;
+  if (typeof extras.is_self_transfer === 'boolean') out.is_self_transfer = extras.is_self_transfer;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Whether account has corridor-backed payout data for offramp fiat withdrawal. */

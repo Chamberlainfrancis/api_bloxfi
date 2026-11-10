@@ -17,6 +17,33 @@ const baseBody = {
 };
 
 describe('createOfframpBodySchema', () => {
+  it('rejects SALARY as purposeOfPayment (self-transfer rules are per business, in the controller)', () => {
+    for (const purposeOfPayment of ['SALARY', 'salary']) {
+      const r = createOfframpBodySchema.safeParse({
+        ...baseBody,
+        destination: { ...baseBody.destination, purposeOfPayment },
+      });
+      expect(r.success).toBe(false);
+    }
+  });
+
+  it('accepts a Bloxfi business purpose alias', () => {
+    const r = createOfframpBodySchema.safeParse({
+      ...baseBody,
+      destination: { ...baseBody.destination, purposeOfPayment: 'PROFESSIONAL_FEES' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts metadata.isSelfTransfer as a boolean only', () => {
+    expect(
+      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: 'yes' } }).success
+    ).toBe(false);
+    expect(
+      createOfframpBodySchema.safeParse({ ...baseBody, metadata: { isSelfTransfer: false } }).success
+    ).toBe(true);
+  });
+
   it('accepts quote-first create without metadata', () => {
     const r = createOfframpBodySchema.safeParse(baseBody);
     expect(r.success).toBe(true);
