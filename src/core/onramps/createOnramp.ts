@@ -15,7 +15,14 @@ import type { PalremitWithdrawalFeeQuote } from '@/core/integrations/palremitWit
 import { generateOnrampTxnRef } from '@/utils/txnRef';
 import { logger } from '@/lib/logger';
 import { inferOnrampAccount } from '@/core/onramps/inferOnrampAccount';
-import { onrampDepositWindowMinutes } from '@/core/onramps/staticDepositAccounts';
+import {
+  onrampDepositWindowMinutes,
+  STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES,
+} from '@/core/onramps/staticDepositAccounts';
+import {
+  resolveBusinessDepositAccount,
+  type BusinessDepositAccount,
+} from '@/core/onramps/businessDepositAccounts';
 import type {
   CreateOnrampRequest,
   CreateOnrampResponse,
@@ -100,6 +107,8 @@ export interface CreateOnrampOptions {
     useGraphUsd?: boolean;
     useDakotaUsd?: boolean;
     useOwlPayUsd?: boolean;
+    /** The business's own receiving account (User.metadata.onrampDepositAccounts). */
+    businessDepositAccount?: BusinessDepositAccount;
     /** Reuse Graph VA issued at Account create time when present. */
     existingGraphIssuance?: {
       providerIssuanceStatus: string | null;
@@ -477,6 +486,13 @@ export async function createOnramp(
     }
   }
 
+  // The business's own receiving account for this currency, if any. Ops
+  // credits these by hand, so they get the 24h static deposit window.
+  const businessDepositAccount = resolveBusinessDepositAccount(user.metadata, fromCurrency);
+  const depositWindowMinutes = businessDepositAccount
+    ? Math.max(STATIC_ONRAMP_DEPOSIT_WINDOW_MINUTES, onrampDepositWindowMinutes(fromCurrency))
+    : onrampDepositWindowMinutes(fromCurrency);
+
   let grossFiat: number;
   let receiveNet: number;
   let quoteInformation: QuoteInformation;
@@ -494,6 +510,13 @@ export async function createOnramp(
     fees = snap.fees;
     profit = snap.profit ?? null;
     expiresAt = new Date(snap.rateValidUntil);
+    // Quotes are not tied to a business, so a quoted onramp into a business's
+    // own account still gets the full manual-credit window (fiat-to-fiat keeps
+    // the quote's window: it must fund the offramp before that one closes).
+    if (businessDepositAccount && !offrampLink) {
+      const minDeadline = new Date(Date.now() + depositWindowMinutes * 60 * 1000);
+      if (minDeadline > expiresAt) expiresAt = minDeadline;
+    }
   } else {
     if (!options.getQuoteFromPalremit) {
       throw new Error('PALREMIT_RATES_UNAVAILABLE');
@@ -566,7 +589,7 @@ export async function createOnramp(
     }
     receiveNet = Math.max(0, receiveAfterPlatformFee - transferFeeCrypto);
 
-    expiresAt = new Date(Date.now() + onrampDepositWindowMinutes(fromCurrency) * 60 * 1000);
+    expiresAt = new Date(Date.now() + depositWindowMinutes * 60 * 1000);
     const sendGross = { amount: grossFiat.toFixed(2), currency: fromCurrency };
     const sendNet = sendGross;
     const railFee = { amount: '0.00', currency: fromCurrency };
@@ -647,15 +670,19 @@ export async function createOnramp(
         }
       : {};
 
+  // A business's own receiving account replaces every provisioned path.
   const useDakotaUsd =
+    !businessDepositAccount &&
     fromCurrency.trim().toUpperCase() === 'USD' &&
     isDakotaUsdBusiness(userId, user.metadata);
   const useGraphUsd =
+    !businessDepositAccount &&
     fromCurrency.trim().toUpperCase() === 'USD' &&
     !useDakotaUsd &&
     isGraphUsdBusiness(userId, user.metadata);
   const useNamedUsd = useGraphUsd || useDakotaUsd;
   const useOwlPayUsd =
+    !businessDepositAccount &&
     fromCurrency.trim().toUpperCase() === 'USD' &&
     !useNamedUsd &&
     isOwlPayUsdBusiness(user.metadata);
@@ -741,12 +768,15 @@ export async function createOnramp(
         }
       : {}),
     ...(useOwlPayUsd ? { useOwlPayUsd } : {}),
+    ...(businessDepositAccount ? { businessDepositAccount } : {}),
   });
   if (!fiatResult) {
     throw new Error('PALREMIT_FIAT_DEPOSIT_FAILED');
   }
 
-  const senderInfo = options.resolveSenderInfo
+  // The ops sender-name setting is for house accounts; a business's own
+  // account must keep its real holder name.
+  const senderInfo = options.resolveSenderInfo && !businessDepositAccount
     ? await options.resolveSenderInfo({
         rampType: 'onramp',
         currency: fromCurrency,

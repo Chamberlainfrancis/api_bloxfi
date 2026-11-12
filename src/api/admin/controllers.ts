@@ -4,6 +4,10 @@
  */
 
 import { ALLOW_SELF_TRANSFER_FLAG } from '@/core/payoutPurposes';
+import {
+  businessDepositAccountsSchema,
+  ONRAMP_DEPOSIT_ACCOUNTS_KEY,
+} from '@/core/onramps/businessDepositAccounts';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { sendSuccess } from '@/utils';
@@ -240,6 +244,7 @@ export async function patchUserMetadata(
     const body = (req.body ?? {}) as {
       swipeluxBeneficiaryKycImport?: unknown;
       allowSelfTransfer?: unknown;
+      onrampDepositAccounts?: unknown;
       secret?: unknown;
     };
     // Patching metadata mutates user state — require the shared passcode.
@@ -252,13 +257,30 @@ export async function patchUserMetadata(
       throw new AppError('Incorrect passcode', 'UNAUTHORIZED', 401);
     }
     const userId = req.params.userId;
-    // Only patch the flags the caller sent; coerce each to boolean (=== true).
-    const patch: Record<string, boolean> = {};
+    // Only patch the fields the caller sent; boolean flags coerce to === true.
+    const patch: Record<string, unknown> = {};
     if ('swipeluxBeneficiaryKycImport' in body) {
       patch.swipeluxBeneficiaryKycImport = body.swipeluxBeneficiaryKycImport === true;
     }
     if ('allowSelfTransfer' in body) {
       patch[ALLOW_SELF_TRANSFER_FLAG] = body.allowSelfTransfer === true;
+    }
+    // The business's own onramp receiving accounts, keyed by currency.
+    // Replaces the whole set; null (or {}) removes them.
+    if ('onrampDepositAccounts' in body) {
+      if (body.onrampDepositAccounts === null) {
+        patch[ONRAMP_DEPOSIT_ACCOUNTS_KEY] = null;
+      } else {
+        const parsed = businessDepositAccountsSchema.safeParse(body.onrampDepositAccounts);
+        if (!parsed.success) {
+          const message = parsed.error.errors
+            .map((e) => `onrampDepositAccounts.${e.path.join('.')}: ${e.message}`)
+            .join('; ');
+          throw new AppError(message, 'INVALID_REQUEST', 400);
+        }
+        patch[ONRAMP_DEPOSIT_ACCOUNTS_KEY] =
+          Object.keys(parsed.data).length > 0 ? parsed.data : null;
+      }
     }
     if (Object.keys(patch).length === 0) {
       throw new AppError('No metadata flag to update', 'INVALID_REQUEST', 400);

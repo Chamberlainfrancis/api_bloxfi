@@ -17,6 +17,10 @@ import {
   isPreferredStaticDepositCurrency,
 } from '@/core/onramps/staticDepositAccounts';
 import {
+  buildBusinessDepositInfo,
+  type BusinessDepositAccount,
+} from '@/core/onramps/businessDepositAccounts';
+import {
   NGN_POOLED_KUDA_ACCOUNT_NAME,
   POOLED_PLATFORM_ACCOUNT_NAME,
   dynamicDepositAccountStyle,
@@ -345,6 +349,12 @@ export async function createOnrampPalremitFiatDeposit(
     /** Pin preferred_provider=owlpay, no failover (metadata.owlpayUsdDeposits). */
     useOwlPayUsd?: boolean;
     /**
+     * The business's own receiving account for this currency
+     * (User.metadata.onrampDepositAccounts). Takes precedence over every
+     * provisioned / house account; ops marks the fiat received by hand.
+     */
+    businessDepositAccount?: BusinessDepositAccount;
+    /**
      * When Account already has Graph named-VA issuance from create time,
      * reuse it instead of provisioning a second VA under the onramp txnRef.
      */
@@ -357,6 +367,33 @@ export async function createOnrampPalremitFiatDeposit(
   }
 ): Promise<{ depositInfo: DepositInfo; providerRefs: Record<string, unknown> } | null> {
   const asset = params.currency.trim().toUpperCase();
+
+  if (params.businessDepositAccount) {
+    return {
+      depositInfo: buildBusinessDepositInfo({
+        account: params.businessDepositAccount,
+        currency: asset,
+        amount: params.amount,
+        txnRef: params.txnRef,
+        depositByIso: params.depositByIso,
+      }),
+      providerRefs: {
+        palremitOrchestrator: {
+          providerName: 'business_static',
+          clientReference: params.txnRef.trim(),
+          asset,
+          mode: 'BUSINESS_STATIC',
+          depositAsset: asset,
+          withdrawalAsset: null,
+          network: null,
+          depositStatus: 'awaiting_manual_credit',
+          withdrawalStatus: null,
+          provisionedAccountId: null,
+        },
+      },
+    };
+  }
+
   const isGraphUsd = asset === 'USD' && params.useGraphUsd === true;
   const isDakotaUsd = asset === 'USD' && params.useDakotaUsd === true;
   const isNamedUsd = isGraphUsd || isDakotaUsd;
