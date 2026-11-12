@@ -8,6 +8,12 @@ import { getPalremitWithdrawalCorridorDetail } from '@/core/integrations/palremi
 import { validateDestinationAgainstCorridorFields } from '@/core/integrations/palremitCorridorValidate';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import type { PayoutCorridor, ProviderPayout } from '@/types/account';
+import { buildWithdrawalFromAccount } from '@/core/integrations/palremitOfframp';
+import {
+  PayoutDestinationInvalidError,
+  validatePalremitDestination,
+  type PalremitDestinationProblem,
+} from '@/core/integrations/palremitDestinationCheck';
 import {
   applyPurposePolicyToFields,
   DEFAULT_PURPOSE_POLICY,
@@ -54,7 +60,7 @@ export async function buildValidatedProviderPayout(
     throw new Error(`INVALID_ACCOUNT: ${msg}`);
   }
 
-  return {
+  const providerPayout: ProviderPayout = {
     provider: 'palremit',
     schemaVersion: 2,
     corridor: {
@@ -70,6 +76,45 @@ export async function buildValidatedProviderPayout(
       destinationFields: detail.destination_fields,
     },
   };
+
+  await assertPalremitAcceptsDestination(liquidityRequest, providerPayout, policy);
+  return providerPayout;
+}
+
+// Filled in when the offramp is created (purpose from the offramp, email and
+// date of birth from the customer), so a saved account may lack them.
+const FILLED_AT_OFFRAMP = new Set([
+  'destination.extras.transfer_purpose',
+  'destination.beneficiary.dob',
+  'destination.beneficiary.email',
+]);
+
+function blocksAccount(e: PalremitDestinationProblem): boolean {
+  return !(e.code === 'required' && FILLED_AT_OFFRAMP.has(e.field));
+}
+
+/**
+ * Ask Palremit whether the payout it would build from this account passes its
+ * checks (province codes, postal formats, address country, ...). Rejects with
+ * the field errors; lets the account through if Palremit can't answer.
+ */
+async function assertPalremitAcceptsDestination(
+  liquidityRequest: PalremitLiquidityRequestFn,
+  providerPayout: ProviderPayout,
+  policy: PurposePolicy
+): Promise<void> {
+  const body = buildWithdrawalFromAccount({
+    txnRef: 'account-validate',
+    destinationAmount: 1,
+    providerPayout,
+    purposePolicy: policy,
+  });
+  if (!body) return;
+  delete body.amount;
+  const check = await validatePalremitDestination(liquidityRequest, body);
+  if (check.status !== 'invalid') return;
+  const errors = check.errors.filter(blocksAccount);
+  if (errors.length > 0) throw new PayoutDestinationInvalidError(errors);
 }
 
 export function rethrowPalremitCorridorError(e: unknown): never {

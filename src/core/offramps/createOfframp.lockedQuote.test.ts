@@ -168,3 +168,46 @@ describe('createOfframp with lockedQuote', () => {
     expect(rate.conversionRate).toBe('0.96903628624');
   });
 });
+
+describe('createOfframp payout destination check', () => {
+  const body = {
+    source: { userId: 'user_1', externalWalletId: 'wal_1', amount: 1000, currency: 'usdt', chain: 'TRC20' },
+    destination: {
+      userId: 'user_1',
+      accountId: 'acc_1',
+      currency: 'usd',
+      amount: 969.04,
+      purposeOfPayment: 'FAMILY_MAINTENANCE',
+    },
+    platformFee: LOCKED_QUOTE.platformFee,
+  };
+
+  it('rejects before deposit instructions when Palremit would reject the payout', async () => {
+    const d = makeDeps();
+    const validate = vi.fn(async () => ({
+      status: 'invalid' as const,
+      errors: [{ field: 'destination.beneficiary.address.city', code: 'required', message: 'destination.beneficiary.address.city is required' }],
+      warnings: [],
+    }));
+    d.options.validatePayoutDestination = validate;
+    await expect(
+      createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'OFF-req-bad', body, d.options)
+    ).rejects.toThrow('destination.beneficiary.address.city is required');
+    expect(d.options.createPalremitDeposit).not.toHaveBeenCalled();
+    expect(d.offrampRepo.createOfframp).not.toHaveBeenCalled();
+    const sent = (validate.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    expect(sent).toMatchObject({ amount: 969.04, business_reference: 'user_1' });
+    expect((sent.destination as { extras?: { transfer_purpose?: string } }).extras?.transfer_purpose).toBe(
+      'FAMILY_MAINTENANCE'
+    );
+  });
+
+  it('carries on when the destination is valid or Palremit cannot answer', async () => {
+    for (const result of [{ status: 'valid' as const, warnings: [] }, { status: 'unavailable' as const }]) {
+      const d = makeDeps();
+      d.options.validatePayoutDestination = vi.fn(async () => result);
+      await createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, `OFF-req-${result.status}`, body, d.options);
+      expect(d.options.createPalremitDeposit).toHaveBeenCalledOnce();
+    }
+  });
+});

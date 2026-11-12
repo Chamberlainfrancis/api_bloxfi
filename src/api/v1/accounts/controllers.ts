@@ -17,6 +17,7 @@ import { createPalremitLiquidityAdapter } from "@/services/palremitAdapters";
 import { GraphOnrampKycError } from "@/core/integrations/graphOnrampKyc";
 import { isDakotaUsdBusiness } from "@/core/integrations/palremitOnramp";
 import { importSwipeluxBeneficiaryKyc } from "@/core/integrations/palremitSwipeluxKycImport";
+import { PayoutDestinationInvalidError } from "@/core/integrations/palremitDestinationCheck";
 
 const REQUEST_ID_HEADER = "requestid";
 
@@ -89,6 +90,10 @@ export async function createAccount(req: Request<{ userId: string }>, res: Respo
     }
     if (e instanceof Error && e.message === "USER_NOT_KYB_VERIFIED") {
       next(new AppError("User not KYB verified for this rail", "UNPROCESSABLE_ENTITY", 422));
+      return;
+    }
+    if (e instanceof PayoutDestinationInvalidError) {
+      next(new AppError(e.message, "INVALID_REQUEST", 400, { fieldErrors: e.errors }));
       return;
     }
     if (e instanceof Error && e.message.startsWith("INVALID_ACCOUNT:")) {
@@ -227,6 +232,10 @@ export async function updateAccount(
     }
     sendSuccess(res, result);
   } catch (e) {
+    if (e instanceof PayoutDestinationInvalidError) {
+      next(new AppError(e.message, "INVALID_REQUEST", 400, { fieldErrors: e.errors }));
+      return;
+    }
     if (e instanceof Error && e.message.startsWith("INVALID_ACCOUNT:")) {
       next(new AppError(e.message.replace("INVALID_ACCOUNT:", "").trim(), "INVALID_REQUEST", 400));
       return;
