@@ -3,7 +3,17 @@
  */
 
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
-import { isAccountReadyForOfframp, mergeSourceAmountCapIntoProviderRefs } from '@/core/integrations/palremitOfframp';
+import {
+  beneficiaryDobFromCustomer,
+  buildWithdrawalFromAccount,
+  isAccountReadyForOfframp,
+  mergeSourceAmountCapIntoProviderRefs,
+} from '@/core/integrations/palremitOfframp';
+import {
+  PayoutDestinationInvalidError,
+  type PalremitDestinationCheck,
+} from '@/core/integrations/palremitDestinationCheck';
+import { purposePolicyForUser } from '@/core/payoutPurposes';
 import { generateOfframpTxnRef } from '@/utils/txnRef';
 import type {
   CreateOfframpRequest,
@@ -47,6 +57,12 @@ export interface CreateOfframpOptions {
   } | null>;
   /** Pricing is always taken from the locked quote (POST /offramps/quotes). */
   lockedQuote: OfframpQuoteSnapshot;
+  /**
+   * Ask Palremit whether the fiat payout this offramp will send passes its
+   * checks. Runs before deposit instructions are issued, so a payout that
+   * would be rejected never gets funded. Optional so tests can omit it.
+   */
+  validatePayoutDestination?: (withdrawalBody: Record<string, unknown>) => Promise<PalremitDestinationCheck>;
   /**
    * Ops "sender info" setting for (offramp, payout currency, payout rail).
    * Resolved once here and saved on the row; later setting edits do not
@@ -103,6 +119,8 @@ export interface UserRepoForOfframp {
     id: string;
     businessInfo: unknown;
     legalRepresentative: unknown;
+    /** Ops settings, e.g. the purpose policy (allowSelfTransfer). */
+    metadata?: unknown;
   } | null>;
 }
 
@@ -268,6 +286,16 @@ export async function createOfframp(
     ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
   };
 
+  if (options.validatePayoutDestination) {
+    await assertPayoutDestinationAccepted(options.validatePayoutDestination, {
+      account,
+      user,
+      fiatNet,
+      purposeOfPayment: dest.purposeOfPayment,
+      metadata: body.metadata,
+    });
+  }
+
   const palremitDeposit = await options.createPalremitDeposit(
     {
       userId: user.id,
@@ -347,4 +375,46 @@ export async function createOfframp(
     transferType: 'OFFRAMP',
     transferDetails,
   };
+}
+
+/**
+ * Build the withdrawal body advanceOfframpPayout will send for this offramp and
+ * have Palremit check it. Throws PayoutDestinationInvalidError on field errors;
+ * carries on if Palremit can't answer (withdrawal create still validates).
+ */
+async function assertPayoutDestinationAccepted(
+  validate: NonNullable<CreateOfframpOptions['validatePayoutDestination']>,
+  input: {
+    account: { accountHolder: unknown; providerPayout: unknown };
+    user: { id: string; legalRepresentative?: unknown; metadata?: unknown };
+    fiatNet: number;
+    purposeOfPayment?: string;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<void> {
+  const holder = input.account.accountHolder;
+  const holderEmail =
+    holder != null &&
+    typeof holder === 'object' &&
+    !Array.isArray(holder) &&
+    typeof (holder as { email?: unknown }).email === 'string'
+      ? (holder as { email: string }).email
+      : undefined;
+  const withdrawalBody = buildWithdrawalFromAccount({
+    txnRef: 'offramp-validate',
+    destinationAmount: input.fiatNet,
+    providerPayout: input.account.providerPayout,
+    purposeOfPayment: input.purposeOfPayment,
+    metadata: input.metadata,
+    businessReference: input.user.id,
+    accountHolderEmail: holderEmail,
+    beneficiaryDob: beneficiaryDobFromCustomer({
+      accountHolder: holder,
+      legalRepresentative: input.user.legalRepresentative,
+    }),
+    purposePolicy: purposePolicyForUser(input.user),
+  });
+  if (!withdrawalBody) return;
+  const check = await validate(withdrawalBody);
+  if (check.status === 'invalid') throw new PayoutDestinationInvalidError(check.errors);
 }

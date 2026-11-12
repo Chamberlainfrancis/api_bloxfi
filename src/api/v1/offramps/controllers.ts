@@ -37,6 +37,10 @@ import {
   retryOfframpFiatPayoutBodySchema,
 } from '@/api/v1/offramps/schemas';
 import { createOfframpQuote, solveOfframpSendFromDest } from '@/core/quotes';
+import {
+  PayoutDestinationInvalidError,
+  validatePalremitDestination,
+} from '@/core/integrations/palremitDestinationCheck';
 import { findPairMarkup } from '@/core/quotes/pairMarkup';
 import { isUsdStableSell, usdSellCustomerFeeQuote } from '@/core/quotes/usdStableSell';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
@@ -393,11 +397,17 @@ export async function createOfframp(
         createPalremitDeposit: (userCtx, b, rid, depositBy, txnRef) =>
           createOfframpPalremitCryptoDeposit(palremitLiquidity, userCtx, b, rid, depositBy, txnRef),
         lockedQuote: snapshot,
+        validatePayoutDestination: (withdrawalBody) =>
+          validatePalremitDestination(palremitLiquidity, withdrawalBody),
         resolveSenderInfo: (input) => resolveSenderInfoForTransfer(senderInfoRepo, input),
       }
     );
     sendSuccess(res, result, 201);
   } catch (e) {
+    if (e instanceof PayoutDestinationInvalidError) {
+      next(new AppError(e.message, 'INVALID_REQUEST', 400, { fieldErrors: e.errors }));
+      return;
+    }
     if (e instanceof Error && e.message === 'USER_NOT_FOUND') {
       next(new AppError('User not found', 'NOT_FOUND', 404));
       return;
