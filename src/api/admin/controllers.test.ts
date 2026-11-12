@@ -197,6 +197,40 @@ describe('patchUserMetadata', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it('sets onramp deposit accounts, validated and keyed by upper-case currency', async () => {
+    mockedMergeUserMetadata.mockResolvedValue(undefined);
+    const account = {
+      bankName: 'Digital Commerce Bank',
+      accountName: 'Canada Inc',
+      accountNumber: '942853029',
+      bankCode: '035210009',
+      firstPartyOnly: true,
+    };
+    const req = {
+      params: { userId: 'user_sky' },
+      body: { onrampDepositAccounts: { cad: account } },
+      headers: { 'x-dashboard-secret': 'pr2026' },
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+    await patchUserMetadata(req, res, next);
+    expect(mockedMergeUserMetadata).toHaveBeenCalledWith('user_sky', { onrampDepositAccounts: { CAD: account } });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed onramp deposit accounts', async () => {
+    const req = {
+      params: { userId: 'user_sky' },
+      body: { onrampDepositAccounts: { CAD: { bankName: 'x' } } },
+      headers: { 'x-dashboard-secret': 'pr2026' },
+    } as unknown as Request;
+    const res = buildResponse();
+    const next = vi.fn() as unknown as NextFunction;
+    await patchUserMetadata(req, res, next);
+    expect(mockedMergeUserMetadata).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+  });
+
   it('accepts passcode via x-dashboard-secret header', async () => {
     mockedMergeUserMetadata.mockResolvedValue(undefined);
     const req = {

@@ -122,6 +122,8 @@ export interface DepositInfo {
   iban?: string;
   bic?: string;
   bankAddress?: string;
+  /** Only payments from an account in the depositor's own name are accepted. */
+  firstPartyOnly?: boolean;
   reference: string;
   depositBy: string;
   instruction: string;
