@@ -368,3 +368,33 @@ export async function listOfframpsFeeSettlementsForAdmin(params: {
     nextCursor,
   };
 }
+
+/**
+ * Offramps whose latest saved payout webhook says the provider failed it
+ * (incl. failed after funding), not yet refunded. Admin refunds queue.
+ */
+export async function listOfframpsWithProviderFailure(limit: number): Promise<OfframpRow[]> {
+  const take = Math.min(Math.max(1, limit), 500);
+  const rows = await prisma.offramp.findMany({
+    where: {
+      status: { notIn: ['REFUNDED'] },
+      OR: [
+        { providerRefs: { path: ['palremitOrchestrator', 'withdrawalStatus'], equals: 'failed_after_funding' } },
+        { providerRefs: { path: ['palremitOrchestrator', 'withdrawalStatus'], equals: 'failed' } },
+      ],
+    },
+    orderBy: { updatedAt: 'desc' },
+    take,
+  });
+  return rows as OfframpRow[];
+}
+
+/** Most recently refunded offramps (admin refunds queue history). */
+export async function listRecentlyRefundedOfframps(limit: number): Promise<OfframpRow[]> {
+  const rows = await prisma.offramp.findMany({
+    where: { status: 'REFUNDED' },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.min(Math.max(1, limit), 100),
+  });
+  return rows as OfframpRow[];
+}

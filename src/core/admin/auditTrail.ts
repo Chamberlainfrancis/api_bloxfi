@@ -321,6 +321,16 @@ function addOfframpLpEvents(events: AuditTrailEvent[], row: AuditRowInput): void
     );
   }
 
+  if (withdrawalStatus === 'failed_after_funding' || timeline.fiatFailedAfterFundingAt) {
+    pushEvent(
+      events,
+      timeline.fiatFailedAfterFundingAt ?? row.updatedAt,
+      'error',
+      'Payout failed at the provider after it was funded',
+      typeof orch.failedAfterFundingReason === 'string' ? orch.failedAfterFundingReason : null
+    );
+  }
+
   if (timeline.cancelledAt) {
     pushEvent(events, timeline.cancelledAt, 'warning', 'Transaction cancelled');
   }
@@ -373,7 +383,9 @@ export function buildAuditTrail(
       'admin',
       fiatReceived
         ? 'Fiat deposit marked received'
-        : `Manual status change: ${action.fromStatus} → ${action.toStatus}`,
+        : action.toStatus === 'REFUNDED'
+          ? `Marked as refunded (was ${action.fromStatus})`
+          : `Manual status change: ${action.fromStatus} → ${action.toStatus}`,
       adminDetail(action)
     );
   }

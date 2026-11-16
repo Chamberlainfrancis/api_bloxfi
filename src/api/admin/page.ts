@@ -143,6 +143,64 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .hold-quote .fine { color:var(--ok); font-weight:600; }
   .confirm-list { display:grid; grid-template-columns:160px 1fr; gap:6px 14px; margin:0 0 14px; font-size:13px; }
   .confirm-list .k { color:var(--mut); }
+  /* Refunds: provider signal chips, refund cards, attempts, dialog */
+  .sig { display:inline-flex; align-items:center; gap:6px; margin-left:8px; padding:2px 9px 2px 8px; border-radius:11px; font-size:11px; font-weight:600; color:#9a3412; background:#fff7ed; border:1px solid #fdba74; white-space:nowrap; vertical-align:middle; }
+  .sig::before { content:""; width:6px; height:6px; border-radius:50%; background:#ea580c; }
+  .sig.refunded { color:#6d28d9; background:#f5f3ff; border-color:#c4b5fd; }
+  .sig.refunded::before { background:#7c3aed; }
+  .badge.refunded { color:#6d28d9; border-color:#c4b5fd; background:#f5f3ff; }
+  .signal-card { display:grid; grid-template-columns:auto 1fr auto; gap:4px 14px; align-items:start; border:1px solid #fdba74; background:linear-gradient(180deg,#fff7ed,#fffbf5); border-radius:12px; padding:14px 16px; margin-bottom:18px; }
+  .signal-card .ico { grid-row:span 2; width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; background:#ffedd5; color:#c2410c; font-weight:800; font-size:15px; }
+  .signal-card .h { font-weight:700; color:#7c2d12; }
+  .signal-card .h .when { font-weight:500; color:#9a3412; font-size:12px; margin-left:6px; }
+  .signal-card .d { grid-column:2; color:#7c2d12; font-size:13px; }
+  .signal-card .facts { grid-column:2; display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .signal-card .fact { font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; background:#ffedd5; color:#9a3412; }
+  .signal-card .cta { grid-row:1 / span 3; grid-column:3; align-self:center; }
+  .signal-card.refunded { border-color:#c4b5fd; background:linear-gradient(180deg,#f5f3ff,#faf9ff); }
+  .signal-card.refunded .ico { background:#ede9fe; color:#6d28d9; }
+  .signal-card.refunded .h, .signal-card.refunded .d { color:#4c1d95; }
+  .signal-card.refunded .h .when { color:#6d28d9; }
+  .signal-card.refunded .fact { background:#ede9fe; color:#5b21b6; }
+  button.refund { background:#1a2230; }
+  button.refund:hover { background:#000; }
+  .attempts { width:100%; border-collapse:collapse; }
+  .attempts th, .attempts td { padding:8px 10px; font-size:12px; border-bottom:1px solid var(--line); }
+  .attempts th { color:var(--mut); font-weight:600; }
+  .attempts tr:last-child td { border-bottom:none; }
+  .attempts .now { font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--accent); margin-left:6px; }
+  .oc { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; border:1px solid var(--line); }
+  .oc.bad { color:#c2410c; border-color:#fdba74; background:#fff7ed; }
+  .oc.ok { color:var(--ok); border-color:#22c55e55; background:#22c55e14; }
+  .oc.pend { color:var(--warn); border-color:#f59e0b55; background:#f59e0b14; }
+  .src { font-size:11px; color:var(--mut); }
+  dialog.refund-dialog { max-width:560px; width:94%; background:var(--bg); }
+  .refund-dialog .lede { margin:0 0 14px; color:var(--mut); font-size:13px; }
+  .refund-dialog .grid { display:grid; grid-template-columns:1fr 110px; gap:10px 12px; margin-bottom:12px; }
+  .refund-dialog .field { display:flex; flex-direction:column; gap:5px; }
+  .refund-dialog .field.full { grid-column:1 / -1; }
+  .refund-dialog .field label { font-size:12px; font-weight:600; color:var(--txt); }
+  .refund-dialog .field label .opt { font-weight:500; color:var(--mut); }
+  .refund-dialog input, .refund-dialog textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--txt); font:inherit; }
+  .refund-dialog input:focus, .refund-dialog textarea:focus { outline:2px solid #2563eb33; border-color:var(--accent); }
+  .refund-dialog textarea { min-height:68px; resize:vertical; }
+  .refund-dialog .consequence { font-size:12px; color:var(--mut); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin:4px 0 12px; }
+  .refund-dialog .ack { display:flex; gap:8px; align-items:flex-start; font-size:13px; margin:0 0 12px; color:var(--warn); }
+  .refund-dialog .foot { display:flex; justify-content:flex-end; gap:10px; }
+  .rf-wrap { padding:4px 24px 24px; display:none; }
+  .rf-head { display:flex; align-items:baseline; gap:10px; margin:14px 0 8px; }
+  .rf-head h2 { font-size:14px; margin:0; }
+  .rf-head .muted { font-size:12px; }
+  .rf-wrap table { background:var(--bg); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .rf-wrap th, .rf-wrap td { padding:10px 14px; }
+  .rf-wrap th { background:var(--panel); }
+  .rf-empty { padding:18px; border:1px dashed var(--line); border-radius:10px; color:var(--mut); font-size:13px; background:var(--bg); }
+  @media (max-width:640px) {
+    .signal-card { grid-template-columns:auto 1fr; }
+    .signal-card .cta { grid-column:1 / -1; grid-row:auto; }
+    .refund-dialog .grid { grid-template-columns:1fr; }
+    th, td { padding:10px 12px; }
+  }
 </style>
 </head>
 <body>
@@ -155,6 +213,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <div class="tab active" data-view="transactions" data-type="onramp">Onramps</div>
   <div class="tab" data-view="transactions" data-type="offramp">Offramps</div>
   <div class="tab" data-view="held">Held payouts <span id="heldCount" class="badge pend" style="display:none"></span></div>
+  <div class="tab" data-view="refunds">Refunds <span id="refundCount" class="badge pend" style="display:none"></span></div>
   <div class="tab" data-view="settlements">Fee settlements</div>
   <div class="tab" data-view="businesses">Businesses</div>
   <div class="tab" data-view="dakota">Dakota KYB</div>
@@ -196,6 +255,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
 <div id="dakResults" class="biz-results" style="display:none"></div>
 <div id="siResults" class="biz-results" style="display:none"></div>
 <div id="rmResults" class="biz-results" style="display:none"></div>
+<div id="rfResults" class="rf-wrap"></div>
 
 <dialog id="detail">
   <div class="dhead"><span class="t" id="dTitle">Transaction</span><button type="button" class="ghost" id="dClose">Close</button></div>
@@ -241,6 +301,28 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
       <button type="button" class="ghost" id="acceptRateDismiss">Cancel</button>
       <button type="button" class="ok" id="acceptRateConfirm">Confirm and send</button>
     </div>
+  </div>
+</dialog>
+
+<dialog id="refundModal" class="refund-dialog">
+  <div class="dhead"><span class="t" id="refundTitle">Mark as refunded</span><button type="button" class="ghost" id="refundCancel">Cancel</button></div>
+  <div class="dbody">
+    <p class="lede">Only do this once the customer has their money back. The provider's own refund to us does not count.</p>
+    <div class="confirm-list" id="refundSummary"></div>
+    <div class="grid">
+      <div class="field"><label for="refundAmount">Amount refunded</label><input type="text" id="refundAmount" inputmode="decimal" autocomplete="off" /></div>
+      <div class="field"><label for="refundCurrency">Currency</label><input type="text" id="refundCurrency" autocomplete="off" /></div>
+      <div class="field full"><label for="refundTx">Refund transaction hash <span class="opt">(optional)</span></label><input type="text" id="refundTx" class="mono" placeholder="0x… or bank reference" autocomplete="off" /></div>
+      <div class="field"><label for="refundAt">Refunded on</label><input type="datetime-local" id="refundAt" /></div>
+      <div class="field"></div>
+      <div class="field full"><label for="refundNote">How was it refunded?</label><textarea id="refundNote" placeholder="e.g. Sent 100.18 USDT back to the partner's BEP20 address after OwlPay expired the payout twice"></textarea></div>
+      <div class="field"><label for="refundActor">Your name</label><input type="text" id="refundActor" autocomplete="name" placeholder="Saved in the audit trail" /></div>
+      <div class="field"><label for="refundPasscode">Passcode</label><input type="password" id="refundPasscode" autocomplete="current-password" /></div>
+    </div>
+    <label class="ack" id="refundAckRow" style="display:none"><input type="checkbox" id="refundAck" /> <span>The orchestrator could not confirm the payout status. I checked the payout is not in flight.</span></label>
+    <div class="consequence">This sets the offramp to REFUNDED and notifies the partner straight away (offramp.refunded). Your name, the time and your note go into the audit trail.</div>
+    <div id="refundMsg" class="payout-retry-msg" style="display:none"></div>
+    <div class="foot"><button type="button" class="ghost" id="refundDismiss">Cancel</button><button type="button" class="refund" id="refundConfirm">Mark as refunded</button></div>
   </div>
 </dialog>
 
@@ -340,7 +422,7 @@ function readActor() {
 
 function restorePasscodeField() {
   const saved = sessionStorage.getItem("dashSecret");
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode", "refundPasscode"].forEach(function (id) {
     var el = $(id);
     if (el && saved && !el.value) el.value = saved;
   });
@@ -358,7 +440,7 @@ function focusPasscode() {
 }
 
 function clearPasscodeFields() {
-  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode"].forEach(function (id) {
+  ["approveFeePasscode", "holdPasscode", "retryFiatPasscode", "markPasscode", "dakAttestPasscode", "siPasscode", "rmPasscode", "refundPasscode"].forEach(function (id) {
     var el = $(id);
     if (el) el.value = "";
   });
@@ -399,7 +481,11 @@ function setTableHead(view) {
 }
 
 function showErr(msg, kind) { const e = $("err"); e.className = kind === "ok" ? "err ok" : kind === "info" ? "err info" : "err"; e.style.display = msg ? "block" : "none"; e.textContent = msg || ""; }
-function badgeClass(s) { return OK.has(s) ? "badge ok" : FAIL.has(s) ? "badge fail" : "badge pend"; }
+function badgeClass(s) { return s === "REFUNDED" ? "badge refunded" : OK.has(s) ? "badge ok" : FAIL.has(s) ? "badge fail" : "badge pend"; }
+function sigChip(sig) {
+  if (!sig) return "";
+  return '<span class="sig" title="What the payout provider reported. Not applied until an admin marks it refunded.">' + esc(sig.label) + "</span>";
+}
 
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
@@ -434,7 +520,7 @@ function fillStatusFilter() {
 function rowHtml(t) {
   return '<tr class="row" data-id="' + esc(t.id) + '">' +
     "<td>" + (t.txnRef ? esc(t.txnRef) : '<span class="muted">' + esc(t.id.slice(0, 8)) + "</span>") + "</td>" +
-    '<td><span class="' + badgeClass(t.status) + '">' + esc(t.status) + "</span></td>" +
+    '<td><span class="' + badgeClass(t.status) + '">' + esc(t.status) + "</span>" + sigChip(t.providerSignal) + "</td>" +
     '<td class="amt">' + (t.amount != null ? fmtMoney(t.amount, t.currency) : "—") + "</td>" +
     "<td>" + (t.beneficiaryName ? esc(t.beneficiaryName) : '<span class="muted">' + esc(t.userId.slice(0, 8)) + "</span>") + "</td>" +
     '<td class="muted">' + esc(new Date(t.createdAt).toLocaleString()) + "</td>" +
@@ -674,6 +760,7 @@ async function openDetail(id, forceType, flash) {
 
     // Sections ordered for an operator reading top-to-bottom.
     let body = summary;
+    if (t.type === "offramp") body += refundCardHtml(t);
 
     if (t.type === "offramp") {
       if (holdLoadError) {
@@ -739,6 +826,10 @@ async function openDetail(id, forceType, flash) {
     const superseded = Array.isArray(po.supersededWithdrawalIds)
       ? po.supersededWithdrawalIds.filter(Boolean).join(", ")
       : "";
+    if (t.type === "offramp" && Array.isArray(t.payoutAttempts) && t.payoutAttempts.length) {
+      body += section("Payout attempts — what the provider said", attemptsHtml(t.payoutAttempts));
+    }
+
     body += section("Liquidity provider (Palremit)", kvPairs([
       ["Payout to Palremit", pi.sent ? "Sent" : "Not sent yet"],
       ["Withdrawal status", po.withdrawalStatus || null],
@@ -849,7 +940,9 @@ async function openDetail(id, forceType, flash) {
         ? '<label class="muted" style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" id="markAnyway" /> Palremit is still processing — mark anyway</label>'
         : "") +
       '<div id="markActionMsg" class="payout-retry-msg" style="display:none"></div>' +
-      '<div class="actions"><button type="button" class="ok" id="markOk">Mark Successful</button><button type="button" class="danger" id="markFail">Mark Failed</button></div></div></div>';
+      '<div class="actions"><button type="button" class="ok" id="markOk">Mark Successful</button><button type="button" class="danger" id="markFail">Mark Failed</button>' +
+      (t.type === "offramp" && t.canMarkRefunded && !t.providerRefundSignal ? '<button type="button" class="refund" data-open-refund="1">Mark as refunded…</button>' : "") +
+      "</div></div></div>";
 
     body += '<details class="raw"><summary>Show raw data</summary><pre>' + esc(JSON.stringify(t, null, 2)) + "</pre></details>";
 
@@ -860,6 +953,217 @@ async function openDetail(id, forceType, flash) {
     if (flash && flash.msg) showDetailMsg(flash.msg, flash.kind);
     if (holdView && holdView.hold && holdView.hold.tenant_actionable) checkHoldRate();
   } catch (e) { showErr(e.message); }
+}
+
+// --- refunds: provider signal + admin "mark as refunded" -------------------
+
+const OUTCOME_LABEL = { refunded: "Refunded", expired: "Expired", cancelled: "Cancelled", rejected: "Rejected", failed: "Failed", paid: "Paid", processing: "In progress", unknown: "Unknown" };
+
+function shortId(v) {
+  var s = String(v || "");
+  return s.length > 14 ? s.slice(0, 6) + "…" + s.slice(-6) : s;
+}
+function fmtWhen(v) {
+  if (!v) return "";
+  var d = new Date(v);
+  return isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function refundCardHtml(t) {
+  if (t.status === "REFUNDED") {
+    var mr = (t.providerRefs && t.providerRefs.manualRefund) || {};
+    var rd = t.refundDetails || {};
+    var facts = [];
+    if (rd.amount) facts.push(fmtMoney(rd.amount, rd.currency));
+    if (rd.transactionHash) facts.push("Tx " + esc(shortId(rd.transactionHash)));
+    if (mr.providerSignal && mr.providerSignal.outcome) facts.push("Provider had said: " + esc(OUTCOME_LABEL[mr.providerSignal.outcome] || mr.providerSignal.outcome).toLowerCase());
+    return '<div class="signal-card refunded"><div class="ico">↩</div>' +
+      '<div class="h">Refunded to the customer<span class="when">' + esc(fmtWhen(rd.refundedAt)) + "</span></div>" +
+      '<div class="d">' + (mr.markedBy ? "Marked by <strong>" + esc(mr.markedBy) + "</strong>" + (mr.markedAt ? " on " + esc(fmtWhen(mr.markedAt)) : "") + ". " : "") +
+        (mr.note ? esc(mr.note) : "") + "</div>" +
+      (facts.length ? '<div class="facts">' + facts.map(function (f) { return '<span class="fact">' + f + "</span>"; }).join("") + "</div>" : "") +
+      "</div>";
+  }
+  var sig = t.providerRefundSignal;
+  if (!sig) return "";
+  var f = [];
+  if (sig.withdrawalId) f.push("Payout " + esc(shortId(sig.withdrawalId)));
+  if (sig.fundedAttempts > 0) f.push("Funded " + sig.fundedAttempts + (sig.fundedAttempts > 1 ? " times" : " time"));
+  f.push(sig.source === "live" ? "Checked just now" : "From the last saved update");
+  var cta = t.canMarkRefunded
+    ? '<button type="button" class="refund" data-open-refund="1">Mark as refunded…</button>'
+    : (t.refundBlockedReason ? '<span class="muted" style="font-size:12px;max-width:220px;display:block">' + esc(t.refundBlockedReason) + "</span>" : "");
+  return '<div class="signal-card"><div class="ico">!</div>' +
+    '<div class="h">' + esc(sig.label) + '<span class="when">' + esc(fmtWhen(sig.at)) + "</span></div>" +
+    '<div class="cta">' + cta + "</div>" +
+    '<div class="d">' + esc(sig.detail) + "</div>" +
+    '<div class="facts">' + f.map(function (x) { return '<span class="fact">' + x + "</span>"; }).join("") + "</div>" +
+    "</div>";
+}
+
+function attemptsHtml(list) {
+  return '<div class="card" style="padding:4px 6px"><table class="attempts"><thead><tr><th>Payout</th><th>Provider says</th><th>Funded</th><th>Ended</th><th></th></tr></thead><tbody>' +
+    list.map(function (a) {
+      var cls = a.outcome === "paid" ? "oc ok" : a.outcome === "processing" ? "oc pend" : a.outcome === "unknown" ? "oc" : "oc bad";
+      var funded = a.funded === true ? (a.fundedAt ? "Yes · " + esc(fmtWhen(a.fundedAt)) : "Yes") : a.funded === false ? '<span class="muted">No</span>' : '<span class="muted">—</span>';
+      var src = a.source === "live" ? "live" : a.source === "stored" ? "saved" : "unreachable";
+      return "<tr>" +
+        '<td class="mono">' + esc(shortId(a.withdrawalId)) + (a.current ? '<span class="now">Current</span>' : "") + "</td>" +
+        '<td><span class="' + cls + '">' + esc(OUTCOME_LABEL[a.outcome] || a.outcome) + "</span></td>" +
+        "<td>" + funded + "</td>" +
+        '<td class="muted">' + (esc(fmtWhen(a.endedAt)) || "—") + "</td>" +
+        '<td class="src">' + src + "</td>" +
+        "</tr>";
+    }).join("") + "</tbody></table></div>";
+}
+
+function localInputNow() {
+  var d = new Date();
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
+function showRefundMsg(msg, kind) {
+  var el = $("refundMsg");
+  if (!msg) { el.style.display = "none"; el.textContent = ""; return; }
+  el.className = "payout-retry-msg" + (kind === "bad" ? " bad" : kind === "ok" ? " ok" : " info");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function openRefundModal() {
+  var t = detailCtx.t;
+  if (!t) return;
+  var src = t.source || {};
+  var dest = t.destination || {};
+  var sig = t.providerRefundSignal;
+  $("refundTitle").textContent = "Mark " + (t.txnRef || "offramp") + " as refunded";
+  var rows = [
+    ["Customer sent", fmtMoney(src.amount, src.currency)],
+    ["Payout", fmtMoney(dest.amount, dest.currency)],
+    ["Beneficiary", esc(payoutBeneficiary(t).name || "—")],
+    ["Bloxfi status", esc(t.status)],
+    ["Provider says", sig ? esc(sig.label) + (sig.fundedAttempts > 1 ? " · funded " + sig.fundedAttempts + " times" : "") : '<span class="muted">Nothing reported</span>']
+  ];
+  $("refundSummary").innerHTML = rows.map(function (r) { return '<div class="k">' + r[0] + "</div><div>" + r[1] + "</div>"; }).join("");
+  $("refundAmount").value = src.amount != null ? String(src.amount) : "";
+  $("refundCurrency").value = src.currency ? String(src.currency).toUpperCase() : "";
+  $("refundTx").value = "";
+  $("refundAt").value = localInputNow();
+  $("refundNote").value = "";
+  $("refundActor").value = sessionStorage.getItem("dashActor") || "";
+  $("refundPasscode").value = sessionStorage.getItem("dashSecret") || "";
+  $("refundAck").checked = false;
+  $("refundAckRow").style.display = t.refundNeedsAcknowledge ? "flex" : "none";
+  showRefundMsg("");
+  $("refundModal").showModal();
+  ($("refundNote")).focus();
+}
+
+function closeRefundModal() { $("refundModal").close(); }
+
+async function submitRefund() {
+  var t = detailCtx.t;
+  if (!t) return;
+  var note = $("refundNote").value.trim();
+  var actor = $("refundActor").value.trim();
+  var secret = $("refundPasscode").value.trim();
+  if (note.length < 3) { showRefundMsg("Add a note on how the customer was refunded.", "bad"); $("refundNote").focus(); return; }
+  if (actor.length < 2) { showRefundMsg("Enter your name so the refund is recorded against you.", "bad"); $("refundActor").focus(); return; }
+  if (!secret) { showRefundMsg("Enter the dashboard passcode.", "bad"); $("refundPasscode").focus(); return; }
+  if (t.refundNeedsAcknowledge && !$("refundAck").checked) { showRefundMsg("Tick the box to confirm the payout is not in flight.", "bad"); return; }
+  var at = $("refundAt").value;
+  var payload = {
+    note: note,
+    actor: actor,
+    amount: $("refundAmount").value.trim() || undefined,
+    currency: $("refundCurrency").value.trim() || undefined,
+    transactionHash: $("refundTx").value.trim() || undefined,
+    refundedAt: at ? new Date(at).toISOString() : undefined,
+    acknowledgeUnverified: $("refundAck").checked
+  };
+  var btn = $("refundConfirm");
+  setBtnLoading(btn, true, "Saving");
+  showRefundMsg("Checking the payout with the provider and saving…", "info");
+  try {
+    await api("/offramps/" + detailCtx.id + "/mark-refunded", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify(payload)
+    });
+    sessionStorage.setItem("dashSecret", secret);
+    sessionStorage.setItem("dashActor", actor);
+    closeRefundModal();
+    await openDetail(detailCtx.id, "offramp", { msg: (t.txnRef || "Offramp") + " marked as refunded. The partner has been notified.", kind: "ok" });
+    if (state.view === "refunds") loadRefunds();
+    else if (state.view === "transactions" && state.type === "offramp") load(true);
+    refreshRefundCount();
+  } catch (e) {
+    if (e.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      $("refundPasscode").value = "";
+      showRefundMsg("Incorrect passcode.", "bad");
+      $("refundPasscode").focus();
+    } else {
+      showRefundMsg(e.message || "Could not mark as refunded.", "bad");
+    }
+  } finally {
+    setBtnLoading(btn, false);
+  }
+}
+
+function updateRefundCount(n) {
+  var el = $("refundCount");
+  if (!el) return;
+  el.textContent = n > 0 ? String(n) : "";
+  el.style.display = n > 0 ? "inline-block" : "none";
+}
+async function refreshRefundCount() {
+  try { var d = await api("/offramps/refunds"); updateRefundCount(d.needsReview.length); } catch (e) { updateRefundCount(0); }
+}
+
+function refundQueueRowHtml(r) {
+  return '<tr class="row rf-row" data-id="' + esc(r.id) + '">' +
+    '<td class="mono">' + esc(r.txnRef || r.id.slice(0, 8)) + "</td>" +
+    "<td>" + (r.signal ? '<span class="sig" style="margin-left:0">' + esc(r.signal.label) + "</span>" +
+      (r.signal.fundedAttempts > 0 ? ' <span class="muted" style="font-size:12px">· funded ' + r.signal.fundedAttempts + (r.signal.fundedAttempts > 1 ? " times" : " time") + "</span>" : "") : "") + "</td>" +
+    '<td class="amt">' + fmtMoney(r.amount, r.currency) + "</td>" +
+    '<td class="amt">' + fmtMoney(r.payoutAmount, r.payoutCurrency) + "</td>" +
+    '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + "</span></td>" +
+    '<td class="muted">' + esc(fmtWhen(r.signal && r.signal.at ? r.signal.at : r.updatedAt)) + "</td>" +
+    "</tr>";
+}
+function refundedRowHtml(r) {
+  var f = r.refund || {};
+  return '<tr class="row rf-row" data-id="' + esc(r.id) + '">' +
+    '<td class="mono">' + esc(r.txnRef || r.id.slice(0, 8)) + "</td>" +
+    '<td class="amt">' + (f.amount ? fmtMoney(f.amount, f.currency) : fmtMoney(r.amount, r.currency)) + "</td>" +
+    '<td class="mono">' + (f.transactionHash ? esc(shortId(f.transactionHash)) : '<span class="muted">—</span>') + "</td>" +
+    "<td>" + (f.markedBy ? esc(f.markedBy) : '<span class="muted">Provider webhook</span>') + "</td>" +
+    '<td class="muted">' + esc(fmtWhen(f.refundedAt || r.updatedAt)) + "</td>" +
+    "</tr>";
+}
+
+async function loadRefunds() {
+  showErr("");
+  var box = $("rfResults");
+  box.innerHTML = '<div class="rf-empty">Loading…</div>';
+  try {
+    var d = await api("/offramps/refunds");
+    updateRefundCount(d.needsReview.length);
+    var html = '<div class="rf-head"><h2>Needs a refund decision</h2><span class="muted">The payout provider refunded, expired, cancelled or rejected these payouts. Nothing changes until you mark one refunded.</span></div>';
+    html += d.needsReview.length
+      ? "<table><thead><tr><th>Reference</th><th>Provider says</th><th>Customer sent</th><th>Payout</th><th>Bloxfi status</th><th>When</th></tr></thead><tbody>" + d.needsReview.map(refundQueueRowHtml).join("") + "</tbody></table>"
+      : '<div class="rf-empty">Nothing waiting. Payouts the provider gives up on will show up here.</div>';
+    html += '<div class="rf-head" style="margin-top:26px"><h2>Recently refunded</h2></div>';
+    html += d.recentlyRefunded.length
+      ? "<table><thead><tr><th>Reference</th><th>Refunded</th><th>Transaction</th><th>Marked by</th><th>Refunded on</th></tr></thead><tbody>" + d.recentlyRefunded.map(refundedRowHtml).join("") + "</tbody></table>"
+      : '<div class="rf-empty">No refunds yet.</div>';
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = "";
+    showErr(e.message);
+  }
 }
 
 // --- held payouts: release an unfavorable-rate hold -----------------------
@@ -2280,7 +2584,9 @@ document.querySelectorAll(".tab").forEach(function (el) {
     var isDakota = state.view === "dakota";
     var isSenderInfo = state.view === "senderinfo";
     var isRates = state.view === "rates";
-    var hideTxns = isBusinesses || isDakota || isSenderInfo || isRates;
+    var isRefunds = state.view === "refunds";
+    var hideTxns = isBusinesses || isDakota || isSenderInfo || isRates || isRefunds;
+    $("rfResults").style.display = isRefunds ? "block" : "none";
     $("txnToolbar").style.display = hideTxns ? "none" : "flex";
     $("bizToolbar").style.display = isBusinesses ? "flex" : "none";
     $("dakToolbar").style.display = isDakota ? "flex" : "none";
@@ -2293,6 +2599,10 @@ document.querySelectorAll(".tab").forEach(function (el) {
     $("dakResults").style.display = isDakota ? "block" : "none";
     $("siResults").style.display = isSenderInfo ? "block" : "none";
     $("rmResults").style.display = isRates ? "block" : "none";
+    if (isRefunds) {
+      loadRefunds();
+      return;
+    }
     if (isRates) {
       loadRates();
       return;
@@ -2343,7 +2653,15 @@ $("approveFeeConfirm").addEventListener("click", function () { submitApproveFee(
 $("approveFeePasscode").addEventListener("keydown", function (e) {
   if (e.key === "Enter") { e.preventDefault(); submitApproveFee(); }
 });
+$("refundCancel").addEventListener("click", closeRefundModal);
+$("refundDismiss").addEventListener("click", closeRefundModal);
+$("refundConfirm").addEventListener("click", function () { submitRefund(); });
+$("rfResults").addEventListener("click", function (e) {
+  var tr = e.target.closest("tr.rf-row");
+  if (tr) openDetail(tr.dataset.id, "offramp");
+});
 $("dBody").addEventListener("click", function (e) {
+  if (e.target.closest("[data-open-refund]")) { openRefundModal(); return; }
   if (e.target.closest("#markFiatReceived")) { markFiatReceived(detailCtx.id); return; }
   if (e.target.closest("#markOk")) { mark(detailCtx.id, "success", detailCtx.withdrawalProcessing); return; }
   if (e.target.closest("#markFail")) { mark(detailCtx.id, "failed", detailCtx.withdrawalProcessing); return; }
@@ -2390,6 +2708,7 @@ fillStatusFilter();
 restorePasscodeField();
 load(true);
 refreshHeldCount();
+refreshRefundCount();
 </script>
 </body>
 </html>`;
