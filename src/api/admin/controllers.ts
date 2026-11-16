@@ -19,6 +19,7 @@ import * as dakotaKyb from '@/core/admin/dakotaKyb';
 import * as heldPayouts from '@/core/admin/heldPayouts';
 import * as senderInfo from '@/core/admin/senderInfo';
 import * as pairMarkup from '@/core/admin/pairMarkup';
+import * as offrampRefund from '@/core/admin/offrampRefund';
 import { getPairMarkupRulesStatus } from '@/core/quotes/pairMarkupStore';
 import { listUsers, searchUsers, mergeUserMetadata } from '@/db/repositories/user.repo';
 import { createPalremitLiquidityAdapter } from '@/services/palremitAdapters';
@@ -125,6 +126,60 @@ export async function markTransaction(
       actor,
     });
     sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+const markRefundedBody = z.object({
+  actor: z.string().max(200).optional(),
+  note: z.string().max(4000).optional(),
+  transactionHash: z.string().max(300).optional(),
+  amount: z.union([z.string().max(64), z.number()]).optional(),
+  currency: z.string().max(20).optional(),
+  refundedAt: z.string().max(64).optional(),
+  acknowledgeUnverified: z.boolean().optional(),
+  secret: z.string().optional(),
+});
+
+/** POST /dashboard/api/offramps/:offrampId/mark-refunded — admin confirms the customer was refunded. */
+export async function markOfframpRefunded(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const raw = (req.body ?? {}) as { secret?: unknown };
+    requireDashboardSecret(req, raw);
+    const parsed = markRefundedBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new AppError('Invalid refund details', 'INVALID_REQUEST', 400);
+    }
+    const b = parsed.data;
+    const result = await offrampRefund.markOfframpRefunded({
+      id: req.params.offrampId,
+      actor: b.actor ?? '',
+      note: b.note ?? '',
+      transactionHash: b.transactionHash,
+      amount: b.amount == null ? undefined : String(b.amount),
+      currency: b.currency,
+      refundedAt: b.refundedAt,
+      acknowledgeUnverified: b.acknowledgeUnverified,
+    });
+    sendSuccess(res, result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** GET /dashboard/api/offramps/refunds — provider gave up + not refunded yet, and recent refunds. */
+export async function listOfframpRefunds(
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    sendSuccess(res, await offrampRefund.listRefundQueue());
   } catch (e) {
     next(e);
   }

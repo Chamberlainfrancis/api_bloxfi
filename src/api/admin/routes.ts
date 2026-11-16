@@ -15,6 +15,9 @@ router.post('/transactions/onramp/:id/mark-fiat-received', controllers.markOnram
 router.get('/fee-settlements/pending', controllers.listPendingFeeSettlements);
 router.post('/fee-settlements/:id/approve', controllers.approveFeeSettlement);
 router.post('/offramps/:offrampId/retry-fiat-payout', controllers.retryOfframpFiatPayout);
+// Refunds: the provider's refunded/expired signal is shown, but only an admin marks REFUNDED.
+router.get('/offramps/refunds', controllers.listOfframpRefunds);
+router.post('/offramps/:offrampId/mark-refunded', controllers.markOfframpRefunded);
 router.get('/held-payouts', controllers.listHeldPayouts);
 router.get('/offramps/:offrampId/hold', controllers.getOfframpPayoutHold);
 router.post('/offramps/:offrampId/accept-rate', controllers.acceptOfframpPayoutRate);

@@ -23,6 +23,12 @@ import {
   expireStaleOnramps,
   expireStaleOfframps,
 } from '@/core/ramps/depositExpiry';
+import {
+  loadPayoutAttempts,
+  refundBlockReason,
+  refundSignalFrom,
+  storedProviderSignal,
+} from '@/core/admin/offrampRefund';
 
 export type TxnType = 'onramp' | 'offramp';
 export type MarkOutcome = 'success' | 'failed';
@@ -176,6 +182,8 @@ export interface ListRow {
   currency: string | null;
   beneficiaryName: string | null;
   createdAt: string;
+  /** Offramps only: what the payout provider last reported, when it gave up (from saved webhooks). */
+  providerSignal: { outcome: string; label: string } | null;
 }
 
 interface ListRowInput {
@@ -185,6 +193,8 @@ interface ListRowInput {
   userId: string;
   source: unknown;
   destination?: unknown;
+  providerRefs?: unknown;
+  timeline?: unknown;
   createdAt: Date;
 }
 
@@ -222,7 +232,13 @@ export function toListRow(
     currency: typeof s.currency === 'string' ? s.currency : null,
     beneficiaryName,
     createdAt: row.createdAt.toISOString(),
+    providerSignal: type === 'offramp' ? listSignal(row) : null,
   };
+}
+
+function listSignal(row: ListRowInput): { outcome: string; label: string } | null {
+  const sig = storedProviderSignal(row);
+  return sig ? { outcome: sig.outcome, label: sig.label } : null;
 }
 
 export interface ListParams {
@@ -384,10 +400,29 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     }
   }
 
+  // Every payout attempt (current + reissued) with what the provider said, and
+  // whether ops may mark the offramp refunded. Signal only: never auto-marks.
+  let payoutAttempts: Awaited<ReturnType<typeof loadPayoutAttempts>> = [];
+  if (type === 'offramp') {
+    try {
+      payoutAttempts = await loadPayoutAttempts(row);
+    } catch {
+      payoutAttempts = [];
+    }
+  }
+  const currentAttempt = payoutAttempts.find((a) => a.current) ?? null;
+  const refundBlocked = type === 'offramp' ? refundBlockReason(row, currentAttempt) : null;
+
   return {
     ...row,
     type,
     adminActions,
+    payoutAttempts,
+    providerRefundSignal: type === 'offramp' ? refundSignalFrom(payoutAttempts) : null,
+    canMarkRefunded: type === 'offramp' && refundBlocked == null,
+    refundBlockedReason: refundBlocked,
+    refundNeedsAcknowledge:
+      type === 'offramp' && refundBlocked == null && currentAttempt != null && currentAttempt.source !== 'live',
     beneficiaryAccount,
     withdrawalProcessing: isWithdrawalProcessing(type, row.status, row.providerRefs),
     payoutError: type === 'offramp' ? extractFiatPayoutError(row) : null,

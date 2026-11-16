@@ -36,6 +36,7 @@ describe('toListRow', () => {
       currency: 'USD',
       beneficiaryName: null,
       createdAt: '2026-06-15T10:00:00.000Z',
+      providerSignal: null,
     });
   });
 
