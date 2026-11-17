@@ -24,7 +24,8 @@ Use the values in the `extras.transfer_purpose` enum returned by
 `destination.extras.transfer_purpose` on the account, or `destination.purposeOfPayment` on the
 offramp (the offramp's purpose wins over the account's).
 
-`SALARY` is never accepted, and `TRANSFER_TO_OWN_ACCOUNT` is only accepted for businesses with
+`SALARY`, `DONATIONS` and `other`/`others` are never accepted (OwlPay rejects the first two on
+every route; "other" is not a purpose code). `TRANSFER_TO_OWN_ACCOUNT` is only accepted for businesses with
 self transfers turned on (**400** otherwise).
 
 These business purposes are available on every corridor that offers the matching provider purpose:

@@ -27,6 +27,17 @@ describe('createOfframpBodySchema', () => {
     }
   });
 
+  it('rejects other and DONATIONS as purposeOfPayment', () => {
+    for (const purposeOfPayment of ['other', 'Other', 'OTHERS', 'DONATIONS', 'donations']) {
+      const r = createOfframpBodySchema.safeParse({
+        ...baseBody,
+        destination: { ...baseBody.destination, purposeOfPayment },
+      });
+      expect(r.success).toBe(false);
+      if (!r.success) expect(r.error.issues[0]!.path).toEqual(['destination', 'purposeOfPayment']);
+    }
+  });
+
   it('accepts a Bloxfi business purpose alias', () => {
     const r = createOfframpBodySchema.safeParse({
       ...baseBody,
