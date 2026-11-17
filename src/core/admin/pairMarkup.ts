@@ -2,7 +2,8 @@
  * Ops-editable bloxfi FX spread per (fiat, side), shown and edited on the
  * dashboard Rates tab. buy = onramp (fiat → crypto), sell = offramp
  * (crypto → fiat). Only bloxfi's own markup lives here; currency-api rates
- * are not touched.
+ * are not touched. There are no rates in code: an offramp currency with no
+ * sell row cannot be quoted or created.
  *
  * Every write is audited and reloads the in-memory rules used by quotes
  * (core/quotes/pairMarkupStore.ts), so new quotes on this instance use the
@@ -27,6 +28,8 @@ export interface PairMarkupSetting extends PairMarkupKey {
   /** Comma-separated upper-case codes, e.g. "USD,USDT,USDC". */
   cryptos: string;
   markupBps: number;
+  /** Sell rows: refuse to quote without the payout provider's live rate. Always true on buy rows. */
+  requireProviderRate: boolean;
   updatedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -38,9 +41,31 @@ export interface PairMarkupRepo {
   findPairMarkupSettingByKey(key: PairMarkupKey): Promise<PairMarkupSetting | null>;
   upsertPairMarkupSetting(
     key: PairMarkupKey,
-    data: { cryptos: string; markupBps: number; updatedBy: string | null }
+    data: { cryptos: string; markupBps: number; requireProviderRate: boolean; updatedBy: string | null }
   ): Promise<PairMarkupSetting>;
   deletePairMarkupSettingById(id: string): Promise<void>;
+  /** Upper-case payout currencies of offramps created since `since`. */
+  listRecentOfframpCurrencies(since: Date): Promise<string[]>;
+}
+
+/** How far back the Rates tab looks for offramp currencies that have no sell markup. */
+export const PAUSED_OFFRAMP_LOOKBACK_DAYS = 90;
+
+/**
+ * Currencies recently paid out by offramps that have no sell row: offramps to
+ * them are refused until a markup is saved. Sorted, upper-case.
+ */
+export function pausedOfframpCurrencies(
+  settings: ReadonlyArray<Pick<PairMarkupSetting, 'fiat' | 'side'>>,
+  recentCurrencies: ReadonlyArray<string>
+): string[] {
+  const priced = new Set(settings.filter((s) => s.side === 'sell').map((s) => s.fiat.toUpperCase()));
+  const out = new Set<string>();
+  for (const c of recentCurrencies) {
+    const fiat = c.trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(fiat) && !priced.has(fiat)) out.add(fiat);
+  }
+  return [...out].sort();
 }
 
 export interface PairMarkupAuditRepo {
@@ -73,8 +98,12 @@ export function pairMarkupKeyLabel(key: PairMarkupKey): string {
   return `${key.fiat}:${key.side}`;
 }
 
-function describe(setting: Pick<PairMarkupSetting, 'markupBps' | 'cryptos'>): string {
-  return `${setting.markupBps} bps (${setting.cryptos})`;
+function describe(
+  setting: Pick<PairMarkupSetting, 'markupBps' | 'cryptos' | 'side'> & { requireProviderRate?: boolean }
+): string {
+  const base = `${setting.markupBps} bps (${setting.cryptos})`;
+  if (setting.side !== 'sell') return base;
+  return setting.requireProviderRate === false ? `${base}, provider rate optional` : `${base}, provider rate required`;
 }
 
 export function normalizePairMarkupInput(input: {
@@ -82,7 +111,8 @@ export function normalizePairMarkupInput(input: {
   side: PairMarkupSide;
   cryptos?: ReadonlyArray<string> | string | null;
   markupBps: number;
-}): { key: PairMarkupKey; cryptos: string; markupBps: number } {
+  requireProviderRate?: boolean | null;
+}): { key: PairMarkupKey; cryptos: string; markupBps: number; requireProviderRate: boolean } {
   const fiat = input.fiat.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(fiat)) {
     throw new PairMarkupValidationError('fiat must be a 3-letter currency code, e.g. EUR');
@@ -115,7 +145,10 @@ export function normalizePairMarkupInput(input: {
   }
   const markupBps = hundredths / 100;
 
-  return { key: { fiat, side: input.side }, cryptos: ordered.join(','), markupBps };
+  // Only offramps floor at the provider rate; buy rows always store true.
+  const requireProviderRate = input.side === 'sell' ? input.requireProviderRate !== false : true;
+
+  return { key: { fiat, side: input.side }, cryptos: ordered.join(','), markupBps, requireProviderRate };
 }
 
 export async function listPairMarkupSettings(deps: Pick<PairMarkupDeps, 'repo'>): Promise<PairMarkupSetting[]> {
@@ -130,15 +163,23 @@ export async function savePairMarkupSetting(
     side: PairMarkupSide;
     cryptos?: ReadonlyArray<string> | string | null;
     markupBps: number;
+    requireProviderRate?: boolean | null;
     actor?: string | null;
   }
 ): Promise<PairMarkupSetting> {
-  const { key, cryptos, markupBps } = normalizePairMarkupInput(input);
+  const { key, cryptos, markupBps, requireProviderRate } = normalizePairMarkupInput(input);
   const actor = input.actor?.trim() || null;
   const previous = await deps.repo.findPairMarkupSettingByKey(key);
-  if (previous && previous.markupBps === markupBps && previous.cryptos === cryptos) return previous;
+  if (
+    previous &&
+    previous.markupBps === markupBps &&
+    previous.cryptos === cryptos &&
+    previous.requireProviderRate === requireProviderRate
+  ) {
+    return previous;
+  }
 
-  const saved = await deps.repo.upsertPairMarkupSetting(key, { cryptos, markupBps, updatedBy: actor });
+  const saved = await deps.repo.upsertPairMarkupSetting(key, { cryptos, markupBps, requireProviderRate, updatedBy: actor });
   await deps.audit.createAdminAction({
     txnType: 'pair_markup',
     txnId: pairMarkupKeyLabel(key),
@@ -151,7 +192,10 @@ export async function savePairMarkupSetting(
   return saved;
 }
 
-/** Removing a rule means that pair gets no bloxfi markup (the currency-api B2B rate is served). */
+/**
+ * Removing a sell row pauses offramps to that currency (quotes and creates are
+ * refused). Removing a buy row means onramps use the currency-api B2B rate.
+ */
 export async function deletePairMarkupSetting(
   deps: PairMarkupDeps,
   id: string,

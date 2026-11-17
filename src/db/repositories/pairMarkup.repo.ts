@@ -11,6 +11,7 @@ function toSetting(row: {
   side: string;
   cryptos: string;
   markupBps: number;
+  requireProviderRate: boolean;
   updatedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -37,7 +38,7 @@ export async function findPairMarkupSettingByKey(key: PairMarkupKey): Promise<Pa
 
 export async function upsertPairMarkupSetting(
   key: PairMarkupKey,
-  data: { cryptos: string; markupBps: number; updatedBy: string | null }
+  data: { cryptos: string; markupBps: number; requireProviderRate: boolean; updatedBy: string | null }
 ): Promise<PairMarkupSetting> {
   const row = await prisma.pairMarkupSetting.upsert({
     where: { fiat_side: key },
@@ -49,4 +50,13 @@ export async function upsertPairMarkupSetting(
 
 export async function deletePairMarkupSettingById(id: string): Promise<void> {
   await prisma.pairMarkupSetting.delete({ where: { id } });
+}
+
+export async function listRecentOfframpCurrencies(since: Date): Promise<string[]> {
+  const rows = await prisma.$queryRaw<Array<{ currency: string | null }>>`
+    SELECT DISTINCT UPPER(TRIM("destination"->>'currency')) AS currency
+    FROM "Offramp"
+    WHERE "createdAt" >= ${since} AND "destination"->>'currency' IS NOT NULL
+  `;
+  return rows.map((r) => r.currency).filter((c): c is string => Boolean(c));
 }

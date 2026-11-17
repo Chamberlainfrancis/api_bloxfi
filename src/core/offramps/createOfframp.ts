@@ -2,6 +2,7 @@
  * Core: create offramp. Palremit crypto provision + fiat withdrawal after `deposit.credited` (see advanceOfframpPayout).
  */
 
+import { requireOfframpPairMarkup } from '@/core/quotes/pairMarkup';
 import { maskPublicOfframpDestination } from '@/core/offramps/maskOfframpDestination';
 import {
   beneficiaryDobFromCustomer,
@@ -208,6 +209,8 @@ export async function createOfframp(
   const chain = options.lockedQuote.fromChain;
   const fromCurrency = options.lockedQuote.fromCurrency.trim().toLowerCase();
   const toCurrency = options.lockedQuote.toCurrency.trim().toLowerCase();
+  // No offramp without a saved markup: a row removed after the quote also blocks it.
+  requireOfframpPairMarkup(fromCurrency, toCurrency);
 
   const accountCurrency = account.currency.trim().toLowerCase();
   if (accountCurrency !== toCurrency) {

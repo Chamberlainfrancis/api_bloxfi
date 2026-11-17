@@ -3,6 +3,7 @@ import {
   deletePairMarkupSetting,
   normalizePairMarkupInput,
   PairMarkupValidationError,
+  pausedOfframpCurrencies,
   savePairMarkupSetting,
   type PairMarkupDeps,
   type PairMarkupSetting,
@@ -15,6 +16,7 @@ function setting(partial: Partial<PairMarkupSetting> = {}): PairMarkupSetting {
     side: 'sell',
     cryptos: 'USD,USDT,USDC',
     markupBps: 20,
+    requireProviderRate: true,
     updatedBy: null,
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
@@ -30,6 +32,7 @@ function deps(existing: PairMarkupSetting | null): PairMarkupDeps {
       findPairMarkupSettingByKey: vi.fn().mockResolvedValue(existing),
       upsertPairMarkupSetting: vi.fn().mockImplementation(async (key, data) => setting({ ...key, ...data })),
       deletePairMarkupSettingById: vi.fn(),
+      listRecentOfframpCurrencies: vi.fn().mockResolvedValue([]),
     },
     audit: { createAdminAction: vi.fn() },
     reload: vi.fn().mockResolvedValue(true),
@@ -42,6 +45,7 @@ describe('normalizePairMarkupInput', () => {
       key: { fiat: 'EUR', side: 'sell' },
       cryptos: 'USD,USDC',
       markupBps: 12.5,
+      requireProviderRate: true,
     });
   });
 
@@ -73,13 +77,13 @@ describe('savePairMarkupSetting', () => {
     await savePairMarkupSetting(d, { fiat: 'eur', side: 'sell', markupBps: 25, actor: ' Emmanuel ' });
     expect(d.repo.upsertPairMarkupSetting).toHaveBeenCalledWith(
       { fiat: 'EUR', side: 'sell' },
-      { cryptos: 'USD,USDT,USDC', markupBps: 25, updatedBy: 'Emmanuel' }
+      { cryptos: 'USD,USDT,USDC', markupBps: 25, requireProviderRate: true, updatedBy: 'Emmanuel' }
     );
     expect(d.audit.createAdminAction).toHaveBeenCalledWith({
       txnType: 'pair_markup',
       txnId: 'EUR:sell',
-      fromStatus: '20 bps (USD,USDT,USDC)',
-      toStatus: '25 bps (USD,USDT,USDC)',
+      fromStatus: '20 bps (USD,USDT,USDC), provider rate required',
+      toStatus: '25 bps (USD,USDT,USDC), provider rate required',
       note: 'Rate markup updated',
       actor: 'Emmanuel',
     });
@@ -88,9 +92,9 @@ describe('savePairMarkupSetting', () => {
 
   it('adds a new rule', async () => {
     const d = deps(null);
-    await savePairMarkupSetting(d, { fiat: 'NGN', side: 'sell', cryptos: 'USDT', markupBps: 30 });
+    await savePairMarkupSetting(d, { fiat: 'NGN', side: 'sell', cryptos: 'USDT', markupBps: 30, requireProviderRate: false });
     expect(d.audit.createAdminAction).toHaveBeenCalledWith(
-      expect.objectContaining({ txnId: 'NGN:sell', fromStatus: '', toStatus: '30 bps (USDT)', note: 'Rate markup added' })
+      expect.objectContaining({ txnId: 'NGN:sell', fromStatus: '', toStatus: '30 bps (USDT), provider rate optional', note: 'Rate markup added' })
     );
   });
 
@@ -103,13 +107,44 @@ describe('savePairMarkupSetting', () => {
   });
 });
 
+describe('requireProviderRate', () => {
+  it('is saved on sell rows and always true on buy rows', () => {
+    expect(normalizePairMarkupInput({ fiat: 'GBP', side: 'sell', markupBps: 20, requireProviderRate: false }).requireProviderRate).toBe(false);
+    expect(normalizePairMarkupInput({ fiat: 'GBP', side: 'sell', markupBps: 20 }).requireProviderRate).toBe(true);
+    expect(normalizePairMarkupInput({ fiat: 'GBP', side: 'buy', markupBps: 45, requireProviderRate: false }).requireProviderRate).toBe(true);
+  });
+
+  it('a change to it alone is saved and audited', async () => {
+    const d = deps(setting());
+    await savePairMarkupSetting(d, { fiat: 'EUR', side: 'sell', markupBps: 20, requireProviderRate: false });
+    expect(d.repo.upsertPairMarkupSetting).toHaveBeenCalledTimes(1);
+    expect(d.audit.createAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({ toStatus: '20 bps (USD,USDT,USDC), provider rate optional' })
+    );
+  });
+});
+
+describe('pausedOfframpCurrencies', () => {
+  it('lists recent offramp currencies with no sell row', () => {
+    expect(
+      pausedOfframpCurrencies(
+        [
+          { fiat: 'EUR', side: 'sell' },
+          { fiat: 'GBP', side: 'buy' },
+        ],
+        ['eur', 'GBP', 'NGN', 'NGN', 'usdt', '']
+      )
+    ).toEqual(['GBP', 'NGN']);
+  });
+});
+
 describe('deletePairMarkupSetting', () => {
   it('removes, audits and reloads', async () => {
     const d = deps(setting());
     await expect(deletePairMarkupSetting(d, 'pm_1', 'ops')).resolves.toBe(true);
     expect(d.repo.deletePairMarkupSettingById).toHaveBeenCalledWith('pm_1');
     expect(d.audit.createAdminAction).toHaveBeenCalledWith(
-      expect.objectContaining({ txnId: 'EUR:sell', fromStatus: '20 bps (USD,USDT,USDC)', toStatus: '', note: 'Rate markup removed', actor: 'ops' })
+      expect.objectContaining({ txnId: 'EUR:sell', fromStatus: '20 bps (USD,USDT,USDC), provider rate required', toStatus: '', note: 'Rate markup removed', actor: 'ops' })
     );
     expect(d.reload).toHaveBeenCalledTimes(1);
   });

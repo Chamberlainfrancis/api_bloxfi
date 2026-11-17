@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { findPairMarkup } from '@/core/quotes/pairMarkup';
+import { findPairMarkup, requireOfframpPairMarkup } from '@/core/quotes/pairMarkup';
 import {
   _resetPairMarkupRulesForTests,
   getPairMarkupRulesStatus,
@@ -15,9 +15,24 @@ afterEach(() => {
 });
 
 describe('pair markup store', () => {
-  it('uses the built-in config until the table has loaded', () => {
-    expect(getPairMarkupRulesStatus().source).toBe('config');
-    expect(findPairMarkup('usdc', 'eur')).toEqual({ fiat: 'EUR', markup: 0.002, side: 'sell' });
+  it('prices nothing until the table has loaded (there are no rates in code)', () => {
+    _resetPairMarkupRulesForTests();
+    expect(getPairMarkupRulesStatus().source).toBe('none');
+    expect(() => findPairMarkup('usdc', 'eur')).toThrow('PALREMIT_RATES_UNAVAILABLE');
+    expect(() => requireOfframpPairMarkup('usdc', 'eur')).toThrow('PALREMIT_RATES_UNAVAILABLE');
+  });
+
+  it('requires a saved sell row for offramps and reads requireProviderRate', () => {
+    setPairMarkupRulesFromSettings([
+      { fiat: 'GBP', side: 'sell', cryptos: 'USD,USDT,USDC', markupBps: 20, requireProviderRate: false },
+      { fiat: 'EUR', side: 'sell', cryptos: 'USDC', markupBps: 20 },
+      { fiat: 'NGN', side: 'buy', cryptos: 'USDT', markupBps: 30 },
+    ]);
+    expect(requireOfframpPairMarkup('USDT', 'GBP')).toEqual({ fiat: 'GBP', markup: 0.002, side: 'sell', requireProviderRate: false });
+    expect(requireOfframpPairMarkup('USDC', 'EUR').requireProviderRate).toBe(true);
+    // A buy row does not let an offramp through.
+    expect(() => requireOfframpPairMarkup('USDT', 'NGN')).toThrow('RATE_MARKUP_NOT_SET');
+    expect(() => requireOfframpPairMarkup('USDT', 'EUR')).toThrow('RATE_MARKUP_NOT_SET');
   });
 
   it('prices from the table once loaded (bps → fraction, per side)', () => {

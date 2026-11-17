@@ -457,6 +457,8 @@ model PairMarkupSetting {
   side      String // "buy" | "sell"
   cryptos   String // comma-separated upper-case codes, e.g. "USD,USDT,USDC"
   markupBps Float // 20 = 0.20%
+  /// Offramp (sell) rows: refuse to quote without the payout provider's live executable rate.
+  requireProviderRate Boolean @default(true)
   updatedBy String? // free-form name typed in the dashboard
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

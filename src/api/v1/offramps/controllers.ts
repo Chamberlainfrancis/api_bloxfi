@@ -41,7 +41,7 @@ import {
   PayoutDestinationInvalidError,
   validatePalremitDestination,
 } from '@/core/integrations/palremitDestinationCheck';
-import { findPairMarkup } from '@/core/quotes/pairMarkup';
+import { RATE_MARKUP_NOT_SET } from '@/core/quotes/pairMarkup';
 import { isUsdStableSell, usdSellCustomerFeeQuote } from '@/core/quotes/usdStableSell';
 import { payoutFiatDecimals, roundPayoutFiatAmount } from '@/core/quotes/roundPayoutFiatAmount';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
@@ -92,6 +92,14 @@ const getRateFromPalremit = async (
 
 function validationError(message: string, details?: unknown): AppError {
   return new AppError(message, 'INVALID_REQUEST', 400, details as Record<string, unknown>);
+}
+
+function rateMarkupNotSetError(): AppError {
+  return new AppError(
+    'Offramps to this currency are paused: no rate markup is set for it.',
+    'UNPROCESSABLE_ENTITY',
+    422
+  );
 }
 
 export async function getOfframpRates(
@@ -151,10 +159,7 @@ export async function getOfframpRates(
       {
         getRateFromPalremit,
         executableRate,
-        requireExecutable:
-          corridorReady &&
-          findPairMarkup(q.fromCurrency, q.toCurrency) != null &&
-          !isUsdStableSell(q.fromCurrency, q.toCurrency),
+        requireExecutable: corridorReady && !isUsdStableSell(q.fromCurrency, q.toCurrency),
       }
     );
     const rateNum = parseFloat(result.conversionRate) || 0;
@@ -205,6 +210,10 @@ export async function getOfframpRates(
     }
     sendSuccess(res, result);
   } catch (e) {
+    if (e instanceof Error && e.message === RATE_MARKUP_NOT_SET) {
+      next(rateMarkupNotSetError());
+      return;
+    }
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
       next(new AppError('Rates unavailable', 'BAD_GATEWAY', 502));
       return;
@@ -254,6 +263,10 @@ export async function createOfframpQuoteHandler(
           validNetworkCodes: e.validNetworkCodes,
         })
       );
+      return;
+    }
+    if (e instanceof Error && e.message === RATE_MARKUP_NOT_SET) {
+      next(rateMarkupNotSetError());
       return;
     }
     if (e instanceof Error && e.message === 'PALREMIT_RATES_UNAVAILABLE') {
@@ -428,6 +441,10 @@ export async function createOfframp(
     }
     if (e instanceof Error && e.message === 'SOURCE_DESTINATION_USER_MISMATCH') {
       next(new AppError('Source and destination userId must match', 'INVALID_REQUEST', 400));
+      return;
+    }
+    if (e instanceof Error && e.message === RATE_MARKUP_NOT_SET) {
+      next(rateMarkupNotSetError());
       return;
     }
     if (e instanceof Error && e.message === 'USER_EMAIL_REQUIRED_FOR_OFFRAMP') {

@@ -3,26 +3,28 @@
  *
  * Pricing stays synchronous: quotes read this module, and a background job
  * (jobs/pairMarkupRefresh.ts) plus every dashboard write reload it from the
- * PairMarkupSetting table. Until the first successful load the rules in
- * pairMarkup.config.ts apply. A failed reload keeps the last loaded rules, so
- * a database blip never drops a spread. After a successful load the table is
- * the source of truth: a (fiat, side) with no row has no bloxfi markup.
+ * PairMarkupSetting table. There are no rates in code: until the first
+ * successful load nothing is priced (pricing throws PALREMIT_RATES_UNAVAILABLE).
+ * A failed reload keeps the last loaded rules, so a database blip never drops
+ * a spread. An offramp pair with no row cannot be quoted or created.
  */
 
 import { logger } from '@/lib/logger';
-import { PAIR_MARKUP_RULES, type PairMarkupRule } from '@/core/quotes/pairMarkup.config';
+import type { PairMarkupRule } from '@/core/quotes/pairMarkup.config';
 
 export interface PairMarkupSettingRow {
   fiat: string;
   side: string;
   cryptos: string;
   markupBps: number;
+  /** Missing = true (older callers and tests). */
+  requireProviderRate?: boolean | null;
 }
 
-export type PairMarkupRulesSource = 'config' | 'database';
+export type PairMarkupRulesSource = 'none' | 'database';
 
-let rules: readonly PairMarkupRule[] = PAIR_MARKUP_RULES;
-let source: PairMarkupRulesSource = 'config';
+let rules: readonly PairMarkupRule[] = Object.freeze([]);
+let source: PairMarkupRulesSource = 'none';
 let loadedAt: Date | null = null;
 // Each reload takes a ticket; a slower, older reload never overwrites a newer one.
 let loadsStarted = 0;
@@ -30,6 +32,10 @@ let newestApplied = 0;
 
 export function getPairMarkupRules(): readonly PairMarkupRule[] {
   return rules;
+}
+
+export function pairMarkupRulesLoaded(): boolean {
+  return source === 'database';
 }
 
 export function getPairMarkupRulesStatus(): { source: PairMarkupRulesSource; loadedAt: Date | null } {
@@ -56,6 +62,7 @@ export function rulesFromSettings(rows: ReadonlyArray<PairMarkupSettingRow>): Pa
       crypto,
       markup: row.markupBps / 10000,
       sides: [side],
+      ...(side === 'sell' ? { requireProviderRate: row.requireProviderRate !== false } : {}),
     });
   }
   return out;
@@ -89,8 +96,8 @@ export async function refreshPairMarkupRules(
 }
 
 export function _resetPairMarkupRulesForTests(): void {
-  rules = PAIR_MARKUP_RULES;
-  source = 'config';
+  rules = Object.freeze([]);
+  source = 'none';
   loadedAt = null;
   loadsStarted = 0;
   newestApplied = 0;
