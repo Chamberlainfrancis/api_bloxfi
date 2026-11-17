@@ -5,7 +5,7 @@
  */
 
 import type { GetOfframpRatesResponse } from '@/types/offramp';
-import { applyPairMarkupIfMatched, findPairMarkup } from '@/core/quotes/pairMarkup';
+import { applyRequiredOfframpPairMarkup, requireOfframpPairMarkup } from '@/core/quotes/pairMarkup';
 import {
   floorOfframpMarketRate,
   isUsableExecutableRate,
@@ -19,7 +19,7 @@ export interface GetOfframpRateOptions {
   ) => Promise<GetOfframpRatesResponse | null>;
   /** Dest-fixed provider rate (fiat per USDC). Floor the served rate at this. */
   executableRate?: number | null;
-  /** When the pair has a markup rule (EUR), refuse to quote without an executable rate. */
+  /** Refuse to quote without an executable rate (when the pair's markup row asks for one). */
   requireExecutable?: boolean;
 }
 
@@ -50,13 +50,15 @@ export async function getOfframpRate(
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
 
+  // Throws RATE_MARKUP_NOT_SET when the pair has no saved sell markup.
+  const rule = requireOfframpPairMarkup(from, to);
   const rawMarket = parseFloat(String(result.marketRate ?? result.conversionRate));
   const apiMarket = Number.isFinite(rawMarket) && rawMarket > 0 ? rawMarket : 0;
   const executable = isUsableExecutableRate(opts.executableRate) ? opts.executableRate : null;
-  if (findPairMarkup(from, to) && opts.requireExecutable && executable == null) {
+  if (rule.requireProviderRate && opts.requireExecutable && executable == null) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
-  const priced = applyPairMarkupIfMatched({
+  const priced = applyRequiredOfframpPairMarkup({
     fromCurrency: from,
     toCurrency: to,
     amount: 1,
@@ -64,22 +66,10 @@ export async function getOfframpRate(
     rateCurrency: result.rateCurrency,
     perCurrency: result.perCurrency,
   });
-  if (priced) {
-    const rateNum = parseFloat(priced.conversionRate);
-    return {
-      ...result,
-      conversionRate: priced.conversionRate,
-      inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
-    };
-  }
-
-  const served = parseFloat(result.conversionRate);
-  const servedOk = Number.isFinite(served) && served > 0 ? served : apiMarket;
-  const floored = floorOfframpMarketRate(servedOk, executable);
-  if (floored === servedOk || floored <= 0) return result;
+  const rateNum = parseFloat(priced.conversionRate);
   return {
     ...result,
-    conversionRate: String(floored),
-    inverseRate: String(1 / floored),
+    conversionRate: priced.conversionRate,
+    inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
   };
 }

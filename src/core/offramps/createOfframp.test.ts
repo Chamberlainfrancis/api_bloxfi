@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { createOfframp } from '@/core/offramps/createOfframp';
 import type {
   OfframpRepoCreate,
@@ -10,6 +10,17 @@ import type {
 } from '@/core/offramps/createOfframp';
 import type { CreateOfframpRequest } from '@/types/offramp';
 import type { OfframpQuoteSnapshot } from '@/types/quote';
+import { setPairMarkupRulesFromSettings } from '@/core/quotes/pairMarkupStore';
+import { TEST_PAIR_MARKUP_ROWS } from '@/test/pairMarkupFixture';
+
+// Offramps need a saved sell markup. These pairs had none before 2026-11-17;
+// 20 bps rows that do not require a provider rate, as the migration seeds them.
+beforeEach(() => {
+  setPairMarkupRulesFromSettings([
+    ...TEST_PAIR_MARKUP_ROWS,
+    ...['NGN'].map((fiat) => ({ fiat, side: 'sell', cryptos: 'USD,USDT,USDC', markupBps: 20, requireProviderRate: false })),
+  ]);
+});
 
 const VALID_PROVIDER_PAYOUT = {
   provider: 'palremit',
@@ -132,6 +143,15 @@ describe('createOfframp — quote-first only', () => {
       (persisted.providerRefs as { palremitOrchestrator: { sourceAmountCap: string } }).palremitOrchestrator
         .sourceAmountCap
     ).toBe('99.000000');
+  });
+
+  it('refuses a locked quote whose currency no longer has a saved sell markup', async () => {
+    setPairMarkupRulesFromSettings([...TEST_PAIR_MARKUP_ROWS]);
+    const d = makeDeps();
+    await expect(
+      createOfframp(d.offrampRepo, d.userRepo, d.accountRepo, d.walletRepo, d.kybRepo, 'req_1', body(), d.options)
+    ).rejects.toThrow('RATE_MARKUP_NOT_SET');
+    expect(d.created.data).toBeUndefined();
   });
 
   it('saves the ops sender info on providerRefs and returns senderName when a setting matches', async () => {

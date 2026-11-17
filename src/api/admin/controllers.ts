@@ -819,6 +819,7 @@ const pairMarkupPutSchema = z.object({
     (v) => (v === '' || v === null ? undefined : v),
     z.coerce.number({ invalid_type_error: 'markupBps must be a number' })
   ),
+  requireProviderRate: z.boolean().optional().nullable(),
   actor: z.string().trim().max(120).optional().nullable(),
   secret: z.string().optional(),
 });
@@ -838,10 +839,16 @@ export async function listPairMarkups(
   next: NextFunction
 ): Promise<void> {
   try {
-    const items = await pairMarkup.listPairMarkupSettings(await pairMarkupDeps());
+    const deps = await pairMarkupDeps();
+    const items = await pairMarkup.listPairMarkupSettings(deps);
+    const recent = await deps.repo.listRecentOfframpCurrencies(
+      new Date(Date.now() - pairMarkup.PAUSED_OFFRAMP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+    );
     const status = getPairMarkupRulesStatus();
     sendSuccess(res, {
       items,
+      pausedOfframpCurrencies: pairMarkup.pausedOfframpCurrencies(items, recent),
+      pausedLookbackDays: pairMarkup.PAUSED_OFFRAMP_LOOKBACK_DAYS,
       maxBps: pairMarkup.PAIR_MARKUP_MAX_BPS,
       cryptos: pairMarkup.PAIR_MARKUP_CRYPTOS,
       pricingSource: status.source,
@@ -868,6 +875,7 @@ export async function putPairMarkup(
       side: parsed.data.side,
       cryptos: parsed.data.cryptos ?? null,
       markupBps: parsed.data.markupBps,
+      requireProviderRate: parsed.data.requireProviderRate ?? null,
       actor: parsed.data.actor ?? null,
     });
     sendSuccess(res, { setting });

@@ -241,7 +241,7 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <button class="ghost" id="siReload">Reload</button>
 </div>
 <div class="toolbar" id="rmToolbar" style="display:none">
-  <span class="muted">BloxFi spread on the currency-api market rate, per currency. Offramp customers get market &times; (1 &minus; markup); onramp customers pay market &times; (1 + markup). Currency-api rates are not changed here.</span>
+  <span class="muted">BloxFi spread on the currency-api market rate, per currency. Offramp customers get market &times; (1 &minus; markup); onramp customers pay market &times; (1 + markup). An offramp currency with no row here is paused. Currency-api rates are not changed here.</span>
   <button class="ghost" id="rmReload">Reload</button>
 </div>
 <div id="err" class="err" style="display:none"></div>
@@ -2374,7 +2374,7 @@ $("siResults").addEventListener("keydown", function (e) {
 
 // --- rates: bloxfi FX spread per currency and side ---------------------------
 
-var rmState = { items: [], loaded: false, editingId: null, msg: null, maxBps: 1000, pricingSource: null, pricingLoadedAt: null };
+var rmState = { items: [], loaded: false, editingId: null, msg: null, maxBps: 1000, pricingSource: null, pricingLoadedAt: null, paused: [], pausedDays: 90 };
 
 function rmSideLabel(side) { return side === "sell" ? "Offramp (sell)" : "Onramp (buy)"; }
 function rmPct(bps) { var n = Number(bps); return isFinite(n) ? String(Number((n / 100).toFixed(4))) + "%" : ""; }
@@ -2389,6 +2389,8 @@ async function loadRates() {
     rmState.maxBps = (res && res.maxBps) || 1000;
     rmState.pricingSource = res ? res.pricingSource : null;
     rmState.pricingLoadedAt = res ? res.pricingLoadedAt : null;
+    rmState.paused = (res && res.pausedOfframpCurrencies) ? res.pausedOfframpCurrencies : [];
+    rmState.pausedDays = (res && res.pausedLookbackDays) || 90;
     rmState.loaded = true;
     renderRates();
   } catch (err) {
@@ -2407,13 +2409,15 @@ function ratesFormHtml(editing) {
   var e = editing || {};
   var lock = editing ? " disabled" : "";
   return '<div class="payout-retry-form" style="margin-bottom:16px">' +
-    '<div class="notice">A row sets the BloxFi markup for one currency and direction. Changes apply to new quotes within about 30 seconds; quotes already issued keep their rate. Removing a row means that pair gets no BloxFi markup (the currency-api B2B rate is used).</div>' +
+    '<div class="notice">A row sets the BloxFi markup for one currency and direction. Changes apply to new quotes within about 30 seconds; quotes already issued keep their rate. Offramps need a row: with no offramp (sell) row for a currency, its offramp quotes and new offramps are refused. Removing an onramp (buy) row means onramps use the currency-api B2B rate.</div>' +
     '<div class="payout-retry-fields">' +
     '<label for="rmFiat">Currency</label>' +
     '<input type="text" id="rmFiat" placeholder="e.g. EUR" style="min-width:80px;text-transform:uppercase" maxlength="3" value="' + esc(e.fiat || "") + '"' + lock + " />" +
     '<label for="rmSide">Direction</label>' +
     '<select id="rmSide"' + lock + '><option value="sell"' + (e.side !== "buy" ? " selected" : "") + '>Offramp (sell)</option><option value="buy"' + (e.side === "buy" ? " selected" : "") + ">Onramp (buy)</option></select>" +
     '<label>Applies to</label>' + rmCryptoChecks(e.cryptos, "") +
+    '<label class="muted" id="rmProviderWrap" style="display:' + (e.side === "buy" ? "none" : "inline-flex") + ';gap:4px;align-items:center" title="Offramps only. Ticked: refuse to quote when the payout provider (OwlPay) has no live rate, and never quote above it. Unticked: still capped at the provider rate when there is one.">' +
+    '<input type="checkbox" id="rmRequireProvider"' + (e.requireProviderRate === false ? "" : " checked") + " /> Require payout provider rate</label>" +
     "</div>" +
     '<div class="payout-retry-fields">' +
     '<label for="rmBps">Markup (bps)</label>' +
@@ -2437,6 +2441,7 @@ function ratesRowHtml(row) {
     "<td>" + rmSideLabel(row.side) + "</td>" +
     "<td>" + esc(String(row.cryptos).split(",").join(", ")) + "</td>" +
     '<td style="font-variant-numeric:tabular-nums">' + esc(String(row.markupBps)) + ' bps <span class="muted">(' + rmPct(row.markupBps) + ")</span></td>" +
+    "<td>" + (row.side === "sell" ? (row.requireProviderRate === false ? '<span class="muted">Optional</span>' : "Required") : '<span class="muted">—</span>') + "</td>" +
     "<td>" + (row.updatedBy ? esc(row.updatedBy) : '<span class="muted">—</span>') + "</td>" +
     '<td class="muted">' + esc(new Date(row.updatedAt).toLocaleString()) + "</td>" +
     '<td style="white-space:nowrap"><button type="button" class="ghost rm-edit-btn" data-id="' + esc(row.id) + '">Edit</button> ' +
@@ -2453,13 +2458,16 @@ function renderRates() {
   if (!editing) rmState.editingId = null;
   var status = rmState.pricingSource === "database"
     ? '<div class="muted" style="margin-bottom:8px">The server that answered last loaded these rows at ' + esc(new Date(rmState.pricingLoadedAt).toLocaleString()) + ". Other servers pick up changes within 30 seconds.</div>"
-    : '<div class="notice" style="margin-bottom:8px">This server has not loaded the table yet and is pricing from the built-in defaults. It retries every 30 seconds.</div>';
+    : '<div class="notice" style="margin-bottom:8px">This server has not loaded the table yet, so it is refusing quotes. It retries every 30 seconds.</div>';
+  var paused = rmState.paused && rmState.paused.length
+    ? '<div class="payout-retry-msg bad" style="display:block;margin-bottom:8px"><strong>Offramps paused, no markup saved:</strong> ' + rmState.paused.map(esc).join(", ") + ". These currencies had offramps in the last " + esc(String(rmState.pausedDays)) + " days. Add an offramp (sell) row to turn each back on.</div>"
+    : "";
   var table = rmState.items.length
-    ? "<table><thead><tr><th>Currency</th><th>Direction</th><th>Applies to</th><th>Markup</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>" +
+    ? "<table><thead><tr><th>Currency</th><th>Direction</th><th>Applies to</th><th>Markup</th><th>Provider rate</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>" +
       rmState.items.map(ratesRowHtml).join("") +
       "</tbody></table>"
-    : '<div class="biz-results-empty">No markups configured. Every pair uses the currency-api B2B rate.</div>';
-  el.innerHTML = ratesFormHtml(editing) + status + table;
+    : '<div class="biz-results-empty">No markups configured. Every offramp is paused, and onramps use the currency-api B2B rate.</div>';
+  el.innerHTML = ratesFormHtml(editing) + status + paused + table;
   el.style.display = "block";
   restorePasscodeField();
   if (rmState.msg) { showRmMsg(rmState.msg.text, rmState.msg.kind); rmState.msg = null; }
@@ -2486,6 +2494,7 @@ async function saveRate() {
   var cryptos = Array.prototype.slice.call(document.querySelectorAll(".rm-crypto:checked")).map(function (c) { return c.value; });
   var bpsRaw = ($("rmBps") ? $("rmBps").value : "").trim();
   var bps = Number(bpsRaw);
+  var requireProviderRate = side === "sell" ? !!($("rmRequireProvider") && $("rmRequireProvider").checked) : true;
   var actor = ($("rmActor") ? $("rmActor").value : "").trim();
   var secret = ($("rmPasscode") ? $("rmPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
   if (!/^[A-Z]{3}$/.test(fiat)) { showRmMsg("Enter a 3-letter currency, e.g. EUR.", "bad"); return; }
@@ -2503,7 +2512,7 @@ async function saveRate() {
     await api("/pair-markups", {
       method: "PUT",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify({ fiat: fiat, side: side, cryptos: cryptos, markupBps: bps, actor: actor || undefined, secret: secret })
+      body: JSON.stringify({ fiat: fiat, side: side, cryptos: cryptos, markupBps: bps, requireProviderRate: requireProviderRate, actor: actor || undefined, secret: secret })
     });
     rmState.editingId = null;
     rmState.msg = { text: "Saved " + fiat + " " + rmSideLabel(side).toLowerCase() + " at " + bps + " bps (" + rmPct(bps) + ").", kind: "ok" };
@@ -2523,7 +2532,10 @@ async function deleteRate(id) {
   var row = rmState.items.filter(function (r) { return r.id === id; })[0];
   if (!row) return;
   var label = row.fiat + " " + rmSideLabel(row.side).toLowerCase();
-  if (!confirm("Remove the " + label + " markup (" + row.markupBps + " bps)? New quotes for this pair will use the currency-api B2B rate.")) return;
+  var effect = row.side === "sell"
+    ? "Offramps to " + row.fiat + " will be refused until a new markup is saved."
+    : "New onramp quotes for this pair will use the currency-api B2B rate.";
+  if (!confirm("Remove the " + label + " markup (" + row.markupBps + " bps)? " + effect)) return;
   var secret = ($("rmPasscode") ? $("rmPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
   if (!secret) { showRmMsg("Enter the dashboard passcode, then delete.", "bad"); if ($("rmPasscode")) $("rmPasscode").focus(); return; }
   var actor = ($("rmActor") ? $("rmActor").value : "").trim();
@@ -2561,6 +2573,11 @@ $("rmResults").addEventListener("input", function (e) {
   if (e.target && e.target.id === "rmBps" && $("rmPctPreview")) {
     var v = e.target.value.trim();
     $("rmPctPreview").textContent = v === "" ? "100 bps = 1%" : "= " + rmPct(v);
+  }
+});
+$("rmResults").addEventListener("change", function (e) {
+  if (e.target && e.target.id === "rmSide" && $("rmProviderWrap")) {
+    $("rmProviderWrap").style.display = e.target.value === "buy" ? "none" : "inline-flex";
   }
 });
 $("rmResults").addEventListener("keydown", function (e) {

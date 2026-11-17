@@ -16,6 +16,7 @@ vi.mock('@/db/repositories/pairMarkup.repo', () => ({
   findPairMarkupSettingByKey: vi.fn(),
   upsertPairMarkupSetting: vi.fn(),
   deletePairMarkupSettingById: vi.fn(),
+  listRecentOfframpCurrencies: vi.fn(),
 }));
 vi.mock('@/db/repositories/adminAction.repo', () => ({ createAdminAction: vi.fn(), listAdminActionsForTxn: vi.fn() }));
 vi.mock('@/jobs/pairMarkupRefresh', () => ({ reloadPairMarkupRules: vi.fn().mockResolvedValue(true) }));
@@ -26,6 +27,7 @@ const ROW = {
   side: 'sell' as const,
   cryptos: 'USD,USDT,USDC',
   markupBps: 20,
+  requireProviderRate: true,
   updatedBy: 'ops',
   createdAt: new Date('2026-10-01T00:00:00Z'),
   updatedAt: new Date('2026-10-02T00:00:00Z'),
@@ -48,12 +50,16 @@ beforeEach(() => {
 describe('listPairMarkups', () => {
   it('returns the rows and the pricing status (no passcode needed to view)', async () => {
     vi.mocked(pairMarkupRepo.listPairMarkupSettings).mockResolvedValue([ROW]);
+    vi.mocked(pairMarkupRepo.listRecentOfframpCurrencies).mockResolvedValue(['EUR', 'GBP']);
     const res = buildResponse();
     await listPairMarkups(req({}), res, vi.fn() as unknown as NextFunction);
     expect(res.status).toHaveBeenCalledWith(200);
-    const body = vi.mocked(res.json).mock.calls[0]?.[0] as { data: { items: unknown[]; maxBps: number } };
+    const body = vi.mocked(res.json).mock.calls[0]?.[0] as {
+      data: { items: unknown[]; maxBps: number; pausedOfframpCurrencies: string[] };
+    };
     expect(body.data.items).toEqual([ROW]);
     expect(body.data.maxBps).toBe(1000);
+    expect(body.data.pausedOfframpCurrencies).toEqual(['GBP']);
   });
 });
 
@@ -100,7 +106,7 @@ describe('putPairMarkup', () => {
     expect(next).not.toHaveBeenCalled();
     expect(pairMarkupRepo.upsertPairMarkupSetting).toHaveBeenCalledWith(
       { fiat: 'EUR', side: 'sell' },
-      { cryptos: 'USD,USDT,USDC', markupBps: 25, updatedBy: 'Emmanuel' }
+      { cryptos: 'USD,USDT,USDC', markupBps: 25, requireProviderRate: true, updatedBy: 'Emmanuel' }
     );
     expect(adminActionRepo.createAdminAction).toHaveBeenCalledWith(expect.objectContaining({ txnType: 'pair_markup', txnId: 'EUR:sell' }));
     expect(refresh.reloadPairMarkupRules).toHaveBeenCalledTimes(1);

@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getOfframpRate } from '@/core/offramps/getOfframpRate';
+import {
+  _resetPairMarkupRulesForTests,
+  setPairMarkupRulesFromSettings,
+} from '@/core/quotes/pairMarkupStore';
+import { TEST_PAIR_MARKUP_ROWS } from '@/test/pairMarkupFixture';
+
+function withSellRow(fiat: string, markupBps: number, requireProviderRate = false): void {
+  setPairMarkupRulesFromSettings([
+    ...TEST_PAIR_MARKUP_ROWS,
+    { fiat, side: 'sell', cryptos: 'USD,USDT,USDC', markupBps, requireProviderRate },
+  ]);
+}
 
 describe('getOfframpRate — pair markup', () => {
   it('applies 20 bps below marketRate for USDT → EUR', async () => {
@@ -23,8 +35,35 @@ describe('getOfframpRate — pair markup', () => {
     expect(Number(result.inverseRate)).toBeCloseTo(1 / customer, 10);
   });
 
-  it('keeps the B2B rate for USDT → NGN', async () => {
+  it('refuses USDT → NGN when no sell markup is saved', async () => {
+    await expect(getOfframpRate('usdt', 'ngn', 'TRC20', {
+      getRateFromPalremit: vi.fn(async () => ({
+        fromCurrency: 'usdt',
+        toCurrency: 'ngn',
+        conversionRate: '1450',
+        inverseRate: String(1 / 1450),
+        rateValidUntil: new Date().toISOString(),
+        minimumAmount: '10',
+        maximumAmount: '100000',
+        estimatedProcessingTime: '1-3 business days',
+        marketRate: '1460',
+        rateCurrency: 'NGN',
+        perCurrency: 'USDT',
+      })),
+    })).rejects.toThrow('RATE_MARKUP_NOT_SET');
+  });
+
+  it('refuses every offramp before the markup table has loaded', async () => {
+    _resetPairMarkupRulesForTests();
+    await expect(
+      getOfframpRate('usdt', 'eur', 'TRC20', { getRateFromPalremit: vi.fn(async () => null) })
+    ).rejects.toThrow('PALREMIT_RATES_UNAVAILABLE');
+  });
+
+  it('prices USDT → NGN at market − 20 bps once a row is saved (no provider rate needed)', async () => {
+    withSellRow('NGN', 20);
     const result = await getOfframpRate('usdt', 'ngn', 'TRC20', {
+      requireExecutable: true,
       getRateFromPalremit: vi.fn(async () => ({
         fromCurrency: 'usdt',
         toCurrency: 'ngn',
@@ -39,7 +78,7 @@ describe('getOfframpRate — pair markup', () => {
         perCurrency: 'USDT',
       })),
     });
-    expect(result.conversionRate).toBe('1450');
+    expect(Number(result.conversionRate)).toBeCloseTo(1460 * 0.998, 8);
   });
 
   it('floors EUR at OwlPay then takes 20 bps so the customer rate is below OwlPay', async () => {
@@ -125,7 +164,8 @@ describe('getOfframpRate — pair markup', () => {
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
   });
 
-  it('floors USDT → CNY at OwlPay when there is no pair markup', async () => {
+  it('floors USDT → CNY at OwlPay, then takes the saved 20 bps', async () => {
+    withSellRow('CNY', 20);
     const result = await getOfframpRate('usdt', 'cny', 'TRC20', {
       getRateFromPalremit: vi.fn(async () => ({
         fromCurrency: 'usdt',
@@ -142,8 +182,8 @@ describe('getOfframpRate — pair markup', () => {
       })),
       executableRate: 6.2,
     });
-    expect(Number(result.conversionRate)).toBeCloseTo(6.2, 10);
-    expect(Number(result.inverseRate)).toBeCloseTo(1 / 6.2, 10);
+    expect(Number(result.conversionRate)).toBeCloseTo(6.2 * 0.998, 10);
+    expect(Number(result.inverseRate)).toBeCloseTo(1 / (6.2 * 0.998), 10);
   });
 
   it('refuses EUR when an executable rate is required but missing', async () => {

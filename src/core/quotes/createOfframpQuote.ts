@@ -5,7 +5,7 @@
 import { resolveTransferFeeInSendCurrency } from '@/core/payments';
 import { applyOfframpPlatformFee } from '@/core/payments/applyOfframpPlatformFee';
 import { buildPalremitProfit } from '@/core/quotes/rateSpread';
-import { applyPairMarkupIfMatched, findPairMarkup } from '@/core/quotes/pairMarkup';
+import { applyRequiredOfframpPairMarkup, requireOfframpPairMarkup } from '@/core/quotes/pairMarkup';
 import {
   floorOfframpMarketRate,
   isUsableExecutableRate,
@@ -177,17 +177,17 @@ export async function createOfframpQuote(
   }
   const sendHint = input.amount ?? destLocked ?? 1;
 
-  let conversionRate = rateResponse.conversionRate;
-  const pairPriced = applyPairMarkupIfMatched({
+  // Throws RATE_MARKUP_NOT_SET when the pair has no saved sell markup.
+  const markupRule = requireOfframpPairMarkup(fromCurrency, toCurrency, input.flow);
+  let conversionRate = applyRequiredOfframpPairMarkup({
     fromCurrency,
     toCurrency,
     amount: sendHint,
-    marketRate: rateResponse.marketRate,
+    marketRate: rateResponse.marketRate ?? rateResponse.conversionRate,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
     flow: input.flow,
-  });
-  if (pairPriced) conversionRate = pairPriced.conversionRate;
+  }).conversionRate;
 
   let baseRateNum = parseFloat(conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
@@ -214,14 +214,14 @@ export async function createOfframpQuote(
   const apiMarket = Number.isFinite(rawMarket) && rawMarket > 0 ? rawMarket : baseRateNum;
   const executable = parseFloat(feeQuote?.effectiveRate ?? '');
   const executableOk = isUsableExecutableRate(executable);
-  if (findPairMarkup(fromCurrency, toCurrency) && !executableOk) {
+  // USD stablecoin sells price off market − markup; the provider's cost is ours (not floored).
+  const usdSell = isUsdStableSell(fromCurrency, toCurrency);
+  if (markupRule.requireProviderRate && !executableOk) {
     throw new Error('UNFAVORABLE_RATE');
   }
-  // USD stablecoin sells price off market − 20 bps; the provider's cost is ours.
-  const usdSell = isUsdStableSell(fromCurrency, toCurrency);
   const floorRate = executableOk && !usdSell ? executable : null;
   const flooredMarket = floorOfframpMarketRate(apiMarket, floorRate);
-  const repriced = applyPairMarkupIfMatched({
+  conversionRate = applyRequiredOfframpPairMarkup({
     fromCurrency,
     toCurrency,
     amount: sendHint,
@@ -229,19 +229,9 @@ export async function createOfframpQuote(
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
     flow: input.flow,
-  });
-  if (repriced) {
-    conversionRate = repriced.conversionRate;
-    baseRateNum = parseFloat(conversionRate) || 0;
-    if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
-  } else {
-    // No pair-markup rule (CNY, NGN, …): still cap the locked customer rate
-    // at OwlPay so solvency does not 422 a corridor we can actually fund.
-    const flooredCustomer = floorOfframpMarketRate(baseRateNum, floorRate);
-    conversionRate = String(flooredCustomer);
-    baseRateNum = flooredCustomer;
-    if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
-  }
+  }).conversionRate;
+  baseRateNum = parseFloat(conversionRate) || 0;
+  if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
   const pricedFee = await resolveOfframpPayoutFee({
     feeQuote: usdSell ? usdSellCustomerFeeQuote(corridor.destinationType, feeQuote) : feeQuote,

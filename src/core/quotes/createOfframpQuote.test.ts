@@ -1,7 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { createOfframpQuote } from '@/core/quotes/createOfframpQuote';
 import type { GetOfframpRatesResponse } from '@/types/offramp';
 import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
+import { setPairMarkupRulesFromSettings } from '@/core/quotes/pairMarkupStore';
+import { TEST_PAIR_MARKUP_ROWS } from '@/test/pairMarkupFixture';
+
+// Offramps need a saved sell markup. These pairs had none before 2026-11-17;
+// 20 bps rows that do not require a provider rate, as the migration seeds them.
+beforeEach(() => {
+  setPairMarkupRulesFromSettings([
+    ...TEST_PAIR_MARKUP_ROWS,
+    ...['NGN', 'GBP', 'CNY'].map((fiat) => ({ fiat, side: 'sell', cryptos: 'USD,USDT,USDC', markupBps: 20, requireProviderRate: false })),
+  ]);
+});
 
 vi.mock('@/db/repositories/rampQuote.repo', () => ({
   createRampQuote: vi.fn(async ({ payload }) => ({
@@ -604,7 +615,8 @@ describe('createOfframpQuote — CNY executable floor', () => {
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(6.2, 10);
+    // Floored at OwlPay 6.20, then the saved 20 bps.
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.2 * 0.998, 10);
     expect(Number(result.baseConversionRate)).toBeLessThanOrEqual(6.2);
     expect(Number(result.quote.receiveNet.amount)).toBeLessThanOrEqual(1000 * 6.2);
   });
@@ -653,12 +665,12 @@ describe('createOfframpQuote — CNY executable floor', () => {
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(6.533057, 6);
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.533057 * 0.998, 6);
     expect(Number(result.quote.sendNet.amount)).toBeCloseTo(975, 2);
-    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(975 * 6.533057, 2);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(975 * 6.533057 * 0.998, 2);
   });
 
-  it('keeps the CNY B2B rate when it is already at or below OwlPay', async () => {
+  it('prices CNY at market − 20 bps when market is already below OwlPay', async () => {
     const options = {
       getRateFromPalremit: vi.fn(async () => ({
         ...rateResponse('6.6956196', 'cny'),
@@ -694,7 +706,7 @@ describe('createOfframpQuote — CNY executable floor', () => {
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(6.6956196, 6);
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.703664 * 0.998, 6);
   });
 });
 
@@ -726,10 +738,11 @@ describe('createOfframpQuote', () => {
     const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0].payload as {
       profit?: { currency: string; amountInCurrency: string; amountUsdc: string | null; marketRate: string };
     };
-    // profit_ngn = 1000×1460 − 1000×1450 = 10000 NGN; usdc = 10000×1.1 = 11000
+    // customer = 1460 × (1 − 20 bps) = 1457.08
+    // profit_ngn = 1000×1460 − 1000×1457.08 = 2920 NGN; usdc = 2920×1.1 = 3212
     expect(snapshot.profit?.currency).toBe('ngn');
-    expect(snapshot.profit?.amountInCurrency).toBe('10000.00000000');
-    expect(snapshot.profit?.amountUsdc).toBe('11000.00000000');
+    expect(Number(snapshot.profit?.amountInCurrency)).toBeCloseTo(2920, 4);
+    expect(Number(snapshot.profit?.amountUsdc)).toBeCloseTo(3212, 4);
     expect(snapshot.profit?.marketRate).toBe('1460');
   });
 
@@ -1021,5 +1034,30 @@ describe('createOfframpQuote — dest-fixed receive amount', () => {
     const snapshot = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls.at(-1)![0]
       .payload as { destinationAmount: number };
     expect(snapshot.destinationAmount).toBe(1000.5);
+  });
+});
+
+describe('createOfframpQuote — saved markup required', () => {
+  it('refuses an offramp currency with no sell markup row', async () => {
+    setPairMarkupRulesFromSettings([...TEST_PAIR_MARKUP_ROWS]);
+    const options = {
+      getRateFromPalremit: vi.fn(async () => ({
+        ...rateResponse('1450', 'ngn'), marketRate: '1460', rateCurrency: 'NGN', perCurrency: 'USDT',
+      })),
+      resolvePalremitNetwork: vi.fn(async () => 'TRC20'),
+      getProviderWithdrawalFeeQuote: vi.fn(),
+      convertToUsdc: vi.fn(),
+      loadOfframpAccountCorridor: makeOptions({ asset: 'NGN', country: 'NG' }).loadOfframpAccountCorridor,
+    };
+    await expect(
+      createOfframpQuote(
+        { fromCurrency: 'usdt', toCurrency: 'ngn', fromChain: 'TRC20', amount: 1000,
+          corridor: { country: 'NG', destinationType: 'local_bank' },
+          accountId: ACC,
+          platformFee: { type: 'PERCENTAGE', value: 0, walletAddress: '0xFee' } },
+        options as never
+      )
+    ).rejects.toThrow('RATE_MARKUP_NOT_SET');
+    expect(options.getProviderWithdrawalFeeQuote).not.toHaveBeenCalled();
   });
 });

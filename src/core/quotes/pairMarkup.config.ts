@@ -1,38 +1,17 @@
 /**
- * Corridor FX markup on currency-api marketRate.
- *
- * Live values are edited on the dashboard Rates tab (PairMarkupSetting). These
- * rules are only the fallback used until a server first loads that table, and
- * the seed in migration 20261027090000_add_pair_markup_setting.
- * 0.002 = 20 bps, 0.0025 = 25 bps, 0.005 = 0.5%, 0.024 = 2.4%. Same
- * decimal-fraction convention as platformFee. `sides` defaults to both
+ * Shape of a pair markup rule. The values live in the PairMarkupSetting table
+ * and are edited on the dashboard Rates tab; there are no rates in code.
+ * `markup` is a decimal fraction: 0.002 = 20 bps. `sides` defaults to both
  * buy (onramp) and sell (offramp).
- *
- * EUR onramp buy is 2.4% for every business (shared Iberbanco SEPA account),
- * including Graph/Bancara-pinned users. EUR offramp sell is 20 bps (was 25 until 2026-10-09).
- * USD offramp sell is 20 bps (USDT/USDC → USD). USD onramp stays on
- * named-deposit 40 bps / currency-api B2B — no buy rule here.
- * CAD onramp buy is 50 bps; CAD offramp sell is 20 bps (was 50 until 2026-10-12).
- * JPY buy and sell are 50 bps (OwlPay Zengin BANK_TRANSFER, 2026-09-07).
- * AUD buy and sell are 50 bps (OwlPay BSB BANK_TRANSFER, 2026-10-26).
- * GBP onramp buy is 45 bps (Noones, 2026-09-21). Offramp sell stays on
- * currency-api 12 bps — a sell rule would also require an OwlPay executable
- * rate, and GBP OwlPay is ~12% below mid.
  */
 export interface PairMarkupRule {
   fiat: string;
   crypto: readonly string[];
   markup: number;
   sides?: readonly ('buy' | 'sell')[];
+  /**
+   * Offramp only: refuse to quote unless the payout provider returns a live
+   * executable rate to cap the customer rate at. Defaults to true.
+   */
+  requireProviderRate?: boolean;
 }
-
-export const PAIR_MARKUP_RULES: readonly PairMarkupRule[] = [
-  { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.024, sides: ['buy'] },
-  { fiat: 'EUR', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
-  { fiat: 'USD', crypto: ['USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
-  { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005, sides: ['buy'] },
-  { fiat: 'CAD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.002, sides: ['sell'] },
-  { fiat: 'JPY', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
-  { fiat: 'AUD', crypto: ['USD', 'USDT', 'USDC'], markup: 0.005 },
-  { fiat: 'GBP', crypto: ['USD', 'USDT', 'USDC'], markup: 0.0045, sides: ['buy'] },
-];
