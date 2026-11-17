@@ -10,8 +10,11 @@ export interface PairMarkupRule {
   markup: number;
   sides?: readonly ('buy' | 'sell')[];
   /**
-   * Offramp only: refuse to quote unless the payout provider returns a live
-   * executable rate to cap the customer rate at. Defaults to true.
+   * Offramp only. true (default): refuse to quote without the payout
+   * provider's live executable rate, and take the markup off
+   * min(market, provider rate). false: take the markup off the market rate,
+   * then cap the result at the provider rate when there is one (how the
+   * currency-api B2B rate was priced for GBP, NGN, CNY, ...).
    */
   requireProviderRate?: boolean;
 }

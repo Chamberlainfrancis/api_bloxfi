@@ -58,18 +58,28 @@ export async function getOfframpRate(
   if (rule.requireProviderRate && opts.requireExecutable && executable == null) {
     throw new Error('PALREMIT_RATES_UNAVAILABLE');
   }
+  // requireProviderRate rows (EUR, USD, ...): markup comes off the provider-capped
+  // market. Other rows (GBP, NGN, ...): markup comes off the market and the
+  // result is capped at the provider rate, as their currency-api B2B rate was.
+  const markupFirst = !rule.requireProviderRate;
   const priced = applyRequiredOfframpPairMarkup({
     fromCurrency: from,
     toCurrency: to,
     amount: 1,
-    marketRate: apiMarket > 0 ? floorOfframpMarketRate(apiMarket, executable) : result.marketRate,
+    marketRate:
+      apiMarket > 0
+        ? markupFirst
+          ? apiMarket
+          : floorOfframpMarketRate(apiMarket, executable)
+        : result.marketRate,
     rateCurrency: result.rateCurrency,
     perCurrency: result.perCurrency,
   });
-  const rateNum = parseFloat(priced.conversionRate);
+  const marked = parseFloat(priced.conversionRate);
+  const rateNum = markupFirst ? floorOfframpMarketRate(marked, executable) : marked;
   return {
     ...result,
-    conversionRate: priced.conversionRate,
+    conversionRate: String(rateNum),
     inverseRate: rateNum > 0 ? String(1 / rateNum) : result.inverseRate,
   };
 }

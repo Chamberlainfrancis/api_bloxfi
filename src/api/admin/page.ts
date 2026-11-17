@@ -2416,7 +2416,7 @@ function ratesFormHtml(editing) {
     '<label for="rmSide">Direction</label>' +
     '<select id="rmSide"' + lock + '><option value="sell"' + (e.side !== "buy" ? " selected" : "") + '>Offramp (sell)</option><option value="buy"' + (e.side === "buy" ? " selected" : "") + ">Onramp (buy)</option></select>" +
     '<label>Applies to</label>' + rmCryptoChecks(e.cryptos, "") +
-    '<label class="muted" id="rmProviderWrap" style="display:' + (e.side === "buy" ? "none" : "inline-flex") + ';gap:4px;align-items:center" title="Offramps only. Ticked: refuse to quote when the payout provider (OwlPay) has no live rate, and never quote above it. Unticked: still capped at the provider rate when there is one.">' +
+    '<label class="muted" id="rmProviderWrap" style="display:' + (e.side === "buy" ? "none" : "inline-flex") + ';gap:4px;align-items:center" title="Offramps only. Ticked: refuse to quote when the payout provider (OwlPay) has no live rate; the markup comes off the OwlPay rate when it is below market. Unticked: the markup comes off the market rate and the result is capped at the OwlPay rate (how currency-api B2B pricing worked).">' +
     '<input type="checkbox" id="rmRequireProvider"' + (e.requireProviderRate === false ? "" : " checked") + " /> Require payout provider rate</label>" +
     "</div>" +
     '<div class="payout-retry-fields">' +
@@ -2441,7 +2441,7 @@ function ratesRowHtml(row) {
     "<td>" + rmSideLabel(row.side) + "</td>" +
     "<td>" + esc(String(row.cryptos).split(",").join(", ")) + "</td>" +
     '<td style="font-variant-numeric:tabular-nums">' + esc(String(row.markupBps)) + ' bps <span class="muted">(' + rmPct(row.markupBps) + ")</span></td>" +
-    "<td>" + (row.side === "sell" ? (row.requireProviderRate === false ? '<span class="muted">Optional</span>' : "Required") : '<span class="muted">—</span>') + "</td>" +
+    "<td>" + (row.side === "sell" ? (row.requireProviderRate === false ? '<span class="muted" title="Market minus markup, capped at OwlPay">Cap at OwlPay</span>' : '<span title="Refuses without OwlPay; markup comes off OwlPay when it is below market">Required, markup below OwlPay</span>') : '<span class="muted">—</span>') + "</td>" +
     "<td>" + (row.updatedBy ? esc(row.updatedBy) : '<span class="muted">—</span>') + "</td>" +
     '<td class="muted">' + esc(new Date(row.updatedAt).toLocaleString()) + "</td>" +
     '<td style="white-space:nowrap"><button type="button" class="ghost rm-edit-btn" data-id="' + esc(row.id) + '">Edit</button> ' +

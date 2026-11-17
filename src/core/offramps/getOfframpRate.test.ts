@@ -164,7 +164,7 @@ describe('getOfframpRate — pair markup', () => {
     expect(Number(result.conversionRate)).toBeCloseTo(customer, 10);
   });
 
-  it('floors USDT → CNY at OwlPay, then takes the saved 20 bps', async () => {
+  it('caps USDT → CNY market − 20 bps at OwlPay (markup first, as the B2B rate was)', async () => {
     withSellRow('CNY', 20);
     const result = await getOfframpRate('usdt', 'cny', 'TRC20', {
       getRateFromPalremit: vi.fn(async () => ({
@@ -182,8 +182,8 @@ describe('getOfframpRate — pair markup', () => {
       })),
       executableRate: 6.2,
     });
-    expect(Number(result.conversionRate)).toBeCloseTo(6.2 * 0.998, 10);
-    expect(Number(result.inverseRate)).toBeCloseTo(1 / (6.2 * 0.998), 10);
+    expect(Number(result.conversionRate)).toBeCloseTo(6.2, 10);
+    expect(Number(result.inverseRate)).toBeCloseTo(1 / 6.2, 10);
   });
 
   it('refuses EUR when an executable rate is required but missing', async () => {
@@ -205,5 +205,37 @@ describe('getOfframpRate — pair markup', () => {
         requireExecutable: true,
       })
     ).rejects.toThrow('PALREMIT_RATES_UNAVAILABLE');
+  });
+});
+
+describe('getOfframpRate — GBP keeps its pre-database price', () => {
+  // Before 2026-11-17 GBP had no Bloxfi row: currency-api B2B (market − 12 bps)
+  // capped at OwlPay. A 12 bps row that does not require a provider rate must
+  // give the same number.
+  const gbp = (marketRate: string) =>
+    vi.fn(async () => ({
+      fromCurrency: 'usdt',
+      toCurrency: 'gbp',
+      conversionRate: String(parseFloat(marketRate) * 0.9988),
+      inverseRate: '1',
+      rateValidUntil: new Date().toISOString(),
+      minimumAmount: '10',
+      maximumAmount: '1000000',
+      estimatedProcessingTime: '1 business day',
+      marketRate,
+      rateCurrency: 'GBP',
+      perCurrency: 'USDT',
+    }));
+
+  it('OwlPay below market − 12 bps: OwlPay rate, unchanged', async () => {
+    withSellRow('GBP', 12);
+    const r = await getOfframpRate('usdt', 'gbp', 'TRC20', { getRateFromPalremit: gbp('0.7600'), executableRate: 0.7566116072 });
+    expect(Number(r.conversionRate)).toBeCloseTo(0.7566116072, 10);
+  });
+
+  it('OwlPay above market − 12 bps: market − 12 bps', async () => {
+    withSellRow('GBP', 12);
+    const r = await getOfframpRate('usdt', 'gbp', 'TRC20', { getRateFromPalremit: gbp('0.7570'), executableRate: 0.7566116072 });
+    expect(Number(r.conversionRate)).toBeCloseTo(0.757 * 0.9988, 10);
   });
 });
