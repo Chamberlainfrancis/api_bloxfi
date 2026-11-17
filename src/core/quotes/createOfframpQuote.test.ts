@@ -615,8 +615,8 @@ describe('createOfframpQuote — CNY executable floor', () => {
       },
       options as never
     );
-    // Floored at OwlPay 6.20, then the saved 20 bps.
-    expect(Number(result.baseConversionRate)).toBeCloseTo(6.2 * 0.998, 10);
+    // market − 20 bps (6.6902) is above OwlPay, so OwlPay 6.20 caps it, as the B2B rate was.
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.2, 10);
     expect(Number(result.baseConversionRate)).toBeLessThanOrEqual(6.2);
     expect(Number(result.quote.receiveNet.amount)).toBeLessThanOrEqual(1000 * 6.2);
   });
@@ -665,9 +665,9 @@ describe('createOfframpQuote — CNY executable floor', () => {
       },
       options as never
     );
-    expect(Number(result.baseConversionRate)).toBeCloseTo(6.533057 * 0.998, 6);
+    expect(Number(result.baseConversionRate)).toBeCloseTo(6.533057, 6);
     expect(Number(result.quote.sendNet.amount)).toBeCloseTo(975, 2);
-    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(975 * 6.533057 * 0.998, 2);
+    expect(Number(result.quote.receiveNet.amount)).toBeCloseTo(975 * 6.533057, 2);
   });
 
   it('prices CNY at market − 20 bps when market is already below OwlPay', async () => {

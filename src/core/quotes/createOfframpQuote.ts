@@ -221,15 +221,22 @@ export async function createOfframpQuote(
   }
   const floorRate = executableOk && !usdSell ? executable : null;
   const flooredMarket = floorOfframpMarketRate(apiMarket, floorRate);
-  conversionRate = applyRequiredOfframpPairMarkup({
+  // requireProviderRate rows (EUR, USD, ...): markup comes off the provider-capped
+  // market. Other rows (GBP, NGN, ...): markup comes off the market and the
+  // result is capped at the provider rate, as their currency-api B2B rate was.
+  const markupFirst = !markupRule.requireProviderRate;
+  const marked = applyRequiredOfframpPairMarkup({
     fromCurrency,
     toCurrency,
     amount: sendHint,
-    marketRate: flooredMarket,
+    marketRate: markupFirst ? apiMarket : flooredMarket,
     rateCurrency: rateResponse.rateCurrency,
     perCurrency: rateResponse.perCurrency,
     flow: input.flow,
   }).conversionRate;
+  conversionRate = markupFirst
+    ? String(floorOfframpMarketRate(parseFloat(marked) || 0, floorRate))
+    : marked;
   baseRateNum = parseFloat(conversionRate) || 0;
   if (baseRateNum <= 0) throw new Error('PALREMIT_RATES_UNAVAILABLE');
 
