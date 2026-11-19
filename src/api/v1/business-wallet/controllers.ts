@@ -39,11 +39,11 @@ async function enabledWallet(userId: string): Promise<repo.BusinessWalletRow> {
 /** Ledger journal types the business sees, with the names we show them. */
 const TX_TYPE_LABEL: Record<string, string> = {
   deposit_credit: 'deposit',
-  offramp_reserve: 'offramp_reserved',
+  offramp_reserve: 'offramp_pending',
   offramp_settle: 'offramp_settled',
   offramp_release: 'offramp_released',
   offramp_refund: 'offramp_refunded',
-  withdrawal_reserve: 'withdrawal_reserved',
+  withdrawal_reserve: 'withdrawal_pending',
   withdrawal_settle: 'withdrawal_settled',
   withdrawal_release: 'withdrawal_released',
   adjustment: 'adjustment',
@@ -75,7 +75,7 @@ export async function getWallet(req: Request<{ userId: string }>, res: Response,
   }
 }
 
-/** Balances only: available and reserved (pending: in-flight offramps and withdrawals) per currency. */
+/** Balances only: available and pending per asset. */
 export async function getBalances(req: Request<{ userId: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { userId } = req.params;
