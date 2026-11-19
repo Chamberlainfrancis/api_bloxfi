@@ -18,7 +18,12 @@ import {
   withdrawalView,
   WalletWithdrawalError,
 } from '@/core/businessWallets/walletWithdrawals';
-import { WALLET_ALLOWED_CHAINS, isAllowedWalletChain, normalizeWalletAddress } from '@/core/businessWallets/chains';
+import {
+  WALLET_ALLOWED_CHAINS,
+  WALLET_DEFAULT_CHAINS,
+  isAllowedWalletChain,
+  normalizeWalletAddress,
+} from '@/core/businessWallets/chains';
 import { provisionWalletDeps, walletWithdrawalDeps } from '@/services/businessWallets';
 
 function requireSecret(req: Request): void {
@@ -71,13 +76,18 @@ function wrap(fn: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
-function businessName(user: { businessInfo: unknown } | null): string {
+type UserLike = { businessInfo: unknown; businessEmailNorm?: string | null; kybStatus?: string } | null;
+
+/** Same name and email the Businesses tab shows. */
+function businessIdentity(user: UserLike): { businessName: string; email: string | null; kybStatus: string | null } {
   const bi = user?.businessInfo;
-  if (bi && typeof bi === 'object' && !Array.isArray(bi)) {
-    const r = bi as Record<string, unknown>;
-    return String(r.tradingName ?? r.legalName ?? r.businessName ?? '');
-  }
-  return '';
+  const r = bi && typeof bi === 'object' && !Array.isArray(bi) ? (bi as Record<string, unknown>) : {};
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  return {
+    businessName: str(r.tradingName) || str(r.legalName) || str(r.businessName),
+    email: user?.businessEmailNorm ?? (str(r.email) || null),
+    kybStatus: user?.kybStatus ?? null,
+  };
 }
 
 function depositView(d: repo.WalletDepositRow) {
@@ -87,21 +97,37 @@ function depositView(d: repo.WalletDepositRow) {
 /** GET /business-wallets — every business with a wallet, with balances, plus queues. */
 export const listWallets = wrap(async (_req, res) => {
   const wallets = await repo.listBusinessWallets();
+  const identities = new Map<string, ReturnType<typeof businessIdentity>>();
+  const identityOf = async (userId: string) => {
+    if (!identities.has(userId)) identities.set(userId, businessIdentity(await userRepo.findUserById(userId)));
+    return identities.get(userId)!;
+  };
   const items = await Promise.all(
     wallets.map(async (w) => {
-      const [user, balances] = await Promise.all([userRepo.findUserById(w.userId), repo.getBalances(w.userId)]);
-      return { ...w, businessName: businessName(user), balances };
+      const [who, balances, addresses] = await Promise.all([
+        identityOf(w.userId),
+        repo.getBalances(w.userId),
+        repo.listDepositAddresses(w.userId),
+      ]);
+      return {
+        ...w,
+        ...who,
+        balances,
+        chains: addresses.filter((a) => a.status === 'active').map((a) => ({ asset: a.asset, chain: a.chain })),
+      };
     })
   );
   const [quarantined, pendingWithdrawals] = await Promise.all([
     repo.listWalletDeposits({ status: ['quarantined', 'refund_pending'] }),
     repo.listWalletWithdrawals({ status: ['pending_approval', 'approved'] }),
   ]);
+  const named = async <T extends { userId: string }>(row: T) => ({ ...row, businessName: (await identityOf(row.userId)).businessName });
   sendSuccess(res, {
     items,
     allowedChains: WALLET_ALLOWED_CHAINS,
-    quarantined: quarantined.map(depositView),
-    pendingWithdrawals: pendingWithdrawals.map(withdrawalView),
+    defaultChains: WALLET_DEFAULT_CHAINS,
+    quarantined: await Promise.all(quarantined.map((d) => named(depositView(d)))),
+    pendingWithdrawals: await Promise.all(pendingWithdrawals.map((w) => named({ ...withdrawalView(w), userId: w.userId }))),
   });
 });
 
@@ -122,7 +148,7 @@ export const getWallet = wrap(async (req, res) => {
   ]);
   sendSuccess(res, {
     userId,
-    businessName: businessName(user),
+    ...businessIdentity(user),
     wallet,
     addresses,
     whitelist,

@@ -195,6 +195,66 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   .rf-wrap th, .rf-wrap td { padding:10px 14px; }
   .rf-wrap th { background:var(--panel); }
   .rf-empty { padding:18px; border:1px dashed var(--line); border-radius:10px; color:var(--mut); font-size:13px; background:var(--bg); }
+  /* Business wallets */
+  .wl-panel { background:var(--bg); border:1px solid var(--line); border-radius:12px; margin:0 0 18px; overflow:hidden; }
+  .wl-panel-h { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  .wl-panel-h h2 { font-size:14px; margin:0; }
+  .wl-lede { color:var(--mut); font-size:12px; flex-basis:100%; }
+  .biz-results .wl-panel table { border:none; border-radius:0; }
+  .biz-results .wl-panel tr:last-child td { border-bottom:none; }
+  .biz-results .wl-panel td { vertical-align:top; }
+  .wl-panel-f { padding:12px 16px; border-top:1px solid var(--line); }
+  .wl-empty { color:var(--mut); padding:16px !important; }
+  .wl-name { font-weight:600; color:var(--txt); text-decoration:none; display:block; }
+  a.wl-name:hover { color:var(--accent); }
+  .wl-sub { font-size:12px; display:block; margin-top:2px; }
+  .wl-bal { font-weight:600; }
+  .wl-chip { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:var(--panel); border:1px solid var(--line); margin:1px 0; white-space:nowrap; }
+  .wl-plus { color:var(--ok); }
+  .wl-minus { color:var(--bad); }
+  button.wl-copy { background:transparent; color:var(--accent); border:none; padding:0 2px; font-size:11px; font-weight:600; }
+  .wl-actions { white-space:nowrap; text-align:right; }
+  .wl-actions button { margin-left:6px; padding:6px 12px; }
+  button.wl-danger { color:var(--bad); border-color:#ef444455; }
+  .wl-back { margin:4px 0 10px; font-size:13px; }
+  .wl-back a { text-decoration:none; }
+  .wl-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:16px; }
+  .wl-head h2 { font-size:20px; margin:0 0 2px; }
+  .wl-flags { margin-top:8px; }
+  .wl-head-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .wl-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-bottom:18px; }
+  .wl-card { border:1px solid var(--line); border-radius:12px; padding:16px 18px; background:var(--bg); }
+  .wl-card-a { font-size:12px; font-weight:700; color:var(--mut); letter-spacing:.06em; }
+  .wl-card-v { font-size:28px; font-weight:700; line-height:1.2; margin-top:4px; }
+  .wl-card-p { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:13px; }
+  .wl-tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+  .wl-tab { background:transparent; color:var(--mut); border:none; border-bottom:2px solid transparent; border-radius:0; padding:10px 14px; font-weight:600; }
+  .wl-tab.active { color:var(--txt); border-bottom-color:var(--accent); }
+  .wl-set { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .wl-set:last-child { border-bottom:none; }
+  .wl-set .t { font-weight:600; }
+  .wl-set .d { color:var(--mut); font-size:13px; margin-top:2px; }
+  .wl-gap { margin-top:14px; }
+  .wl-hint { color:var(--mut); font-size:13px; padding:8px 2px; }
+  .wl-search-res { display:flex; flex-direction:column; border:1px solid var(--line); border-radius:8px; max-height:260px; overflow:auto; margin-top:6px; }
+  .wl-pick { display:flex; justify-content:space-between; gap:10px; align-items:center; text-align:left; background:var(--bg); color:var(--txt); border:none; border-bottom:1px solid var(--line); border-radius:0; padding:9px 12px; font-weight:500; }
+  .wl-pick:last-child { border-bottom:none; }
+  .wl-pick:hover { background:var(--panel); }
+  .wl-picked { display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid var(--accent); background:#2563eb0d; border-radius:8px; padding:10px 12px; }
+  .wl-checks { display:flex; flex-wrap:wrap; gap:8px 18px; }
+  .refund-dialog .wl-checks input { width:auto; }
+  .wl-panel a { text-decoration:none; }
+  .wl-panel a:hover { text-decoration:underline; }
+  .wl-panel .mono, .confirm-list .mono { word-break:normal; }
+  .wl-scroll { overflow-x:auto; }
+  .wl-scroll .mono { white-space:nowrap; }
+  .wl-checks label { display:inline-flex; gap:6px; align-items:center; font-size:13px; font-weight:500 !important; }
+  .refund-dialog .grid.wl-who { grid-template-columns:1fr 1fr; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+  .refund-dialog select { width:100%; padding:8px 10px; border-radius:8px; }
+  @media (max-width:640px) {
+    .refund-dialog .grid.wl-who { grid-template-columns:1fr; }
+    .wl-actions { white-space:normal; }
+  }
   @media (max-width:640px) {
     .signal-card { grid-template-columns:auto 1fr; }
     .signal-card .cta { grid-column:1 / -1; grid-row:auto; }
@@ -246,7 +306,8 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
   <button class="ghost" id="rmReload">Reload</button>
 </div>
 <div class="toolbar" id="wlToolbar" style="display:none">
-  <span class="muted">Business wallets: USDT and USDC balances, deposit addresses, whitelist, held deposits and withdrawals.</span>
+  <input id="wlFilter" type="text" placeholder="Find a wallet by business name or email" autocomplete="off" style="min-width:320px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--txt)" />
+  <button id="wlNew">Turn on a wallet</button>
   <button class="ghost" id="wlReload">Reload</button>
 </div>
 <div id="err" class="err" style="display:none"></div>
@@ -329,6 +390,20 @@ export function renderDashboardHtml(nonce: string, totalProfitUsdc: string = '0.
     <div class="consequence">This sets the offramp to REFUNDED and notifies the partner straight away (offramp.refunded). Your name, the time and your note go into the audit trail.</div>
     <div id="refundMsg" class="payout-retry-msg" style="display:none"></div>
     <div class="foot"><button type="button" class="ghost" id="refundDismiss">Cancel</button><button type="button" class="refund" id="refundConfirm">Mark as refunded</button></div>
+  </div>
+</dialog>
+
+<dialog id="wlDialog" class="refund-dialog">
+  <div class="dhead"><span class="t" id="wlDTitle"></span><button type="button" class="ghost" id="wlDClose">Cancel</button></div>
+  <div class="dbody">
+    <div id="wlDBody"></div>
+    <div class="grid wl-who">
+      <div class="field"><label for="wlDActor">Your name</label><input type="text" id="wlDActor" autocomplete="name" placeholder="Saved in the audit trail" /></div>
+      <div class="field"><label for="wlDPass">Passcode</label><input type="password" id="wlDPass" autocomplete="current-password" /></div>
+    </div>
+    <div id="wlDNote" class="consequence" style="display:none"></div>
+    <div id="wlDMsg" class="payout-retry-msg" style="display:none"></div>
+    <div class="foot"><button type="button" class="ghost" id="wlDCancel">Cancel</button><button type="button" class="ok" id="wlDOk">Confirm</button></div>
   </div>
 </dialog>
 
@@ -2590,330 +2665,714 @@ $("rmResults").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && e.target && (e.target.id === "rmBps" || e.target.id === "rmPasscode")) { e.preventDefault(); saveRate(); }
 });
 
-// --- business wallets: balances, deposit addresses, whitelist, held deposits, withdrawals ---
+// --- business wallets ---------------------------------------------------------
 
-var wlState = { list: null, detailId: null, detail: null, msg: null };
+var WL_EXPLORERS = {
+  TRC20: { tx: "https://tronscan.org/#/transaction/", addr: "https://tronscan.org/#/address/" },
+  ERC20: { tx: "https://etherscan.io/tx/", addr: "https://etherscan.io/address/" },
+  BEP20: { tx: "https://bscscan.com/tx/", addr: "https://bscscan.com/address/" },
+  MATIC: { tx: "https://polygonscan.com/tx/", addr: "https://polygonscan.com/address/" },
+  BASE: { tx: "https://basescan.org/tx/", addr: "https://basescan.org/address/" }
+};
+var WL_CHAIN_NAMES = { TRC20: "Tron", ERC20: "Ethereum", BEP20: "BNB Chain", MATIC: "Polygon", BASE: "Base" };
+var WL_DEP_STATUS = {
+  credited: ["Credited", "ok"], quarantined: ["On hold", "pend"], refund_pending: ["Refund pending", "pend"], refunded: ["Refunded", ""]
+};
+var WL_WD_STATUS = {
+  pending_approval: ["Waiting for approval", "pend"], approved: ["Approved, not sent", "pend"], submitted: ["Sending", "pend"],
+  completed: ["Sent", "ok"], failed: ["Failed", "fail"], rejected: ["Rejected", ""]
+};
+var WL_ADDR_STATUS = { active: ["Active", "ok"], pending: ["Opening", "pend"], provisioning: ["Opening", "pend"], failed: ["Failed", "fail"] };
+var WL_JOURNAL = {
+  deposit_credit: "Deposit", offramp_reserve: "Offramp pending", offramp_settle: "Offramp paid", offramp_release: "Offramp released",
+  offramp_refund: "Offramp refunded", withdrawal_reserve: "Withdrawal pending", withdrawal_settle: "Withdrawal sent",
+  withdrawal_release: "Withdrawal released", adjustment: "Adjustment"
+};
+var WL_SETTINGS = [
+  { key: "enabled", title: "Wallet on", on: "The business can see its balance through the API and pay offramps from it.", off: "The wallet is hidden from the API and can't pay offramps. Deposits still credit." },
+  { key: "walletOnly", title: "Pay offramps from the wallet only", on: "Offramps must be paid from the balance. No deposit address is issued per offramp.", off: "The business can still pay each offramp with its own crypto deposit." },
+  { key: "whitelistRequired", title: "Only credit deposits from whitelisted senders", on: "Deposits from any other address are put on hold for you to review.", off: "Deposits from any sender are credited straight away." }
+];
 
-function wlSecret() {
-  return ($("wlPasscode") ? $("wlPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();
+var wlState = { list: null, detailId: null, detail: null, tab: "activity", filter: "" };
+var wlAskCtx = null;
+var wlSearchTimer = null;
+
+function wlChainName(c) { return WL_CHAIN_NAMES[c] ? WL_CHAIN_NAMES[c] + " (" + c + ")" : c; }
+function wlBadge(map, s) { var m = map[s] || [humanize(s || "unknown"), "pend"]; return '<span class="badge ' + m[1] + '">' + esc(m[0]) + "</span>"; }
+function wlShort(s) { s = String(s || ""); return s.length > 18 ? s.slice(0, 8) + "…" + s.slice(-6) : s; }
+function wlWhen(d) { return d ? esc(new Date(d).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })) : "—"; }
+function wlNum(a) { var n = Number(a); return isNaN(n) ? esc(a) : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }); }
+function wlSigned(a) {
+  var n = Number(a);
+  if (!n) return '<span class="muted">—</span>';
+  return '<span class="' + (n > 0 ? "wl-plus" : "wl-minus") + '">' + (n > 0 ? "+" : "−") + wlNum(Math.abs(n)) + "</span>";
 }
-function wlActor() { return ($("wlActor") ? $("wlActor").value : "").trim(); }
-
-function wlMsg(text, kind) {
-  var el = $("wlMsg");
-  if (!el) return;
-  el.style.display = text ? "block" : "none";
-  el.className = "payout-retry-msg" + (kind ? " " + kind : "");
-  el.textContent = text || "";
+function wlName(x) { return (x && x.businessName) || "(unnamed business)"; }
+function wlCopyBtn(v) { return '<button type="button" class="wl-copy" data-copy="' + esc(v) + '">Copy</button>'; }
+function wlAddr(chain, a, full) {
+  if (!a) return '<span class="muted">—</span>';
+  var ex = WL_EXPLORERS[chain];
+  var label = '<span class="mono" title="' + esc(a) + '">' + esc(full ? a : wlShort(a)) + "</span>";
+  return (ex ? '<a href="' + esc(ex.addr + a) + '" target="_blank" rel="noopener">' + label + "</a>" : label) + " " + wlCopyBtn(a);
 }
-
-async function wlPost(path, body, method) {
-  var secret = wlSecret();
-  var actor = wlActor();
-  if (!actor) { wlMsg("Enter your name first. It goes into the audit trail.", "bad"); if ($("wlActor")) $("wlActor").focus(); return null; }
-  if (!secret) { wlMsg("Enter the dashboard passcode first.", "bad"); if ($("wlPasscode")) $("wlPasscode").focus(); return null; }
-  sessionStorage.setItem("dashSecret", secret);
-  try {
-    var payload = Object.assign({}, body || {}, { actor: actor, secret: secret });
-    return await api(path, {
-      method: method || "POST",
-      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify(payload)
-    });
-  } catch (err) {
-    if (err.status === 401) { sessionStorage.removeItem("dashSecret"); wlMsg("Incorrect passcode, try again.", "bad"); return null; }
-    wlMsg(err.message || "Request failed", "bad");
-    return null;
-  }
+function wlTx(chain, h) {
+  if (!h) return "";
+  var ex = WL_EXPLORERS[chain];
+  var label = '<span class="mono" title="' + esc(h) + '">' + esc(wlShort(h)) + "</span>";
+  return ex ? '<a href="' + esc(ex.tx + h) + '" target="_blank" rel="noopener">' + label + "</a>" : label;
 }
-
-function wlBalances(bals) {
-  if (!bals || !bals.length) return '<span class="muted">0</span>';
-  return bals.map(function (b) {
-    return '<div style="font-variant-numeric:tabular-nums">' + fmtMoney(b.available, b.asset) +
-      (Number(b.reserved) ? ' <span class="muted">(+' + fmtMoney(b.reserved) + " reserved)</span>" : "") + "</div>";
-  }).join("");
+function wlFacts(rows) {
+  return '<div class="confirm-list">' + rows.filter(function (r) { return r[1] != null && r[1] !== ""; }).map(function (r) {
+    return '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>";
+  }).join("") + "</div>";
 }
+function wlField(id, label, html, opt) {
+  return '<div class="field full"><label for="' + id + '">' + esc(label) + (opt ? ' <span class="opt">(optional)</span>' : "") + "</label>" + html + "</div>";
+}
+function wlVal(id) { return $(id) ? ($(id).value || "").trim() : ""; }
 
+function wlBalCell(bals, asset) {
+  var b = (bals || []).find(function (x) { return x.asset === asset; }) || { available: "0", reserved: "0" };
+  return '<div class="amt wl-bal">' + wlNum(b.available) + "</div>" +
+    (Number(b.reserved) ? '<div class="muted wl-sub">' + wlNum(b.reserved) + " pending</div>" : "");
+}
 function wlFlags(w) {
-  if (!w) return "";
-  var f = [];
-  f.push(w.enabled ? '<span class="badge ok">enabled</span>' : '<span class="badge">off</span>');
-  if (w.walletOnly) f.push('<span class="badge">wallet only</span>');
-  if (w.whitelistRequired) f.push('<span class="badge">whitelist on</span>');
-  if (w.debitsPaused) f.push('<span class="badge fail" title="' + esc(w.pausedReason || "") + '">debits paused</span>');
+  if (!w) return '<span class="badge">No wallet</span>';
+  var f = [w.enabled ? '<span class="badge ok">On</span>' : '<span class="badge">Off</span>'];
+  if (w.debitsPaused) f.push('<span class="badge fail" title="' + esc(w.pausedReason || "") + '">Debits paused</span>');
+  if (w.walletOnly) f.push('<span class="badge">Wallet only</span>');
+  if (w.whitelistRequired) f.push('<span class="badge">Whitelisted senders only</span>');
   return f.join(" ");
 }
-
-function wlHeader() {
-  return '<div class="payout-retry-form" style="margin-bottom:16px">' +
-    '<div class="notice">Every change here is written to the wallet ledger with your name. Balances only move through ledger entries, never by editing a number.</div>' +
-    '<div class="payout-retry-fields">' +
-    '<label for="wlActor">Your name</label><input type="text" id="wlActor" autocomplete="name" placeholder="Saved in the audit trail" value="' + esc(sessionStorage.getItem("wlActor") || "") + '" />' +
-    '<label for="wlPasscode">Passcode</label><input type="password" id="wlPasscode" autocomplete="current-password" placeholder="Dashboard passcode" />' +
-    "</div>" +
-    '<div id="wlMsg" class="payout-retry-msg" style="display:none"></div>' +
-    "</div>";
+function wlChips(chains) {
+  if (!chains || !chains.length) return '<span class="muted">None open</span>';
+  return chains.map(function (c) { return '<span class="wl-chip">' + esc(c.asset) + " · " + esc(WL_CHAIN_NAMES[c.chain] || c.chain) + "</span>"; }).join(" ");
 }
 
+function wlFindWithdrawal(id) {
+  var a = (wlState.list && wlState.list.pendingWithdrawals) || [];
+  var b = (wlState.detail && wlState.detail.withdrawals) || [];
+  var w = a.concat(b).find(function (x) { return x.id === id; });
+  if (w && !w.businessName && wlState.detail) w.businessName = wlState.detail.businessName;
+  return w;
+}
+function wlFindDeposit(id) {
+  var a = (wlState.list && wlState.list.quarantined) || [];
+  var b = (wlState.detail && wlState.detail.deposits) || [];
+  var d = a.concat(b).find(function (x) { return x.id === id; });
+  if (d && !d.businessName && wlState.detail) d.businessName = wlState.detail.businessName;
+  return d;
+}
+
+// Rows -------------------------------------------------------------------------
+
+function wlBizCell(x) {
+  return '<td><a href="#" class="wl-open wl-name" data-user="' + esc(x.userId) + '">' + esc(wlName(x)) + "</a></td>";
+}
 function wlDepositRow(d, withBiz) {
   var held = d.status === "quarantined" || d.status === "refund_pending";
-  return "<tr>" +
-    (withBiz ? '<td class="mono">' + esc(d.userId.slice(0, 8)) + "</td>" : "") +
-    "<td>" + fmtMoney(d.amount, d.asset) + ' <span class="muted">' + esc(d.chain) + "</span></td>" +
-    '<td class="mono" style="word-break:break-all">' + esc(d.senderAddress || "unknown") + "</td>" +
-    '<td class="mono" style="word-break:break-all">' + esc(d.txId || "") + "</td>" +
-    "<td>" + esc(d.status) + (d.quarantineReason ? '<div class="muted">' + esc(d.quarantineReason) + "</div>" : "") + (d.resolutionNote ? '<div class="muted">' + esc(d.resolvedBy || "") + ": " + esc(d.resolutionNote) + "</div>" : "") + "</td>" +
-    '<td class="muted">' + esc(new Date(d.createdAt).toLocaleString()) + "</td>" +
-    '<td style="white-space:nowrap">' + (held
-      ? '<button type="button" class="ok wl-dep-credit" data-id="' + esc(d.id) + '">Credit</button> ' +
-        (d.status === "quarantined" ? '<button type="button" class="ghost wl-dep-refund" data-status="refund_pending" data-id="' + esc(d.id) + '">Refund pending</button> ' : "") +
-        '<button type="button" class="ghost wl-dep-refund" data-status="refunded" data-id="' + esc(d.id) + '">Refunded</button>'
+  return "<tr>" + (withBiz ? wlBizCell(d) : "") +
+    '<td class="amt"><strong>' + wlNum(d.amount) + " " + esc(d.asset) + '</strong><div class="muted wl-sub">' + esc(wlChainName(d.chain)) + "</div></td>" +
+    "<td>" + wlAddr(d.chain, d.senderAddress) + (d.txId ? '<div class="wl-sub">' + wlTx(d.chain, d.txId) + "</div>" : "") + "</td>" +
+    "<td>" + wlBadge(WL_DEP_STATUS, d.status) +
+      (d.quarantineReason && held ? '<div class="muted wl-sub">' + esc(d.quarantineReason) + "</div>" : "") +
+      (d.resolutionNote ? '<div class="muted wl-sub">' + esc(d.resolvedBy || "") + ": " + esc(d.resolutionNote) + "</div>" : "") + "</td>" +
+    '<td class="muted">' + wlWhen(d.createdAt) + "</td>" +
+    '<td class="wl-actions">' + (held
+      ? '<button type="button" class="ok wl-dep-credit" data-id="' + esc(d.id) + '">Credit</button>' +
+        '<button type="button" class="ghost wl-dep-refund" data-id="' + esc(d.id) + '">Refund…</button>'
       : "") + "</td></tr>";
 }
-
 function wlWithdrawalRow(w, withBiz) {
-  var pending = w.status === "pending_approval" || w.status === "approved";
-  return "<tr>" +
-    (withBiz ? '<td class="mono">' + esc(w.userId.slice(0, 8)) + "</td>" : "") +
-    '<td class="mono">' + esc(w.reference) + "</td>" +
-    "<td>" + fmtMoney(w.amount, w.asset) + ' <span class="muted">' + esc(w.chain) + "</span></td>" +
-    '<td class="mono" style="word-break:break-all">' + esc(w.address) + "</td>" +
-    "<td>" + esc(w.status) + (w.failureReason ? '<div class="muted">' + esc(w.failureReason) + "</div>" : "") + (w.transactionHash ? '<div class="mono muted" style="word-break:break-all">' + esc(w.transactionHash) + "</div>" : "") + "</td>" +
-    '<td class="muted">' + esc(new Date(w.createdAt).toLocaleString()) + "</td>" +
-    '<td style="white-space:nowrap">' + (pending
-      ? '<button type="button" class="ok wl-wd-approve" data-id="' + esc(w.id) + '" data-label="' + esc(w.amount + " " + w.asset + " on " + w.chain + " to " + w.address) + '">' + (w.status === "approved" ? "Retry send" : "Approve and send") + "</button> " +
-        (w.status === "pending_approval" ? '<button type="button" class="danger wl-wd-reject" data-id="' + esc(w.id) + '">Reject</button>' : "")
+  var open = w.status === "pending_approval" || w.status === "approved";
+  return "<tr>" + (withBiz ? wlBizCell(w) : "") +
+    '<td class="amt"><strong>' + wlNum(w.amount) + " " + esc(w.asset) + '</strong><div class="muted wl-sub">' + esc(wlChainName(w.chain)) + "</div></td>" +
+    "<td>" + wlAddr(w.chain, w.address) + '<div class="muted wl-sub mono">' + esc(w.reference || "") + "</div></td>" +
+    "<td>" + wlBadge(WL_WD_STATUS, w.status) +
+      (w.failureReason ? '<div class="muted wl-sub">' + esc(w.failureReason) + "</div>" : "") +
+      (w.transactionHash ? '<div class="wl-sub">' + wlTx(w.chain, w.transactionHash) + "</div>" : "") + "</td>" +
+    '<td class="muted">' + wlWhen(w.createdAt) + "</td>" +
+    '<td class="wl-actions">' + (open
+      ? '<button type="button" class="ok wl-wd-approve" data-id="' + esc(w.id) + '">' + (w.status === "approved" ? "Retry send" : "Review") + "</button>" +
+        (w.status === "pending_approval" ? '<button type="button" class="ghost wl-danger wl-wd-reject" data-id="' + esc(w.id) + '">Reject</button>' : "")
       : "") + "</td></tr>";
 }
-
-var WL_DEP_HEAD = "<th>Amount</th><th>Sender</th><th>Tx</th><th>Status</th><th>Received</th><th></th>";
-var WL_WD_HEAD = "<th>Reference</th><th>Amount</th><th>To</th><th>Status</th><th>Requested</th><th></th>";
-
-async function loadWallets() {
-  var el = $("wlResults");
-  el.style.display = "block";
-  if (!wlState.list) el.innerHTML = '<div class="biz-results-empty">Loading wallets…</div>';
-  try {
-    wlState.list = await api("/business-wallets");
-    if (wlState.detailId) wlState.detail = await api("/business-wallets/" + encodeURIComponent(wlState.detailId));
-    renderWallets();
-  } catch (err) {
-    el.innerHTML = '<div class="biz-results-empty">' + esc(err.message || "Failed to load wallets") + "</div>";
-  }
+function wlTable(head, rows, empty, cols) {
+  return '<div class="wl-scroll"><table><thead><tr>' + head.map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead><tbody>" +
+    (rows.length ? rows.join("") : '<tr><td colspan="' + (cols || head.length) + '" class="wl-empty">' + esc(empty) + "</td></tr>") + "</tbody></table></div>";
+}
+function wlPanel(title, count, lede, body, foot) {
+  return '<div class="wl-panel"><div class="wl-panel-h"><h2>' + esc(title) + "</h2>" +
+    (count ? '<span class="badge pend">' + count + "</span>" : "") +
+    (lede ? '<span class="wl-lede">' + lede + "</span>" : "") + "</div>" + body +
+    (foot ? '<div class="wl-panel-f">' + foot + "</div>" : "") + "</div>";
 }
 
-function wlChainChecks(allowed, have) {
-  var out = [];
-  ["USDT", "USDC"].forEach(function (a) {
-    (allowed[a] || []).forEach(function (c) {
-      var on = have.some(function (x) { return x.asset === a && x.chain === c && x.status === "active"; });
-      out.push('<label class="muted" style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="wl-chain" data-asset="' + a + '" data-chain="' + c + '"' + (on ? " checked disabled" : "") + " /> " + a + " " + c + "</label>");
-    });
-  });
-  return out.join(" ");
-}
+// List view --------------------------------------------------------------------
 
 function renderWalletList() {
-  var L = wlState.list || { items: [], quarantined: [], pendingWithdrawals: [], allowedChains: {} };
-  var rows = L.items.length
-    ? "<table><thead><tr><th>Business</th><th>Status</th><th>Balance</th><th>Updated</th></tr></thead><tbody>" +
-      L.items.map(function (w) {
-        return '<tr class="row wl-open" data-user="' + esc(w.userId) + '" style="cursor:pointer"><td>' + esc(w.businessName || w.userId) + '<div class="mono muted">' + esc(w.userId) + "</div></td><td>" + wlFlags(w) + "</td><td>" + wlBalances(w.balances) + '</td><td class="muted">' + esc(new Date(w.updatedAt).toLocaleString()) + "</td></tr>";
-      }).join("") + "</tbody></table>"
-    : '<div class="biz-results-empty">No business has a wallet yet.</div>';
-  var enable = '<div class="payout-retry-form" style="margin:16px 0">' +
-    "<strong>Turn on a wallet</strong>" +
-    '<div class="payout-retry-fields"><label for="wlNewUser">Business user id</label><input type="text" id="wlNewUser" class="mono" style="min-width:320px" placeholder="uuid" /></div>' +
-    '<div class="payout-retry-fields"><label>Chains</label>' + wlChainChecks(L.allowedChains || {}, []) + "</div>" +
-    '<div class="muted">Defaults: USDT on TRC20, USDC on ERC20. Each chain gets its own deposit address, pinned to Tatum.</div>' +
-    '<div class="payout-retry-fields"><button type="button" class="ok" id="wlEnableNew">Turn on and open addresses</button></div></div>';
-  var q = L.quarantined.length
-    ? "<h3>Held deposits (" + L.quarantined.length + ')</h3><p class="muted">From addresses not on the whitelist. Swept to main, not credited, not shown to the business.</p><table><thead><tr><th>Business</th>' + WL_DEP_HEAD + "</tr></thead><tbody>" + L.quarantined.map(function (d) { return wlDepositRow(d, true); }).join("") + "</tbody></table>"
-    : "";
-  var wd = L.pendingWithdrawals.length
-    ? "<h3>Withdrawals waiting (" + L.pendingWithdrawals.length + ")</h3><table><thead><tr><th>Business</th>" + WL_WD_HEAD + "</tr></thead><tbody>" + L.pendingWithdrawals.map(function (w) { return wlWithdrawalRow(w, true); }).join("") + "</tbody></table>"
-    : "";
-  return q + wd + "<h3>Wallets</h3>" + rows + enable;
+  var L = wlState.list || { items: [], quarantined: [], pendingWithdrawals: [] };
+  var out = "";
+  if (L.pendingWithdrawals.length) {
+    out += wlPanel("Withdrawals waiting", L.pendingWithdrawals.length, "Businesses asked to send crypto out. Nothing leaves until you approve.",
+      wlTable(["Business", "Amount", "To", "Status", "Requested", ""], L.pendingWithdrawals.map(function (w) { return wlWithdrawalRow(w, true); }), ""));
+  }
+  if (L.quarantined.length) {
+    out += wlPanel("Deposits on hold", L.quarantined.length, "Sent from an address that isn't whitelisted. Not credited, and the business can't see them.",
+      wlTable(["Business", "Amount", "From", "Status", "Received", ""], L.quarantined.map(function (d) { return wlDepositRow(d, true); }), ""));
+  }
+  var f = wlState.filter.toLowerCase();
+  var items = L.items.filter(function (w) {
+    return !f || wlName(w).toLowerCase().indexOf(f) >= 0 || String(w.email || "").toLowerCase().indexOf(f) >= 0;
+  });
+  var rows = items.map(function (w) {
+    return '<tr class="row wl-open" data-user="' + esc(w.userId) + '">' +
+      '<td><div class="wl-name">' + esc(wlName(w)) + '</div><div class="muted wl-sub">' + esc(w.email || "") + "</div></td>" +
+      "<td>" + wlBalCell(w.balances, "USDT") + "</td>" +
+      "<td>" + wlBalCell(w.balances, "USDC") + "</td>" +
+      "<td>" + wlChips(w.chains) + "</td>" +
+      "<td>" + wlFlags(w) + "</td>" +
+      '<td class="muted">' + wlWhen(w.updatedAt) + "</td></tr>";
+  });
+  var empty = L.items.length ? 'No wallet matches "' + wlState.filter + '".' : "No business has a wallet yet. Use Turn on a wallet to add one.";
+  out += wlPanel("Wallets", L.items.length, "", wlTable(["Business", "USDT", "USDC", "Deposit networks", "Status", "Updated"], rows, empty));
+  return out;
+}
+
+// Detail view ------------------------------------------------------------------
+
+function wlTabBtn(key, label, n) {
+  return '<button type="button" class="wl-tab' + (wlState.tab === key ? " active" : "") + '" data-tab="' + key + '">' + esc(label) +
+    (n ? ' <span class="badge pend">' + n + "</span>" : "") + "</button>";
 }
 
 function renderWalletDetail() {
   var D = wlState.detail;
   if (!D) return '<div class="biz-results-empty">Loading…</div>';
   var w = D.wallet;
-  var settings = w
-    ? '<div class="payout-retry-fields">' +
-      '<label><input type="checkbox" class="wl-set" data-key="walletOnly"' + (w.walletOnly ? " checked" : "") + " /> Wallet only (no per-offramp deposits)</label>" +
-      '<label><input type="checkbox" class="wl-set" data-key="whitelistRequired"' + (w.whitelistRequired ? " checked" : "") + " /> Only credit deposits from whitelisted senders</label>" +
-      '<label><input type="checkbox" class="wl-set" data-key="enabled"' + (w.enabled ? " checked" : "") + " /> Enabled</label>" +
-      (w.debitsPaused
-        ? '<button type="button" class="ok" id="wlResume">Resume debits</button> <span class="muted">Paused: ' + esc(w.pausedReason || "") + "</span>"
-        : '<button type="button" class="danger" id="wlPause">Pause debits</button>') +
-      "</div>"
-    : '<div class="notice">No wallet yet.</div>';
-  var addrs = "<table><thead><tr><th>Asset</th><th>Chain</th><th>Address</th><th>Status</th></tr></thead><tbody>" +
-    (D.addresses.length ? D.addresses.map(function (a) {
-      return "<tr><td>" + esc(a.asset) + "</td><td>" + esc(a.chain) + '</td><td class="mono" style="word-break:break-all">' + esc(a.address || "") + "</td><td>" + esc(a.status) + (a.failureReason ? '<div class="muted">' + esc(a.failureReason) + "</div>" : "") + "</td></tr>";
-    }).join("") : '<tr><td colspan="4" class="muted">None</td></tr>') + "</tbody></table>" +
-    '<div class="payout-retry-fields"><label>Add chains</label>' + wlChainChecks(D.allowedChains || {}, D.addresses) + '<button type="button" class="ghost" id="wlEnableMore">Open addresses</button></div>';
-  var activeWl = D.whitelist.filter(function (x) { return !x.removedAt; });
-  var wl = "<table><thead><tr><th>Chain</th><th>Address</th><th>Label</th><th>Added</th><th></th></tr></thead><tbody>" +
-    (activeWl.length ? activeWl.map(function (x) {
-      return "<tr><td>" + esc(x.chain) + '</td><td class="mono" style="word-break:break-all">' + esc(x.address) + "</td><td>" + esc(x.label || "") + '</td><td class="muted">' + esc(x.addedBy) + ", " + esc(new Date(x.createdAt).toLocaleString()) + '</td><td><button type="button" class="danger wl-wl-remove" data-id="' + esc(x.id) + '">Remove</button></td></tr>';
-    }).join("") : '<tr><td colspan="5" class="muted">No addresses</td></tr>') + "</tbody></table>" +
-    '<div class="payout-retry-fields"><label>Chain</label><select id="wlWlChain">' + ["TRC20", "ERC20", "BEP20", "BASE", "MATIC"].map(function (c) { return "<option>" + c + "</option>"; }).join("") + "</select>" +
-    '<label>Address</label><input type="text" id="wlWlAddr" class="mono" style="min-width:320px" />' +
-    '<label>Label</label><input type="text" id="wlWlLabel" placeholder="e.g. Treasury Binance" />' +
-    '<button type="button" class="ok" id="wlWlAdd">Add to whitelist</button></div>' +
-    ((D.registeredWallets || []).length
-      ? '<p class="muted">Withdrawals can also go to the business\\'s registered external wallets: ' + D.registeredWallets.map(function (r) { return esc(r.chain) + " " + '<span class="mono">' + esc(r.address) + "</span>" + (r.label ? " (" + esc(r.label) + ")" : ""); }).join(", ") + ". These do not make deposits from them credit.</p>"
-      : '<p class="muted">Withdrawals can also go to the business\\'s registered external wallets (none registered).</p>');
-  var adj = '<div class="payout-retry-fields"><label>Asset</label><select id="wlAdjAsset"><option>USDT</option><option>USDC</option></select>' +
-    '<label>Amount</label><input type="text" id="wlAdjAmount" inputmode="decimal" placeholder="+10 or -10" style="width:120px" />' +
-    '<label>Reason</label><input type="text" id="wlAdjReason" style="min-width:300px" placeholder="Why, with a reference" />' +
-    '<button type="button" class="danger" id="wlAdjPost">Post adjustment</button></div>';
-  var journals = "<table><thead><tr><th>When</th><th>Type</th><th>Asset</th><th>Available</th><th>Reserved</th><th>Ref</th><th>By</th><th>Note</th></tr></thead><tbody>" +
-    (D.journals.length ? D.journals.map(function (j) {
-      return '<tr><td class="muted">' + esc(new Date(j.createdAt).toLocaleString()) + "</td><td>" + esc(j.type) + "</td><td>" + esc(j.asset) + '</td><td style="font-variant-numeric:tabular-nums">' + esc(j.availableDelta) + '</td><td style="font-variant-numeric:tabular-nums">' + esc(j.reservedDelta) + '</td><td class="mono">' + esc(j.refId || "") + "</td><td>" + esc(j.actor) + "</td><td>" + esc(j.note || "") + "</td></tr>";
-    }).join("") : '<tr><td colspan="8" class="muted">No entries</td></tr>') + "</tbody></table>";
-  return '<div style="margin-bottom:12px"><button type="button" class="ghost" id="wlBack">&larr; All wallets</button></div>' +
-    "<h3>" + esc(D.businessName || D.userId) + ' <span class="mono muted" style="font-size:12px">' + esc(D.userId) + "</span> " + wlFlags(w) + "</h3>" +
-    "<div>" + wlBalances(D.balances) + "</div>" +
-    "<h3>Settings</h3>" + settings +
-    '<p class="muted">A wallet-funded offramp that is cancelled or marked refunded goes back to this balance automatically. No on-chain refund is needed for those.</p>' +
-    "<h3>Deposit addresses</h3>" + addrs +
-    "<h3>Whitelist</h3>" + wl +
-    "<h3>Deposits</h3><table><thead><tr>" + WL_DEP_HEAD + "</tr></thead><tbody>" + (D.deposits.length ? D.deposits.map(function (d) { return wlDepositRow(d, false); }).join("") : '<tr><td colspan="6" class="muted">None</td></tr>') + "</tbody></table>" +
-    "<h3>Withdrawals</h3><table><thead><tr>" + WL_WD_HEAD + "</tr></thead><tbody>" + (D.withdrawals.length ? D.withdrawals.map(function (x) { return wlWithdrawalRow(x, false); }).join("") : '<tr><td colspan="6" class="muted">None</td></tr>') + "</tbody></table>" +
-    "<h3>Adjustment</h3>" + adj +
-    "<h3>Ledger</h3>" + journals;
+  var waiting = D.withdrawals.filter(function (x) { return x.status === "pending_approval" || x.status === "approved"; }).length +
+    D.deposits.filter(function (x) { return x.status === "quarantined" || x.status === "refund_pending"; }).length;
+
+  var head = '<div class="wl-back"><a href="#" id="wlBack">&larr; All wallets</a></div>' +
+    '<div class="wl-head"><div><h2>' + esc(wlName(D)) + "</h2>" +
+    '<div class="muted">' + [D.email ? esc(D.email) : "", D.kybStatus ? "KYB " + esc(String(D.kybStatus).toUpperCase()) : ""].filter(Boolean).join(" · ") + "</div>" +
+    '<div class="wl-flags">' + wlFlags(w) + (w && w.debitsPaused && w.pausedReason ? ' <span class="muted">Paused: ' + esc(w.pausedReason) + "</span>" : "") + "</div></div>" +
+    '<div class="wl-head-actions">' + (w
+      ? (w.debitsPaused ? '<button type="button" class="ok" id="wlResume">Resume debits</button>' : '<button type="button" class="ghost wl-danger" id="wlPause">Pause debits</button>') +
+        '<button type="button" class="ghost" id="wlAdjust">Adjust balance</button>'
+      : "") + "</div></div>";
+
+  var cards = '<div class="wl-cards">' + D.balances.map(function (b) {
+    return '<div class="wl-card"><div class="wl-card-a">' + esc(b.asset) + "</div>" +
+      '<div class="wl-card-v amt">' + wlNum(b.available) + '</div><div class="muted wl-sub">Available</div>' +
+      '<div class="wl-card-p"><span class="amt"><strong>' + wlNum(b.reserved) + '</strong></span> pending <span class="muted">· held for offramps and withdrawals in progress</span></div></div>';
+  }).join("") + "</div>";
+
+  var tabs = '<div class="wl-tabs">' + wlTabBtn("activity", "Activity", waiting) + wlTabBtn("addresses", "Addresses") +
+    wlTabBtn("ledger", "Ledger") + wlTabBtn("settings", "Settings") + "</div>";
+
+  var body = "";
+  if (wlState.tab === "activity") {
+    body = wlPanel("Withdrawals", 0, "", wlTable(["Amount", "To", "Status", "Requested", ""], D.withdrawals.map(function (x) { return wlWithdrawalRow(x, false); }), "No withdrawals yet.")) +
+      wlPanel("Deposits", 0, "", wlTable(["Amount", "From", "Status", "Received", ""], D.deposits.map(function (x) { return wlDepositRow(x, false); }), "No deposits yet."));
+  } else if (wlState.tab === "addresses") {
+    var addrRows = D.addresses.map(function (a) {
+      return "<tr><td><strong>" + esc(a.asset) + "</strong></td><td>" + esc(wlChainName(a.chain)) + "</td><td>" + wlAddr(a.chain, a.address, true) + "</td><td>" +
+        wlBadge(WL_ADDR_STATUS, a.status) + (a.failureReason ? '<div class="muted wl-sub">' + esc(a.failureReason) + "</div>" : "") + "</td></tr>";
+    });
+    var wl = D.whitelist.filter(function (x) { return !x.removedAt; }).map(function (x) {
+      return "<tr><td>" + esc(wlChainName(x.chain)) + "</td><td>" + wlAddr(x.chain, x.address, true) + "</td><td>" + esc(x.label || "") + "</td>" +
+        '<td class="muted">' + esc(x.addedBy) + '<div class="wl-sub">' + wlWhen(x.createdAt) + "</div></td>" +
+        '<td class="wl-actions"><button type="button" class="ghost wl-danger wl-wl-remove" data-id="' + esc(x.id) + '">Remove</button></td></tr>';
+    });
+    var reg = (D.registeredWallets || []).map(function (r) {
+      return "<tr><td>" + esc(wlChainName(r.chain)) + "</td><td>" + wlAddr(r.chain, r.address, true) + "</td><td>" + esc(r.label || "") + "</td></tr>";
+    });
+    body = wlPanel("Deposit addresses", 0, "The business sends USDT or USDC here to fund its balance.",
+        wlTable(["Asset", "Network", "Address", "Status"], addrRows, "No deposit addresses yet."),
+        '<button type="button" class="ghost" id="wlAddChains">Open another network</button>') +
+      wlPanel("Whitelist", 0, w && w.whitelistRequired
+          ? "Withdrawals can go to these addresses. Deposits are only credited from them."
+          : "Withdrawals can go to these addresses. Deposits from any sender are credited.",
+        wlTable(["Network", "Address", "Label", "Added by", ""], wl, "No whitelisted addresses."),
+        '<button type="button" class="ghost" id="wlWlAdd">Add an address</button>') +
+      wlPanel("Registered external wallets", 0, "Added by the business through the API. Withdrawals can go here too.",
+        wlTable(["Network", "Address", "Label"], reg, "None registered."));
+  } else if (wlState.tab === "ledger") {
+    var jr = D.journals.map(function (j) {
+      return '<tr><td class="muted">' + wlWhen(j.createdAt) + "</td><td>" + esc(WL_JOURNAL[j.type] || humanize(j.type)) + "</td><td>" + esc(j.asset) + "</td>" +
+        '<td class="amt">' + wlSigned(j.availableDelta) + '</td><td class="amt">' + wlSigned(j.reservedDelta) + "</td>" +
+        '<td class="mono" title="' + esc(j.refId || "") + '">' + esc(wlShort(j.refId || "")) + "</td><td>" + esc(j.actor) + '</td><td class="muted">' + esc(j.note || "") + "</td></tr>";
+    });
+    body = wlPanel("Ledger", 0, "Every balance change, newest first. Balances only move through these entries.",
+      wlTable(["When", "Entry", "Asset", "Available", "Pending", "Reference", "By", "Note"], jr, "No entries yet."));
+  } else {
+    var rows = w ? WL_SETTINGS.map(function (s) {
+      var on = !!w[s.key];
+      return '<div class="wl-set"><div><div class="t">' + esc(s.title) + ' <span class="badge ' + (on ? "ok" : "") + '">' + (on ? "On" : "Off") + "</span></div>" +
+        '<div class="d">' + esc(on ? s.on : s.off) + "</div></div>" +
+        '<button type="button" class="ghost wl-toggle" data-key="' + s.key + '">' + (on ? "Turn off" : "Turn on") + "</button></div>";
+    }).join("") : '<div class="wl-empty">This business has no wallet yet.</div>';
+    body = wlPanel("Settings", 0, "Every change is saved with your name.", '<div class="wl-sets">' + rows + "</div>");
+  }
+  return head + cards + tabs + body;
 }
+
+// Rendering and loading --------------------------------------------------------
 
 function renderWallets() {
   var el = $("wlResults");
   if (state.view !== "wallets") { el.style.display = "none"; return; }
-  var keepActor = wlActor();
-  var keepSecret = $("wlPasscode") ? $("wlPasscode").value : "";
-  el.innerHTML = wlHeader() + (wlState.detailId ? renderWalletDetail() : renderWalletList());
-  if (keepActor && $("wlActor")) $("wlActor").value = keepActor;
-  if ($("wlPasscode")) $("wlPasscode").value = keepSecret || sessionStorage.getItem("dashSecret") || "";
+  $("wlFilter").style.display = wlState.detailId ? "none" : "";
+  $("wlNew").style.display = wlState.detailId ? "none" : "";
+  el.innerHTML = wlState.detailId ? renderWalletDetail() : renderWalletList();
   el.style.display = "block";
-  if (wlState.msg) { wlMsg(wlState.msg.text, wlState.msg.kind); wlState.msg = null; }
 }
 
-async function wlOpen(userId) {
+async function loadWallets() {
+  var el = $("wlResults");
+  el.style.display = "block";
+  if (!wlState.list) el.innerHTML = '<div class="biz-results-empty">Loading wallets…</div>';
+  try {
+    var calls = [api("/business-wallets")];
+    if (wlState.detailId) calls.push(api("/business-wallets/" + encodeURIComponent(wlState.detailId)));
+    var r = await Promise.all(calls);
+    wlState.list = r[0];
+    if (wlState.detailId) wlState.detail = r[1];
+    renderWallets();
+  } catch (err) {
+    el.innerHTML = '<div class="biz-results-empty">' + esc(err.message || "Couldn't load wallets") + "</div>";
+  }
+}
+
+async function wlOpen(userId, tab) {
+  showErr("");
   wlState.detailId = userId;
   wlState.detail = null;
+  wlState.tab = tab || "activity";
   renderWallets();
+  window.scrollTo(0, 0);
   try { wlState.detail = await api("/business-wallets/" + encodeURIComponent(userId)); renderWallets(); }
-  catch (err) { wlMsg(err.message || "Failed to load", "bad"); }
+  catch (err) { showErr(err.message || "Couldn't load the wallet"); }
 }
 
-async function wlDone(text, btn) {
-  if (btn) setBtnLoading(btn, false);
-  wlState.msg = { text: text, kind: "ok" };
-  await loadWallets();
+// One dialog for every wallet action -------------------------------------------
+
+function wlDMsg(text, kind) {
+  var el = $("wlDMsg");
+  el.style.display = text ? "block" : "none";
+  el.className = "payout-retry-msg" + (kind ? " " + kind : "");
+  el.textContent = text || "";
 }
 
+function wlAsk(o) {
+  wlAskCtx = o;
+  $("wlDTitle").textContent = o.title;
+  $("wlDBody").innerHTML = o.body || "";
+  $("wlDNote").style.display = o.note ? "block" : "none";
+  $("wlDNote").textContent = o.note || "";
+  var ok = $("wlDOk");
+  ok.textContent = o.okLabel || "Confirm";
+  ok.className = o.okClass || "ok";
+  ok.disabled = false;
+  delete ok.dataset.prevLabel;
+  $("wlDActor").value = localStorage.getItem("wlActor") || "";
+  $("wlDPass").value = sessionStorage.getItem("dashSecret") || "";
+  wlDMsg("");
+  $("wlDialog").showModal();
+  var first = $("wlDBody").querySelector("input:not([type=checkbox]), textarea, select");
+  if (first) first.focus();
+  else if (!$("wlDActor").value) $("wlDActor").focus();
+  else if (!$("wlDPass").value) $("wlDPass").focus();
+  else ok.focus();
+}
+
+function wlCloseAsk() { wlAskCtx = null; if ($("wlDialog").open) $("wlDialog").close(); }
+
+async function wlSubmitAsk() {
+  var o = wlAskCtx;
+  if (!o) return;
+  var problem = o.check ? o.check() : null;
+  if (problem) { wlDMsg(problem, "bad"); return; }
+  var actor = wlVal("wlDActor"), secret = wlVal("wlDPass");
+  if (!actor) { wlDMsg("Enter your name. It goes into the audit trail.", "bad"); $("wlDActor").focus(); return; }
+  if (!secret) { wlDMsg("Enter the dashboard passcode.", "bad"); $("wlDPass").focus(); return; }
+  localStorage.setItem("wlActor", actor);
+  var btn = $("wlDOk");
+  setBtnLoading(btn, true, o.busyLabel || "Saving");
+  try {
+    var body = Object.assign({}, o.payload ? o.payload() : {}, { actor: actor, secret: secret });
+    var r = await api(o.path(), {
+      method: o.method || "POST",
+      headers: { "content-type": "application/json", "x-dashboard-secret": secret },
+      body: JSON.stringify(body)
+    });
+    sessionStorage.setItem("dashSecret", secret);
+    setBtnLoading(btn, false);
+    var d = o.done ? o.done(r) : null;
+    if (typeof d === "string") d = { text: d };
+    d = d || { text: "Saved." };
+    wlCloseAsk();
+    if (d.openId) { wlState.detailId = d.openId; wlState.tab = d.tab || "activity"; }
+    showErr(d.text, d.kind === "bad" ? "" : "ok");
+    await loadWallets();
+  } catch (err) {
+    setBtnLoading(btn, false);
+    if (err.status === 401) {
+      sessionStorage.removeItem("dashSecret");
+      $("wlDPass").value = "";
+      wlDMsg("Wrong passcode. Try again.", "bad");
+      $("wlDPass").focus();
+      return;
+    }
+    wlDMsg(err.message || "That didn't work. Try again.", "bad");
+  }
+}
+
+function wlChainBoxes(allowed, defaults, have) {
+  var out = [];
+  ["USDT", "USDC"].forEach(function (a) {
+    (allowed[a] || []).forEach(function (c) {
+      if (have.some(function (x) { return x.asset === a && x.chain === c && x.status === "active"; })) return;
+      var def = (defaults[a] || []).indexOf(c) >= 0;
+      out.push('<label><input type="checkbox" class="wl-chain" data-asset="' + a + '" data-chain="' + c + '"' + (def ? " checked" : "") + " /> " + a + " on " + esc(wlChainName(c)) + "</label>");
+    });
+  });
+  return out.length ? '<div class="wl-checks">' + out.join("") + "</div>" : '<div class="muted">Every network is already open.</div>';
+}
 function wlCheckedChains() {
-  return Array.prototype.slice.call(document.querySelectorAll(".wl-chain:checked:not(:disabled)")).map(function (c) {
+  return Array.prototype.slice.call(document.querySelectorAll("#wlDialog .wl-chain:checked")).map(function (c) {
     return { asset: c.dataset.asset, chain: c.dataset.chain };
   });
 }
+function wlEnableDone(r, userId) {
+  var failed = (r.addresses || []).filter(function (a) { return a.status !== "active"; });
+  return failed.length
+    ? { text: "Some addresses didn't open: " + failed.map(function (a) { return a.asset + " on " + (WL_CHAIN_NAMES[a.chain] || a.chain); }).join(", ") + ". Open them again from the Addresses tab.", kind: "bad", openId: userId, tab: "addresses" }
+    : { text: "Wallet on. Deposit addresses are open.", openId: userId, tab: "addresses" };
+}
+
+function wlAskTurnOn() {
+  var L = wlState.list || {};
+  var ctx = {
+    title: "Turn on a wallet",
+    body: '<p class="lede">Find the business, then pick the networks it will deposit on. Each network gets its own deposit address.</p>' +
+      wlField("wlBizQ", "Business", '<input type="text" id="wlBizQ" placeholder="Type a business name or email" autocomplete="off" />') +
+      '<div id="wlBizRes"></div>' +
+      '<div class="field full wl-gap"><label>Networks</label>' + wlChainBoxes(L.allowedChains || {}, L.defaultChains || {}, []) + "</div>",
+    note: "You can open more networks later from the wallet's Addresses tab.",
+    okLabel: "Turn on wallet",
+    busyLabel: "Opening addresses",
+    picked: null,
+    check: function () {
+      if (!ctx.picked) return "Pick a business first.";
+      if (!wlCheckedChains().length) return "Tick at least one network.";
+      return null;
+    },
+    path: function () { return "/business-wallets/" + encodeURIComponent(ctx.picked.id) + "/enable"; },
+    payload: function () { return { chains: wlCheckedChains() }; },
+    done: function (r) { return wlEnableDone(r, ctx.picked.id); }
+  };
+  wlAsk(ctx);
+}
+
+function wlSearch(q) {
+  clearTimeout(wlSearchTimer);
+  var box = $("wlBizRes");
+  if (!box) return;
+  if (q.length < 2) { box.innerHTML = ""; return; }
+  wlSearchTimer = setTimeout(async function () {
+    box.innerHTML = '<div class="wl-hint">Searching…</div>';
+    try {
+      var data = await api("/businesses/search?limit=8&q=" + encodeURIComponent(q));
+      if (!$("wlBizQ") || wlVal("wlBizQ") !== q) return;
+      var has = {};
+      ((wlState.list && wlState.list.items) || []).forEach(function (w) { has[w.userId] = true; });
+      box.innerHTML = data.items.length
+        ? '<div class="wl-search-res">' + data.items.map(function (b) {
+            return '<button type="button" class="wl-pick" data-id="' + esc(b.id) + '" data-name="' + esc(b.legalName) + '" data-email="' + esc(b.email || "") + '"' + (has[b.id] ? ' data-has="1"' : "") + ">" +
+              '<span><span class="wl-name">' + esc(b.legalName) + '</span><span class="muted wl-sub">' + esc(b.email || "No email") + "</span></span>" +
+              (has[b.id] ? '<span class="badge ok">Has a wallet · open it</span>' : kybBadge(b.kybStatus)) + "</button>";
+          }).join("") + "</div>"
+        : '<div class="wl-hint">No business matches "' + esc(q) + '".</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="wl-hint">' + esc(e.message || "Search failed") + "</div>";
+    }
+  }, 250);
+}
+
+function wlRenderPicked(p) {
+  $("wlBizQ").style.display = p ? "none" : "";
+  $("wlBizRes").innerHTML = p
+    ? '<div class="wl-picked"><span><span class="wl-name">' + esc(p.name) + '</span><span class="muted wl-sub">' + esc(p.email || "") + "</span></span>" +
+      '<button type="button" class="ghost" id="wlBizChange">Change</button></div>'
+    : "";
+  if (!p) { $("wlBizQ").value = ""; $("wlBizQ").focus(); }
+}
+
+function wlAskAddChains() {
+  var D = wlState.detail;
+  var ctx = {
+    title: "Open another network",
+    body: wlFacts([["Business", esc(wlName(D))]]) + '<div class="field full"><label>Networks</label>' + wlChainBoxes(D.allowedChains || {}, {}, D.addresses) + "</div>",
+    okLabel: "Open addresses",
+    busyLabel: "Opening addresses",
+    check: function () { return wlCheckedChains().length ? null : "Tick at least one network."; },
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/enable"; },
+    payload: function () { return { chains: wlCheckedChains() }; },
+    done: function (r) { return wlEnableDone(r, D.userId); }
+  };
+  wlAsk(ctx);
+}
+
+function wlAskWithdrawal(w) {
+  var retry = w.status === "approved";
+  wlAsk({
+    title: retry ? "Retry this withdrawal?" : "Approve this withdrawal?",
+    body: wlFacts([
+      ["Business", esc(wlName(w))],
+      ["Amount", "<strong>" + wlNum(w.amount) + " " + esc(w.asset) + "</strong>"],
+      ["Network", esc(wlChainName(w.chain))],
+      ["To", wlAddr(w.chain, w.address, true)],
+      ["Reference", '<span class="mono">' + esc(w.reference || "") + "</span>"],
+      ["Requested", wlWhen(w.createdAt)]
+    ]) + (retry ? '<div class="notice">This was approved before but didn&#39;t send. Sending again never pays twice.</div>' : ""),
+    note: "This sends crypto on chain to the address above. Check it before you confirm.",
+    okLabel: retry ? "Retry send" : "Approve and send",
+    busyLabel: "Sending",
+    path: function () { return "/business-wallet-withdrawals/" + encodeURIComponent(w.id) + "/approve"; },
+    done: function (r) {
+      var s = r && r.withdrawal ? r.withdrawal.status : "";
+      return "Withdrawal " + ((WL_WD_STATUS[s] || [s])[0] || "updated").toLowerCase() + ".";
+    }
+  });
+}
+
+function wlAskReject(w) {
+  wlAsk({
+    title: "Reject this withdrawal?",
+    body: wlFacts([["Business", esc(wlName(w))], ["Amount", wlNum(w.amount) + " " + esc(w.asset)], ["To", wlAddr(w.chain, w.address, true)]]) +
+      wlField("wlReason", "Reason", '<textarea id="wlReason" placeholder="Why it was rejected"></textarea>'),
+    note: "The amount goes back to the business's available balance.",
+    okLabel: "Reject withdrawal",
+    okClass: "danger",
+    check: function () { return wlVal("wlReason").length >= 3 ? null : "Give a reason."; },
+    path: function () { return "/business-wallet-withdrawals/" + encodeURIComponent(w.id) + "/reject"; },
+    payload: function () { return { reason: wlVal("wlReason") }; },
+    done: function () { return "Withdrawal rejected. The amount is back in the available balance."; }
+  });
+}
+
+function wlDepositFacts(d) {
+  return wlFacts([
+    ["Business", esc(wlName(d))],
+    ["Amount", "<strong>" + wlNum(d.amount) + " " + esc(d.asset) + "</strong>"],
+    ["Network", esc(wlChainName(d.chain))],
+    ["From", wlAddr(d.chain, d.senderAddress, true)],
+    ["Transaction", wlTx(d.chain, d.txId)],
+    ["Why it's held", esc(d.quarantineReason || "")]
+  ]);
+}
+
+function wlAskCredit(d) {
+  wlAsk({
+    title: "Credit this deposit?",
+    body: wlDepositFacts(d) + wlField("wlNote", "How did you check the sender?", '<textarea id="wlNote" placeholder="e.g. Confirmed with the business on email that this is their Binance wallet"></textarea>'),
+    note: "Adds " + Number(d.amount).toLocaleString(undefined, { maximumFractionDigits: 6 }) + " " + d.asset + " to the business's available balance.",
+    okLabel: "Credit deposit",
+    check: function () { return wlVal("wlNote").length >= 3 ? null : "Add a note."; },
+    path: function () { return "/business-wallet-deposits/" + encodeURIComponent(d.id) + "/credit"; },
+    payload: function () { return { note: wlVal("wlNote") }; },
+    done: function () { return "Deposit credited."; }
+  });
+}
+
+function wlAskRefund(d) {
+  var pendingAlready = d.status === "refund_pending";
+  wlAsk({
+    title: "Refund this deposit",
+    body: wlDepositFacts(d) +
+      '<div class="field full"><label>Where is the refund?</label><div class="wl-checks">' +
+      (pendingAlready ? "" : '<label><input type="radio" name="wlRefundStep" value="refund_pending" checked /> Still to send</label>') +
+      '<label><input type="radio" name="wlRefundStep" value="refunded"' + (pendingAlready ? " checked" : "") + " /> Sent back to the sender</label></div></div>" +
+      wlField("wlNote", "Note", '<textarea id="wlNote" placeholder="Refund transaction hash, or why it&#39;s being refunded"></textarea>'),
+    note: "This never credits the balance. It only records what happened to the deposit.",
+    okLabel: "Save",
+    check: function () { return wlVal("wlNote").length >= 3 ? null : "Add a note."; },
+    path: function () { return "/business-wallet-deposits/" + encodeURIComponent(d.id) + "/refund"; },
+    payload: function () {
+      var r = document.querySelector('#wlDialog input[name="wlRefundStep"]:checked');
+      return { status: r ? r.value : "refund_pending", note: wlVal("wlNote") };
+    },
+    done: function () { return "Deposit updated."; }
+  });
+}
+
+function wlAskPause() {
+  var D = wlState.detail;
+  wlAsk({
+    title: "Pause debits?",
+    body: wlFacts([["Business", esc(wlName(D))]]) + wlField("wlReason", "Reason", '<textarea id="wlReason" placeholder="Why debits are paused"></textarea>'),
+    note: "Offramps and withdrawals from this wallet are refused while paused. Deposits still credit.",
+    okLabel: "Pause debits",
+    okClass: "danger",
+    check: function () { return wlVal("wlReason") ? null : "Say why."; },
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/pause"; },
+    payload: function () { return { paused: true, reason: wlVal("wlReason") }; },
+    done: function () { return "Debits paused."; }
+  });
+}
+
+function wlAskResume() {
+  var D = wlState.detail;
+  wlAsk({
+    title: "Resume debits?",
+    body: wlFacts([["Business", esc(wlName(D))], ["Paused because", esc((D.wallet && D.wallet.pausedReason) || "")]]),
+    note: "Offramps and withdrawals from this wallet are allowed again.",
+    okLabel: "Resume debits",
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/pause"; },
+    payload: function () { return { paused: false }; },
+    done: function () { return "Debits resumed."; }
+  });
+}
+
+function wlAskToggle(key) {
+  var D = wlState.detail;
+  var s = WL_SETTINGS.find(function (x) { return x.key === key; });
+  var turnOn = !D.wallet[key];
+  wlAsk({
+    title: (turnOn ? "Turn on: " : "Turn off: ") + s.title,
+    body: wlFacts([["Business", esc(wlName(D))]]),
+    note: turnOn ? s.on : s.off,
+    okLabel: turnOn ? "Turn on" : "Turn off",
+    okClass: turnOn ? "ok" : "danger",
+    method: "PATCH",
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/settings"; },
+    payload: function () { var p = {}; p[key] = turnOn; return p; },
+    done: function () { return s.title + (turnOn ? " is on." : " is off."); }
+  });
+}
+
+function wlAskWhitelistAdd() {
+  var D = wlState.detail;
+  var chains = [];
+  ["USDT", "USDC"].forEach(function (a) {
+    ((D.allowedChains || {})[a] || []).forEach(function (c) { if (chains.indexOf(c) < 0) chains.push(c); });
+  });
+  wlAsk({
+    title: "Add a whitelisted address",
+    body: wlFacts([["Business", esc(wlName(D))]]) +
+      wlField("wlWlChain", "Network", '<select id="wlWlChain">' + chains.map(function (c) { return '<option value="' + c + '">' + esc(wlChainName(c)) + "</option>"; }).join("") + "</select>") +
+      wlField("wlWlAddr", "Address", '<input type="text" id="wlWlAddr" class="mono" autocomplete="off" />') +
+      wlField("wlWlLabel", "Label", '<input type="text" id="wlWlLabel" placeholder="e.g. Treasury on Binance" autocomplete="off" />', true),
+    note: "Withdrawals can go to this address, and deposits from it are credited.",
+    okLabel: "Add address",
+    check: function () { return wlVal("wlWlAddr").length >= 10 ? null : "Enter the full address."; },
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/whitelist"; },
+    payload: function () { return { chain: $("wlWlChain").value, address: wlVal("wlWlAddr"), label: wlVal("wlWlLabel") || undefined }; },
+    done: function () { return { text: "Address added.", openId: D.userId, tab: "addresses" }; }
+  });
+}
+
+function wlAskWhitelistRemove(id) {
+  var D = wlState.detail;
+  var x = D.whitelist.find(function (r) { return r.id === id; });
+  if (!x) return;
+  wlAsk({
+    title: "Remove this address?",
+    body: wlFacts([["Business", esc(wlName(D))], ["Network", esc(wlChainName(x.chain))], ["Address", wlAddr(x.chain, x.address, true)], ["Label", esc(x.label || "")]]),
+    note: "Withdrawals to it are no longer allowed." + (D.wallet && D.wallet.whitelistRequired ? " New deposits from it will be put on hold." : ""),
+    okLabel: "Remove address",
+    okClass: "danger",
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/whitelist/" + encodeURIComponent(id) + "/remove"; },
+    done: function () { return { text: "Address removed.", openId: D.userId, tab: "addresses" }; }
+  });
+}
+
+function wlAskAdjust() {
+  var D = wlState.detail;
+  var key = String(Date.now()) + Math.random().toString(36).slice(2, 8);
+  wlAsk({
+    title: "Adjust balance",
+    body: wlFacts([["Business", esc(wlName(D))]]) +
+      '<div class="grid">' +
+      '<div class="field"><label for="wlAdjDir">Change</label><select id="wlAdjDir"><option value="add">Add to balance</option><option value="remove">Take from balance</option></select></div>' +
+      '<div class="field"><label for="wlAdjAsset">Asset</label><select id="wlAdjAsset"><option>USDT</option><option>USDC</option></select></div>' +
+      '<div class="field full"><label for="wlAdjAmount">Amount</label><input type="text" id="wlAdjAmount" inputmode="decimal" placeholder="e.g. 25.50" autocomplete="off" /></div>' +
+      "</div>" +
+      wlField("wlAdjReason", "Reason", '<textarea id="wlAdjReason" placeholder="What it corrects, with a reference"></textarea>'),
+    note: "Only for correcting a mistake. It is saved to the ledger with your name and reason.",
+    okLabel: "Post adjustment",
+    okClass: "danger",
+    check: function () {
+      var a = wlVal("wlAdjAmount");
+      if (!/^\\d+(\\.\\d{1,6})?$/.test(a) || Number(a) === 0) return "Enter an amount above 0, with at most 6 decimals.";
+      if (wlVal("wlAdjReason").length < 5) return "Explain the adjustment.";
+      return null;
+    },
+    path: function () { return "/business-wallets/" + encodeURIComponent(D.userId) + "/adjustments"; },
+    payload: function () {
+      var a = wlVal("wlAdjAmount");
+      return { asset: $("wlAdjAsset").value, amount: ($("wlAdjDir").value === "remove" ? "-" : "") + a, reason: wlVal("wlAdjReason"), requestKey: key };
+    },
+    done: function () { return { text: "Adjustment posted.", openId: D.userId, tab: "ledger" }; }
+  });
+}
+
+// Events -----------------------------------------------------------------------
 
 $("wlReload").addEventListener("click", function () { loadWallets(); });
-$("wlResults").addEventListener("input", function (e) {
-  if (e.target && e.target.id === "wlActor") sessionStorage.setItem("wlActor", e.target.value);
+$("wlNew").addEventListener("click", function () { wlAskTurnOn(); });
+$("wlFilter").addEventListener("input", function (e) { wlState.filter = e.target.value.trim(); renderWallets(); });
+$("wlDClose").addEventListener("click", wlCloseAsk);
+$("wlDCancel").addEventListener("click", wlCloseAsk);
+$("wlDOk").addEventListener("click", function () { wlSubmitAsk(); });
+$("wlDialog").addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && e.target && e.target.tagName === "INPUT" && e.target.type !== "checkbox" && e.target.id !== "wlBizQ") { e.preventDefault(); wlSubmitAsk(); }
 });
-$("wlResults").addEventListener("change", async function (e) {
-  var t = e.target;
-  if (!t || !t.classList.contains("wl-set")) return;
-  var patch = {}; patch[t.dataset.key] = t.checked;
-  if (!confirm("Change " + t.dataset.key + " to " + (t.checked ? "on" : "off") + "?")) { t.checked = !t.checked; return; }
-  var r = await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/settings", patch, "PATCH");
-  if (r) await wlDone("Saved."); else t.checked = !t.checked;
+$("wlDialog").addEventListener("input", function (e) {
+  if (e.target && e.target.id === "wlBizQ") wlSearch(e.target.value.trim());
 });
-$("wlResults").addEventListener("click", async function (e) {
+$("wlDialog").addEventListener("click", function (e) {
+  var copy = e.target.closest(".wl-copy");
+  if (copy) { navigator.clipboard.writeText(copy.dataset.copy); copy.textContent = "Copied"; return; }
+  var pick = e.target.closest(".wl-pick");
+  if (pick) {
+    if (pick.dataset.has) { wlCloseAsk(); wlOpen(pick.dataset.id, "addresses"); return; }
+    wlAskCtx.picked = { id: pick.dataset.id, name: pick.dataset.name, email: pick.dataset.email };
+    wlRenderPicked(wlAskCtx.picked);
+    wlDMsg("");
+    return;
+  }
+  if (e.target.closest("#wlBizChange")) { wlAskCtx.picked = null; wlRenderPicked(null); }
+});
+$("wlResults").addEventListener("click", function (e) {
   var t = e.target;
-  var open = t.closest(".wl-open");
-  if (open) { wlOpen(open.dataset.user); return; }
-  if (t.closest("#wlBack")) { wlState.detailId = null; wlState.detail = null; loadWallets(); return; }
+  var copy = t.closest(".wl-copy");
+  if (copy) { e.preventDefault(); navigator.clipboard.writeText(copy.dataset.copy); copy.textContent = "Copied"; return; }
+  if (t.closest("a[target=_blank]")) return;
+  if (t.closest("#wlBack")) { e.preventDefault(); showErr(""); wlState.detailId = null; wlState.detail = null; renderWallets(); loadWallets(); return; }
+  var tab = t.closest(".wl-tab");
+  if (tab) { wlState.tab = tab.dataset.tab; renderWallets(); return; }
   var btn = t.closest("button");
-  if (!btn) return;
-  var r;
-  if (btn.id === "wlEnableNew" || btn.id === "wlEnableMore") {
-    var userId = btn.id === "wlEnableNew" ? ($("wlNewUser").value || "").trim() : wlState.detailId;
-    var chains = wlCheckedChains();
-    if (!userId) { wlMsg("Enter the business user id.", "bad"); return; }
-    if (!chains.length) { wlMsg("Tick at least one chain.", "bad"); return; }
-    if (!confirm("Open " + chains.map(function (c) { return c.asset + " " + c.chain; }).join(", ") + " deposit addresses for " + userId + "?")) return;
-    setBtnLoading(btn, true, "Opening addresses");
-    r = await wlPost("/business-wallets/" + encodeURIComponent(userId) + "/enable", { chains: chains });
-    if (!r) { setBtnLoading(btn, false); return; }
-    var failed = (r.addresses || []).filter(function (a) { return a.status !== "active"; });
-    wlState.detailId = userId;
-    wlState.msg = { text: failed.length ? "Some addresses are not active yet: " + failed.map(function (a) { return a.asset + " " + a.chain + " " + a.status; }).join(", ") + ". Open them again to retry." : "Wallet on, addresses open.", kind: failed.length ? "bad" : "ok" };
-    await loadWallets();
+  if (!btn) {
+    var open = t.closest(".wl-open");
+    if (open) { e.preventDefault(); wlOpen(open.dataset.user); }
     return;
   }
-  if (btn.id === "wlPause") {
-    var why = prompt("Why are you pausing debits? Offramps and withdrawals will be refused; deposits still credit.");
-    if (!why) return;
-    if (await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/pause", { paused: true, reason: why })) await wlDone("Debits paused.");
-    return;
-  }
-  if (btn.id === "wlResume") {
-    if (!confirm("Resume debits for this business?")) return;
-    if (await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/pause", { paused: false })) await wlDone("Debits resumed.");
-    return;
-  }
-  if (btn.id === "wlWlAdd") {
-    var chain = $("wlWlChain").value, addr = ($("wlWlAddr").value || "").trim(), label = ($("wlWlLabel").value || "").trim();
-    if (!addr) { wlMsg("Enter an address.", "bad"); return; }
-    if (!confirm("Whitelist " + addr + " on " + chain + "? Deposits from it will credit, and withdrawals can go to it.")) return;
-    if (await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/whitelist", { chain: chain, address: addr, label: label || undefined })) await wlDone("Address added.");
-    return;
-  }
-  if (btn.classList.contains("wl-wl-remove")) {
-    if (!confirm("Remove this address from the whitelist?")) return;
-    if (await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/whitelist/" + encodeURIComponent(btn.dataset.id) + "/remove", {})) await wlDone("Address removed.");
-    return;
-  }
-  if (btn.classList.contains("wl-dep-credit")) {
-    var note = prompt("Credit this held deposit to the business balance. Note (who checked the sender, and how):");
-    if (!note) return;
-    if (await wlPost("/business-wallet-deposits/" + encodeURIComponent(btn.dataset.id) + "/credit", { note: note })) await wlDone("Deposit credited.");
-    return;
-  }
-  if (btn.classList.contains("wl-dep-refund")) {
-    var st = btn.dataset.status;
-    var rn = prompt(st === "refunded" ? "Refund sent back to the sender. Note with the refund tx hash:" : "Mark for refund. Note:");
-    if (!rn) return;
-    if (await wlPost("/business-wallet-deposits/" + encodeURIComponent(btn.dataset.id) + "/refund", { status: st, note: rn })) await wlDone("Deposit updated.");
-    return;
-  }
-  if (btn.classList.contains("wl-wd-approve")) {
-    if (!confirm("Send " + btn.dataset.label + "? This sends crypto on chain. Approving again later never sends twice.")) return;
-    setBtnLoading(btn, true, "Sending");
-    r = await wlPost("/business-wallet-withdrawals/" + encodeURIComponent(btn.dataset.id) + "/approve", {});
-    if (r) await wlDone("Withdrawal " + r.withdrawal.status + ".", btn); else setBtnLoading(btn, false);
-    return;
-  }
-  if (btn.classList.contains("wl-wd-reject")) {
-    var rr = prompt("Reject this withdrawal. The amount goes back to the balance. Reason:");
-    if (!rr) return;
-    if (await wlPost("/business-wallet-withdrawals/" + encodeURIComponent(btn.dataset.id) + "/reject", { reason: rr })) await wlDone("Withdrawal rejected.");
-    return;
-  }
-  if (btn.id === "wlAdjPost") {
-    var asset = $("wlAdjAsset").value, amt = ($("wlAdjAmount").value || "").trim().replace(/^\\+/, ""), reason = ($("wlAdjReason").value || "").trim();
-    if (!/^-?\\d+(\\.\\d{1,6})?$/.test(amt) || Number(amt) === 0) { wlMsg("Enter a signed amount, e.g. 10 or -10, at most 6 decimals.", "bad"); return; }
-    if (reason.length < 5) { wlMsg("Explain the adjustment.", "bad"); return; }
-    if (!confirm((Number(amt) > 0 ? "Add " : "Remove ") + amt.replace("-", "") + " " + asset + (Number(amt) > 0 ? " to" : " from") + " this balance?")) return;
-    var key = btn.dataset.key || (btn.dataset.key = String(Date.now()) + Math.random().toString(36).slice(2, 8));
-    if (await wlPost("/business-wallets/" + encodeURIComponent(wlState.detailId) + "/adjustments", { asset: asset, amount: amt, reason: reason, requestKey: key })) await wlDone("Adjustment posted.");
-    return;
-  }
+  var id = btn.dataset.id;
+  if (btn.classList.contains("wl-wd-approve")) { var w1 = wlFindWithdrawal(id); if (w1) wlAskWithdrawal(w1); return; }
+  if (btn.classList.contains("wl-wd-reject")) { var w2 = wlFindWithdrawal(id); if (w2) wlAskReject(w2); return; }
+  if (btn.classList.contains("wl-dep-credit")) { var d1 = wlFindDeposit(id); if (d1) wlAskCredit(d1); return; }
+  if (btn.classList.contains("wl-dep-refund")) { var d2 = wlFindDeposit(id); if (d2) wlAskRefund(d2); return; }
+  if (btn.classList.contains("wl-wl-remove")) { wlAskWhitelistRemove(id); return; }
+  if (btn.classList.contains("wl-toggle")) { wlAskToggle(btn.dataset.key); return; }
+  if (btn.id === "wlPause") { wlAskPause(); return; }
+  if (btn.id === "wlResume") { wlAskResume(); return; }
+  if (btn.id === "wlAdjust") { wlAskAdjust(); return; }
+  if (btn.id === "wlAddChains") { wlAskAddChains(); return; }
+  if (btn.id === "wlWlAdd") { wlAskWhitelistAdd(); return; }
 });
 
 document.querySelectorAll(".tab").forEach(function (el) {
