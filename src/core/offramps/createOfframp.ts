@@ -74,6 +74,18 @@ export interface CreateOfframpOptions {
     currency: string;
     rail?: string | null;
   }) => Promise<ResolvedSenderInfo | null>;
+  /**
+   * Business wallets. Without it, wallet funding is refused and wallet-only
+   * businesses can't be checked (tests / callers that predate wallets).
+   */
+  wallet?: {
+    findBusinessWallet(userId: string): Promise<{ enabled: boolean; walletOnly: boolean } | null>;
+    /** Reserve + create in one DB transaction (offramp.repo createWalletFundedOfframp). */
+    createWalletFundedOfframp(
+      data: Parameters<OfframpRepoCreate['createOfframp']>[0],
+      funding: { asset: 'USDT' | 'USDC'; amount: string }
+    ): ReturnType<OfframpRepoCreate['createOfframp']>;
+  };
 }
 
 export interface OfframpRepoCreate {
@@ -289,6 +301,17 @@ export async function createOfframp(
     ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
   };
 
+  // Business wallet: decide the funding source before anything is provisioned.
+  const businessWallet = options.wallet ? await options.wallet.findBusinessWallet(userId) : null;
+  const fromWallet = src.fundingSource === 'wallet';
+  if (fromWallet) {
+    if (!options.wallet || !businessWallet?.enabled) throw new Error('WALLET_NOT_ENABLED');
+    if (fromCurrency !== 'usdt' && fromCurrency !== 'usdc') throw new Error('WALLET_ASSET_NOT_SUPPORTED');
+  } else if (businessWallet?.enabled && businessWallet.walletOnly) {
+    throw new Error('WALLET_ONLY');
+  }
+  if (fromWallet) sourcePayload.fundingSource = 'wallet';
+
   if (options.validatePayoutDestination) {
     await assertPayoutDestinationAccepted(options.validatePayoutDestination, {
       account,
@@ -296,6 +319,31 @@ export async function createOfframp(
       fiatNet,
       purposeOfPayment: dest.purposeOfPayment,
       metadata: body.metadata,
+    });
+  }
+
+  if (fromWallet && options.wallet) {
+    return createFromWallet(options.wallet, {
+      requestId,
+      txnRef,
+      userId,
+      cryptoAmount,
+      asset: fromCurrency.toUpperCase() as 'USDT' | 'USDC',
+      sourcePayload,
+      destinationPayload,
+      rateInformation,
+      fees,
+      profit,
+      providerRefs: snap.sourceAmountCap != null || snap.quote.sendNet?.amount != null
+        ? mergeSourceAmountCapIntoProviderRefs({}, snap.sourceAmountCap ?? snap.quote.sendNet?.amount)
+        : {},
+      senderInfo: options.resolveSenderInfo
+        ? await options.resolveSenderInfo({
+            rampType: 'offramp',
+            currency: toCurrency,
+            rail: (destinationPayload.transferType ?? account.paymentRail ?? '').toLowerCase(),
+          })
+        : null,
     });
   }
 
@@ -377,6 +425,80 @@ export async function createOfframp(
   return {
     transferType: 'OFFRAMP',
     transferDetails,
+  };
+}
+
+/**
+ * Wallet-funded offramp: no deposit address. The reserve and the row are
+ * written together (CRYPTO_CONFIRMED straight away); the caller then starts
+ * the fiat payout as it does after a deposit.
+ */
+async function createFromWallet(
+  wallet: NonNullable<CreateOfframpOptions['wallet']>,
+  p: {
+    requestId: string;
+    txnRef: string;
+    userId: string;
+    cryptoAmount: number;
+    asset: 'USDT' | 'USDC';
+    sourcePayload: OfframpSource;
+    destinationPayload: OfframpDestination;
+    rateInformation: RateInformation;
+    fees: OfframpFees;
+    profit: unknown;
+    providerRefs: Record<string, unknown>;
+    senderInfo: ResolvedSenderInfo | null;
+  }
+): Promise<CreateOfframpResponse> {
+  const now = new Date().toISOString();
+  const amount = String(p.cryptoAmount);
+  const row = await wallet.createWalletFundedOfframp(
+    {
+      requestId: p.requestId,
+      txnRef: p.txnRef,
+      providerRefs: {
+        ...p.providerRefs,
+        walletFunding: { asset: p.asset, amount, reservedAt: now },
+        ...(p.senderInfo ? { senderInfo: p.senderInfo } : {}),
+      },
+      userId: p.userId,
+      status: 'CRYPTO_CONFIRMED',
+      source: p.sourcePayload,
+      destination: p.destinationPayload,
+      rateInformation: p.rateInformation,
+      depositInstructions: null,
+      timeline: { createdAt: now, cryptoConfirmedAt: now, cryptoReceivedAmount: p.cryptoAmount, cryptoExpectedAmount: p.cryptoAmount, fundedFromWallet: true },
+      fees: p.fees,
+      profit: (p.profit as object | null) ?? null,
+      receipt: null,
+      refundDetails: null,
+      failedReason: null,
+      lpReference: p.txnRef,
+    },
+    { asset: p.asset, amount }
+  );
+  const ref = row.txnRef ?? p.txnRef;
+  return {
+    transferType: 'OFFRAMP',
+    transferDetails: {
+      id: row.id,
+      requestId: row.requestId,
+      txnRef: ref,
+      clientReference: ref,
+      status: row.status as OfframpStatus,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      source: row.source as OfframpSource,
+      destination: maskPublicOfframpDestination(row.destination as OfframpDestination),
+      rateInformation: row.rateInformation as RateInformation,
+      depositInstructions: null,
+      timeline: (row.timeline as { createdAt?: string }) ?? undefined,
+      fees: (row.fees as OfframpFees) ?? null,
+      receipt: null,
+      refundDetails: null,
+      failedReason: row.failedReason ?? null,
+      senderName: p.senderInfo?.senderName ?? null,
+    },
   };
 }
 

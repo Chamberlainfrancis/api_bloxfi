@@ -57,6 +57,8 @@ export interface OfframpSource {
   currency: string;
   amount: number;
   chain: string;
+  /** 'wallet' = paid from the business wallet balance (no deposit). Absent = deposit. */
+  fundingSource?: 'wallet' | 'deposit';
   externalWalletId?: string;
   walletAddress?: string;
   user?: {
@@ -274,6 +276,8 @@ export interface CreateOfframpSourceInput {
   userId: string;
   /** Optional: the sender address is not validated against the deposit. */
   externalWalletId?: string;
+  /** 'wallet' = debit the business wallet balance instead of a crypto deposit. */
+  fundingSource?: 'wallet' | 'deposit';
 }
 
 export interface CreateOfframpDestinationInput {

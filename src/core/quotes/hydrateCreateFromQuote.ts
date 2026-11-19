@@ -40,7 +40,7 @@ export function validateUsdOfframpMetadata(
 export function hydrateOfframpCreateFromQuote(
   snapshot: OfframpQuoteSnapshot,
   execution: {
-    source: Pick<CreateOfframpSourceInput, 'userId' | 'externalWalletId'>;
+    source: Pick<CreateOfframpSourceInput, 'userId' | 'externalWalletId' | 'fundingSource'>;
     destination: Pick<
       CreateOfframpDestinationInput,
       'userId' | 'accountId' | 'purposeOfPayment' | 'transferType' | 'bankTransferMethod' | 'reference'
@@ -54,6 +54,7 @@ export function hydrateOfframpCreateFromQuote(
       ...(execution.source.externalWalletId
         ? { externalWalletId: execution.source.externalWalletId }
         : {}),
+      ...(execution.source.fundingSource ? { fundingSource: execution.source.fundingSource } : {}),
       amount: snapshot.sendAmount,
       currency: snapshot.fromCurrency,
       chain: snapshot.fromChain,

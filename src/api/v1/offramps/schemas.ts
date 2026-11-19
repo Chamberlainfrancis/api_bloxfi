@@ -22,6 +22,8 @@ const createOfframpSourceSchema = z.object({
   userld: z.string().uuid().optional(),
   externalWalletId: z.string().uuid().optional(),
   externalWalletld: z.string().uuid().optional(),
+  /** 'wallet': pay from the business wallet balance (no deposit address is issued). */
+  fundingSource: z.enum(['wallet', 'deposit']).optional(),
 });
 
 const createOfframpDestinationSchema = z.object({

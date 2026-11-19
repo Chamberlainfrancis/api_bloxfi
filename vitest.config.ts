@@ -5,10 +5,12 @@ const root = process.cwd();
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@': path.join(root, 'src'),
-      '@generated': path.join(root, 'generated'),
-    },
+    alias: [
+      // Prisma client is generated outside src (tsconfig maps @/generated/* there too).
+      { find: /^@\/generated\//, replacement: path.join(root, 'generated') + '/' },
+      { find: '@generated', replacement: path.join(root, 'generated') },
+      { find: '@', replacement: path.join(root, 'src') },
+    ],
   },
   test: {
     environment: 'node',
