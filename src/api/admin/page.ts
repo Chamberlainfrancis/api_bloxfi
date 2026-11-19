@@ -2764,7 +2764,10 @@ function renderWalletDetail() {
     '<div class="payout-retry-fields"><label>Chain</label><select id="wlWlChain">' + ["TRC20", "ERC20", "BEP20", "BASE", "MATIC"].map(function (c) { return "<option>" + c + "</option>"; }).join("") + "</select>" +
     '<label>Address</label><input type="text" id="wlWlAddr" class="mono" style="min-width:320px" />' +
     '<label>Label</label><input type="text" id="wlWlLabel" placeholder="e.g. Treasury Binance" />' +
-    '<button type="button" class="ok" id="wlWlAdd">Add to whitelist</button></div>';
+    '<button type="button" class="ok" id="wlWlAdd">Add to whitelist</button></div>' +
+    ((D.registeredWallets || []).length
+      ? '<p class="muted">Withdrawals can also go to the business\\'s registered external wallets: ' + D.registeredWallets.map(function (r) { return esc(r.chain) + " " + '<span class="mono">' + esc(r.address) + "</span>" + (r.label ? " (" + esc(r.label) + ")" : ""); }).join(", ") + ". These do not make deposits from them credit.</p>"
+      : '<p class="muted">Withdrawals can also go to the business\\'s registered external wallets (none registered).</p>');
   var adj = '<div class="payout-retry-fields"><label>Asset</label><select id="wlAdjAsset"><option>USDT</option><option>USDC</option></select>' +
     '<label>Amount</label><input type="text" id="wlAdjAmount" inputmode="decimal" placeholder="+10 or -10" style="width:120px" />' +
     '<label>Reason</label><input type="text" id="wlAdjReason" style="min-width:300px" placeholder="Why, with a reference" />' +

@@ -15,6 +15,7 @@
  */
 
 import { generateWalletWithdrawalRef } from '@/core/businessWallets/refs';
+import { canonicalWalletChain, normalizeWalletAddress } from '@/core/businessWallets/chains';
 import { prisma } from '@/db/prisma/client';
 import { Prisma } from '@/generated/prisma/client';
 import { logger } from '@/lib/logger';
@@ -336,6 +337,32 @@ export async function removeWhitelistAddress(id: string, userId: string, removed
 export async function isWhitelisted(userId: string, chain: string, address: string, tx: Tx = prisma): Promise<boolean> {
   const row = await tx.walletWhitelistAddress.findFirst({ where: { userId, chain, address, removedAt: null } });
   return row != null;
+}
+
+/**
+ * Where a withdrawal may go: an admin-whitelisted address, or one of the
+ * business's own active registered external wallets on the same chain
+ * (Emmanuel, 19 Nov 2026). Deposit crediting uses the admin whitelist only.
+ */
+export async function isAllowedWithdrawalDestination(userId: string, chain: string, address: string, tx: Tx = prisma): Promise<boolean> {
+  if (await isWhitelisted(userId, chain, address, tx)) return true;
+  const code = chain.trim().toUpperCase();
+  const registered = await tx.externalWallet.findMany({ where: { userId, active: true }, select: { chain: true, address: true } });
+  return registered.some(
+    (w) => canonicalWalletChain(w.chain) === code && normalizeWalletAddress(code, w.address) === address
+  );
+}
+
+/** Active registered external wallets usable as withdrawal destinations (chain mapped to a network code). */
+export async function listRegisteredWithdrawalWallets(
+  userId: string
+): Promise<Array<{ id: string; chain: string; address: string; label: string; createdAt: Date }>> {
+  const rows = await prisma.externalWallet.findMany({ where: { userId, active: true }, orderBy: { createdAt: 'asc' } });
+  return rows.flatMap((w) => {
+    const chain = canonicalWalletChain(w.chain);
+    const address = chain ? normalizeWalletAddress(chain, w.address) : null;
+    return chain && address ? [{ id: w.id, chain, address, label: w.name, createdAt: w.createdAt }] : [];
+  });
 }
 
 // --- Deposits -----------------------------------------------------------------
@@ -689,7 +716,7 @@ export async function createWalletWithdrawal(input: {
     const wallet = await tx.businessWallet.findUnique({ where: { userId: input.userId } });
     if (!wallet?.enabled) throw new Error('WALLET_NOT_ENABLED');
     if (wallet.debitsPaused) throw new WalletDebitsPausedError(wallet.pausedReason);
-    if (!(await isWhitelisted(input.userId, input.chain, input.address, tx))) throw new Error('ADDRESS_NOT_WHITELISTED');
+    if (!(await isAllowedWithdrawalDestination(input.userId, input.chain, input.address, tx))) throw new Error('ADDRESS_NOT_WHITELISTED');
     const txnRef = generateWalletWithdrawalRef();
     await postJournal(tx, {
       idempotencyKey: `withdrawal:${txnRef}:reserve`,

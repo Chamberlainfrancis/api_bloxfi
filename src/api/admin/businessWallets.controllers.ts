@@ -110,10 +110,11 @@ export const getWallet = wrap(async (req, res) => {
   const { userId } = req.params;
   const user = await userRepo.findUserById(userId);
   if (!user) throw new AppError('Business not found', 'NOT_FOUND', 404);
-  const [wallet, addresses, whitelist, balances, journals, deposits, withdrawals] = await Promise.all([
+  const [wallet, addresses, whitelist, registeredWallets, balances, journals, deposits, withdrawals] = await Promise.all([
     repo.findBusinessWallet(userId),
     repo.listDepositAddresses(userId),
     repo.listWhitelist(userId, true),
+    repo.listRegisteredWithdrawalWallets(userId),
     repo.getBalances(userId),
     repo.listJournals({ userId, limit: 100 }),
     repo.listWalletDeposits({ userId, limit: 100 }),
@@ -125,6 +126,7 @@ export const getWallet = wrap(async (req, res) => {
     wallet,
     addresses,
     whitelist,
+    registeredWallets,
     balances,
     journals,
     deposits: deposits.map(depositView),

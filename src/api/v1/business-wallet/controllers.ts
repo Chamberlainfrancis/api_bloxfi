@@ -120,9 +120,12 @@ export async function listWhitelist(req: Request<{ userId: string }>, res: Respo
   try {
     const { userId } = req.params;
     await enabledWallet(userId);
-    const rows = await repo.listWhitelist(userId);
+    const [rows, registered] = await Promise.all([repo.listWhitelist(userId), repo.listRegisteredWithdrawalWallets(userId)]);
     sendSuccess(res, {
-      addresses: rows.map((w) => ({ id: w.id, chain: w.chain, address: w.address, label: w.label, createdAt: w.createdAt.toISOString() })),
+      addresses: [
+        ...rows.map((w) => ({ id: w.id, source: 'whitelist', chain: w.chain, address: w.address, label: w.label, createdAt: w.createdAt.toISOString() })),
+        ...registered.map((w) => ({ id: w.id, source: 'external_wallet', chain: w.chain, address: w.address, label: w.label, createdAt: w.createdAt.toISOString() })),
+      ],
     });
   } catch (e) {
     next(e);

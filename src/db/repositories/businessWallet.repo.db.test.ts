@@ -218,4 +218,20 @@ describe.skipIf(!url)('business wallet ledger (Postgres)', () => {
     await offRepo.updateOfframpStatus(b.id, 'REFUNDED');
     expect(await balance()).toEqual({ asset: 'USDT', available: '100', reserved: '0' });
   });
+
+  it('withdrawals may go to the business registered external wallet (chain label mapped), not someone else\'s', async () => {
+    await deposit(randomUUID(), '50');
+    const evm = '0x' + 'ab'.repeat(20);
+    await prisma.externalWallet.create({ data: { userId, address: 'TRegisteredWa11etxxxxxxxxxxxxxxxxx', chain: 'Tron', name: 'Ops', referenceId: randomUUID() } });
+    await prisma.externalWallet.create({ data: { userId, address: evm.toUpperCase().replace('0X', '0x'), chain: 'Ethereum', name: 'Off', referenceId: randomUUID(), active: false } });
+    const ok = await repo.createWalletWithdrawal({ requestId: randomUUID(), userId, asset: 'USDT', chain: 'TRC20', amount: D('5'), address: 'TRegisteredWa11etxxxxxxxxxxxxxxxxx' });
+    expect(ok.created).toBe(true);
+    await expect(
+      repo.createWalletWithdrawal({ requestId: randomUUID(), userId, asset: 'USDT', chain: 'ERC20', amount: D('5'), address: evm })
+    ).rejects.toThrow('ADDRESS_NOT_WHITELISTED');
+    await expect(
+      repo.createWalletWithdrawal({ requestId: randomUUID(), userId, asset: 'USDT', chain: 'BEP20', amount: D('5'), address: 'TRegisteredWa11etxxxxxxxxxxxxxxxxx' })
+    ).rejects.toThrow('ADDRESS_NOT_WHITELISTED');
+    expect(await repo.isWhitelisted(userId, 'TRC20', 'TRegisteredWa11etxxxxxxxxxxxxxxxxx')).toBe(false);
+  });
 });

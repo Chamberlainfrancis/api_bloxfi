@@ -109,7 +109,7 @@ export async function requestWalletWithdrawal(
     });
   } catch (e) {
     const m = e instanceof Error ? e.message : '';
-    if (m === 'ADDRESS_NOT_WHITELISTED') throw new WalletWithdrawalError(m, 'Address is not whitelisted for this wallet', 422);
+    if (m === 'ADDRESS_NOT_WHITELISTED') throw new WalletWithdrawalError(m, 'Address is not whitelisted or registered as an external wallet of this business', 422);
     if (m === 'INSUFFICIENT_WALLET_BALANCE') throw new WalletWithdrawalError(m, 'Wallet balance is too low', 422);
     if (m === 'WALLET_DEBITS_PAUSED') throw new WalletWithdrawalError(m, 'Wallet debits are paused', 423);
     throw e;

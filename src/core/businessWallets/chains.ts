@@ -27,6 +27,23 @@ export function chainFamily(chain: string): ChainFamily | null {
   return null;
 }
 
+const CHAIN_ALIASES: Record<string, string> = {
+  TRC20: 'TRC20', TRON: 'TRC20', TRX: 'TRC20', 'USDT-TRC20': 'TRC20',
+  ERC20: 'ERC20', ETH: 'ERC20', ETHEREUM: 'ERC20',
+  BEP20: 'BEP20', BSC: 'BEP20', BNB: 'BEP20', 'BNB SMART CHAIN': 'BEP20',
+  MATIC: 'MATIC', POLYGON: 'MATIC', POL: 'MATIC',
+  BASE: 'BASE',
+};
+
+/**
+ * Orchestrator network code for a free-text chain label (external wallets
+ * store whatever the partner sent: "Tron", "trc20", "Ethereum"…), or null.
+ */
+export function canonicalWalletChain(label: string | null | undefined): string | null {
+  const k = String(label ?? '').trim().toUpperCase().replace(/[_]/g, ' ');
+  return CHAIN_ALIASES[k] ?? CHAIN_ALIASES[k.replace(/\s*\(.*\)\s*$/, '')] ?? null;
+}
+
 export function isAllowedWalletChain(asset: WalletAsset, chain: string): boolean {
   return WALLET_ALLOWED_CHAINS[asset].includes(chain.trim().toUpperCase());
 }

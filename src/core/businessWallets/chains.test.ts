@@ -18,3 +18,17 @@ describe('wallet chains', () => {
     expect(parseWalletClientReference('OFF-0123')).toBeNull();
   });
 });
+
+import { canonicalWalletChain } from './chains';
+describe('canonicalWalletChain', () => {
+  it('maps the labels partners use to network codes', () => {
+    expect(canonicalWalletChain('Tron')).toBe('TRC20');
+    expect(canonicalWalletChain('trc20')).toBe('TRC20');
+    expect(canonicalWalletChain('Ethereum')).toBe('ERC20');
+    expect(canonicalWalletChain('BSC')).toBe('BEP20');
+    expect(canonicalWalletChain('Polygon')).toBe('MATIC');
+    expect(canonicalWalletChain('Tron (TRC20)')).toBe('TRC20');
+    expect(canonicalWalletChain('Solana')).toBeNull();
+    expect(canonicalWalletChain(null)).toBeNull();
+  });
+});
