@@ -49,6 +49,11 @@ const TX_TYPE_LABEL: Record<string, string> = {
   adjustment: 'adjustment',
 };
 
+/** One balance shape for every endpoint: pending = held for offramps and withdrawals in progress. */
+function balanceView(b: { asset: string; available: string; reserved: string }): { asset: string; available: string; pending: string } {
+  return { asset: b.asset, available: b.available, pending: b.reserved };
+}
+
 export async function getWallet(req: Request<{ userId: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { userId } = req.params;
@@ -60,7 +65,7 @@ export async function getWallet(req: Request<{ userId: string }>, res: Response,
       walletOnly: wallet.walletOnly,
       whitelistRequired: wallet.whitelistRequired,
       debitsPaused: wallet.debitsPaused,
-      balances,
+      balances: balances.map(balanceView),
       depositAddresses: addresses
         .filter((a) => a.status === 'active' && a.address)
         .map((a) => ({ asset: a.asset, chain: a.chain, address: a.address, memo: a.memo })),
@@ -78,7 +83,7 @@ export async function getBalances(req: Request<{ userId: string }>, res: Respons
     const balances = await repo.getBalances(userId);
     sendSuccess(res, {
       userId,
-      balances: balances.map((b) => ({ currency: b.asset, available: b.available, pending: b.reserved })),
+      balances: balances.map(balanceView),
     });
   } catch (e) {
     next(e);
@@ -106,7 +111,7 @@ export async function listWalletTransactions(
         asset: j.asset,
         amount: j.amount,
         availableChange: j.availableDelta,
-        reservedChange: j.reservedDelta,
+        pendingChange: j.reservedDelta,
         reference: j.refType === 'offramp' || j.refType === 'withdrawal' ? j.refId : null,
         createdAt: j.createdAt.toISOString(),
       })),
