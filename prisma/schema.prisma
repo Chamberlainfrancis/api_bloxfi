@@ -62,12 +62,14 @@ model WebhookOutboundLog {
   @@index([outcome])
 }
 
-/** First-seen idempotency key per inbound webhook delivery (Palremit may retry). */
+/**
+ * First-seen idempotency key per inbound webhook delivery (Palremit may retry).
+ */
 model WebhookDedupe {
-  id         String   @id @default(uuid())
-  provider   String
-  dedupeKey  String   @unique
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  provider  String
+  dedupeKey String   @unique
+  createdAt DateTime @default(now())
 }
 
 // --- Feature 1: User Creation & KYB (spec §1) ---
@@ -121,6 +123,7 @@ model User {
   onramps           Onramp[]
   offramps          Offramp[]
   highValueRequests HighValueRequest[]
+  businessWallet    BusinessWallet?
 }
 
 model KybInfo {
@@ -196,7 +199,9 @@ model ExternalWallet {
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   address     String // blockchain address
-  /** Optional chain-specific tag / memo (e.g. XRP destination tag) for withdrawals. */
+  /**
+   * Optional chain-specific tag / memo (e.g. XRP destination tag) for withdrawals.
+   */
   memo        String?
   /**
    * Chain/network label provided by client (string). Do not validate against DB; validate at LP boundary.
@@ -216,41 +221,61 @@ model ExternalWallet {
 // --- Feature 4: Accounts / Fiat (spec §3) ---
 
 model Account {
-  id                 String   @id @default(uuid())
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  railType           String // 'onramp' | 'offramp'
-  currency           String? // was non-nullable; onramp rows don't have a payout currency
-  paymentRail        String? // corridor destinationType (local_bank, wire, etc.); unused for onramp rail
-  accountType        String // free-form corridor label
-  accountHolder      Json // AccountHolder shape
-  /** Palremit corridor + canonical destination; API `details` is derived from this at read time. Offramp only. */
-  providerPayout     Json? // was non-nullable; NULL for onramp rows (no payout destination)
-  /** SwipeLux customer id (cus_*) once known. Onramp only. */
-  swipeluxCustomerId String?
-  /** 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only. */
-  kycImportStatus    String?
+  id                            String   @id @default(uuid())
+  userId                        String
+  user                          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  railType                      String // 'onramp' | 'offramp'
+  currency                      String? // was non-nullable; onramp rows don't have a payout currency
+  paymentRail                   String? // corridor destinationType (local_bank, wire, etc.); unused for onramp rail
+  accountType                   String // free-form corridor label
+  accountHolder                 Json // AccountHolder shape
+  /**
+   * Palremit corridor + canonical destination; API `details` is derived from this at read time. Offramp only.
+   */
+  providerPayout                Json? // was non-nullable; NULL for onramp rows (no payout destination)
+  /**
+   * SwipeLux customer id (cus_*) once known. Onramp only.
+   */
+  swipeluxCustomerId            String?
+  /**
+   * 'pending_import' | 'approved' | 'rejected' | 'failed'. Onramp only.
+   */
+  kycImportStatus               String?
   /**
    * Onramp-only idempotency key (POST /beneficiaries requestId). Offramp rows leave this null and
    * keep relying on idempotencyMiddleware's Redis lock as today.
    */
-  creationRequestId  String?  @unique
-  /** Onramp SOF questionnaire answers (field name → value). */
-  sofQuestionnaire   Json?
-  /** S3 object key for copied source-of-funds document (onramp). */
-  sourceOfFundsDocumentPath String?
-  /** Onramp extras (e.g. Graph identity `documents`). */
-  metadata           Json?
-  /** Graph (etc.) named-VA issuance: pending | active | failed. Onramp only. */
-  providerIssuanceStatus String?
-  /** Orchestrator provisioned-account id when issuance was started. */
-  provisionedAccountId   String?
-  /** Fiat deposit instructions once providerIssuanceStatus=active. */
-  depositDetails         Json?
-  /** Last issuance failure message when providerIssuanceStatus=failed. */
+  creationRequestId             String?  @unique
+  /**
+   * Onramp SOF questionnaire answers (field name → value).
+   */
+  sofQuestionnaire              Json?
+  /**
+   * S3 object key for copied source-of-funds document (onramp).
+   */
+  sourceOfFundsDocumentPath     String?
+  /**
+   * Onramp extras (e.g. Graph identity `documents`).
+   */
+  metadata                      Json?
+  /**
+   * Graph (etc.) named-VA issuance: pending | active | failed. Onramp only.
+   */
+  providerIssuanceStatus        String?
+  /**
+   * Orchestrator provisioned-account id when issuance was started.
+   */
+  provisionedAccountId          String?
+  /**
+   * Fiat deposit instructions once providerIssuanceStatus=active.
+   */
+  depositDetails                Json?
+  /**
+   * Last issuance failure message when providerIssuanceStatus=failed.
+   */
   providerIssuanceFailureReason String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, railType])
@@ -280,9 +305,13 @@ enum OnrampStatusEnum {
 model Onramp {
   id               String           @id @default(uuid())
   requestId        String           @unique // idempotency
-  /** BloxFi primary transaction id (ON-…); sent to Palremit; echoed as webhook data.txnRef */
+  /**
+   * BloxFi primary transaction id (ON-…); sent to Palremit; echoed as webhook data.txnRef
+   */
   txnRef           String?          @unique
-  /** Palremit / channel identifiers for audit (fiat deposit id, withdrawal ref, etc.) */
+  /**
+   * Palremit / channel identifiers for audit (fiat deposit id, withdrawal ref, etc.)
+   */
   providerRefs     Json?
   userId           String
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -328,9 +357,13 @@ enum OfframpStatusEnum {
 model Offramp {
   id                  String            @id @default(uuid())
   requestId           String            @unique // idempotency
-  /** BloxFi primary transaction id (OFF-…); Palremit fiat withdrawal reference; echoed as webhook data.txnRef */
+  /**
+   * BloxFi primary transaction id (OFF-…); Palremit fiat withdrawal reference; echoed as webhook data.txnRef
+   */
   txnRef              String?           @unique
-  /** Palremit / channel identifiers for audit */
+  /**
+   * Palremit / channel identifiers for audit
+   */
   providerRefs        Json?
   userId              String
   user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -362,13 +395,15 @@ enum RampQuoteTypeEnum {
 }
 
 model RampQuote {
-  id          String           @id @default(uuid())
-  rampType    RampQuoteTypeEnum
-  /** Frozen quote snapshot consumed by POST /offramps or POST /onramps. */
-  payload     Json
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  createdAt   DateTime         @default(now())
+  id         String            @id @default(uuid())
+  rampType   RampQuoteTypeEnum
+  /**
+   * Frozen quote snapshot consumed by POST /offramps or POST /onramps.
+   */
+  payload    Json
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime          @default(now())
 
   @@index([expiresAt])
   @@index([rampType, consumedAt])
@@ -452,16 +487,188 @@ model SenderInfoSetting {
 /// (fiat, side). buy = onramp (fiat → crypto), sell = offramp (crypto → fiat).
 /// Loaded into memory by core/quotes/pairMarkupStore.ts.
 model PairMarkupSetting {
-  id        String   @id @default(uuid())
-  fiat      String // upper-case, e.g. "EUR"
-  side      String // "buy" | "sell"
-  cryptos   String // comma-separated upper-case codes, e.g. "USD,USDT,USDC"
-  markupBps Float // 20 = 0.20%
+  id                  String   @id @default(uuid())
+  fiat                String // upper-case, e.g. "EUR"
+  side                String // "buy" | "sell"
+  cryptos             String // comma-separated upper-case codes, e.g. "USD,USDT,USDC"
+  markupBps           Float // 20 = 0.20%
   /// Offramp (sell) rows: refuse to quote without the payout provider's live executable rate.
-  requireProviderRate Boolean @default(true)
-  updatedBy String? // free-form name typed in the dashboard
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  requireProviderRate Boolean  @default(true)
+  updatedBy           String? // free-form name typed in the dashboard
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([fiat, side])
+}
+
+// --- Business wallets (19 Nov 2026) ---
+// A business holds USDT / USDC with us, funded on-chain to its own deposit
+// addresses, spent on offramps and withdrawals. The balance is the sum of an
+// append-only double-entry ledger (WalletJournal + WalletLedgerEntry);
+// WalletBalance is a cache updated only in the same DB transaction as a
+// journal. Database triggers (see the migration) refuse UPDATE/DELETE on
+// ledger rows and any journal whose postings do not sum to zero; CHECKs keep
+// balances from going negative. All writes go through
+// src/db/repositories/businessWallet.repo.ts.
+
+/// Per-business switches. Off for every business until an admin enables it.
+model BusinessWallet {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  enabled           Boolean  @default(false)
+  /// Offramps must be wallet-funded (the per-offramp deposit flow is refused).
+  walletOnly        Boolean  @default(false)
+  /// Only deposits from a whitelisted sender are credited.
+  whitelistRequired Boolean  @default(false)
+  /// Debits paused by an admin (offramps and withdrawals refused). Credits still post.
+  debitsPaused      Boolean  @default(false)
+  pausedReason      String?
+  updatedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// One deposit address per business, asset and chain (orchestrator provisioned account).
+model WalletDepositAddress {
+  id                   String   @id @default(uuid())
+  userId               String
+  asset                String // USDT | USDC
+  chain                String // orchestrator network code, e.g. TRC20, ERC20
+  address              String?
+  memo                 String?
+  provisionedAccountId String?  @unique
+  clientReference      String // WAL-<userId>
+  /// active | pending | failed | disabled
+  status               String   @default("pending")
+  failureReason        String?
+  createdBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([userId, asset, chain])
+  @@index([address])
+}
+
+/// Addresses a business may fund from, per chain. Admin-managed.
+model WalletWhitelistAddress {
+  id        String    @id @default(uuid())
+  userId    String
+  chain     String
+  /// Normalized: lower-case for EVM, as-is (base58) for Tron.
+  address   String
+  label     String?
+  addedBy   String
+  reason    String?
+  createdAt DateTime  @default(now())
+  removedAt DateTime?
+  removedBy String?
+
+  @@index([userId, chain])
+}
+
+/// Cached balance per business and asset. Never written outside a journal post.
+model WalletBalance {
+  userId    String
+  asset     String
+  available Decimal  @default(0) @db.Decimal(38, 18)
+  reserved  Decimal  @default(0) @db.Decimal(38, 18)
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, asset])
+}
+
+/// One money movement. idempotencyKey is unique: a retry or a replayed
+/// webhook can never post twice.
+model WalletJournal {
+  id             String              @id @default(uuid())
+  idempotencyKey String              @unique
+  userId         String
+  asset          String
+  /// deposit_credit | offramp_reserve | offramp_release | offramp_settle |
+  /// offramp_refund | withdrawal_reserve | withdrawal_release |
+  /// withdrawal_settle | adjustment
+  type           String
+  amount         Decimal             @db.Decimal(38, 18)
+  refType        String? // deposit | offramp | withdrawal | adjustment
+  refId          String?
+  actor          String // "system" or the admin's name
+  note           String?
+  createdAt      DateTime            @default(now())
+  entries        WalletLedgerEntry[]
+
+  @@index([userId, asset, createdAt])
+  @@index([refType, refId])
+}
+
+/// Postings of a journal. account: available | reserved (the business's
+/// money) or a contra account (external:deposit, external:offramp,
+/// external:withdrawal, adjustment). Signed amounts; each journal sums to 0.
+model WalletLedgerEntry {
+  id        String        @id @default(uuid())
+  journalId String
+  journal   WalletJournal @relation(fields: [journalId], references: [id], onDelete: Restrict)
+  userId    String
+  asset     String
+  account   String
+  amount    Decimal       @db.Decimal(38, 18)
+  createdAt DateTime      @default(now())
+
+  @@index([userId, asset, account])
+  @@index([journalId])
+}
+
+/// Every deposit seen on a wallet address, credited or quarantined.
+model WalletDeposit {
+  id                    String    @id @default(uuid())
+  /// Orchestrator deposit id: one row per on-chain deposit.
+  orchestratorDepositId String    @unique
+  userId                String
+  asset                 String
+  chain                 String
+  amount                Decimal   @db.Decimal(38, 18)
+  address               String
+  senderAddress         String?
+  txId                  String?
+  /// credited | quarantined | credited_by_admin | refund_pending | refunded
+  status                String
+  quarantineReason      String?
+  journalId             String?
+  resolvedBy            String?
+  resolvedAt            DateTime?
+  resolutionNote        String?
+  rawPayload            Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+/// Withdrawal from a wallet to a whitelisted address. Needs admin approval.
+model WalletWithdrawal {
+  id                       String    @id @default(uuid())
+  requestId                String    @unique
+  /// Orchestrator client_reference: WALWD-<24 hex>
+  txnRef                   String    @unique
+  userId                   String
+  asset                    String
+  chain                    String
+  amount                   Decimal   @db.Decimal(38, 18)
+  address                  String
+  memo                     String?
+  /// pending_approval | approved | submitted | completed | failed | rejected
+  status                   String
+  orchestratorWithdrawalId String?
+  txHash                   String?
+  failureReason            String?
+  approvedBy               String?
+  approvedAt               DateTime?
+  rejectedBy               String?
+  rejectedAt               DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status])
 }

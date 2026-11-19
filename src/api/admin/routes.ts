@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import * as controllers from '@/api/admin/controllers';
+import * as bw from '@/api/admin/businessWallets.controllers';
 
 const router = Router();
 
@@ -52,5 +53,19 @@ router.delete('/pair-markups/:id', controllers.deletePairMarkup);
 router.get('/dakota/applications', controllers.listDakotaKybApplicants);
 router.get('/dakota/applications/:applicationId', controllers.getDakotaKybApplicant);
 router.post('/dakota/applications/:applicationId/attestations', controllers.postDakotaKybAttestations);
+
+// Business wallets
+router.get('/business-wallets', bw.listWallets);
+router.get('/business-wallets/:userId', bw.getWallet);
+router.post('/business-wallets/:userId/enable', bw.enableWallet);
+router.patch('/business-wallets/:userId/settings', bw.updateSettings);
+router.post('/business-wallets/:userId/pause', bw.pauseDebits);
+router.post('/business-wallets/:userId/whitelist', bw.addWhitelist);
+router.post('/business-wallets/:userId/whitelist/:id/remove', bw.removeWhitelist);
+router.post('/business-wallets/:userId/adjustments', bw.postAdjustment);
+router.post('/business-wallet-deposits/:id/credit', bw.creditDeposit);
+router.post('/business-wallet-deposits/:id/refund', bw.refundDeposit);
+router.post('/business-wallet-withdrawals/:id/approve', bw.approveWithdrawal);
+router.post('/business-wallet-withdrawals/:id/reject', bw.rejectWithdrawal);
 
 export const adminRouter = router;

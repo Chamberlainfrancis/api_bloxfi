@@ -19,7 +19,12 @@ export type PartnerWebhookEventType =
   | 'offramp.failed'
   | 'offramp.cancelled'
   | 'offramp.refunded'
-  | 'offramp.expired';
+  | 'offramp.expired'
+  | 'wallet.credited'
+  | 'wallet.withdrawal.submitted'
+  | 'wallet.withdrawal.completed'
+  | 'wallet.withdrawal.failed'
+  | 'wallet.withdrawal.rejected';
 
 export interface PartnerWebhookEnvelope {
   eventId: string;

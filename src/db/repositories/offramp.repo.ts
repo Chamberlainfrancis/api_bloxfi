@@ -11,6 +11,14 @@ import { blocksOfframpTransition, heldFailureRecord } from '@/core/ramps/fundsRe
 import { logger } from '@/lib/logger';
 import { senderNameFromRow } from '@/core/offramps/senderName';
 import { redactProviderNamesFromClientMessage } from '@/utils/redactProviderNames';
+import {
+  finalizeWalletOfframp,
+  inWalletTx,
+  reserveForOfframp,
+  toDecimal,
+  type WalletAsset,
+  type WalletFundingInfo,
+} from '@/db/repositories/businessWallet.repo';
 
 const STATUS_VALUES = [
   'CREATED',
@@ -97,31 +105,68 @@ function offrampWebhookData(row: OfframpRow) {
   };
 }
 
+function offrampCreateData(data: CreateOfframpData) {
+  return {
+    requestId: data.requestId,
+    txnRef: data.txnRef,
+    providerRefs: data.providerRefs === undefined || data.providerRefs === null ? undefined : (data.providerRefs as object),
+    userId: data.userId,
+    status: toPrismaStatus(data.status as OfframpStatus),
+    source: data.source as object,
+    destination: data.destination as object,
+    rateInformation: data.rateInformation as object,
+    depositInstructions: data.depositInstructions as object | undefined,
+    timeline: data.timeline as object | undefined,
+    fees: data.fees as object | undefined,
+    profit: data.profit === undefined || data.profit === null ? undefined : (data.profit as object),
+    receipt: data.receipt as object | undefined,
+    refundDetails: data.refundDetails as object | undefined,
+    failedReason: data.failedReason ?? null,
+    lpReference: data.lpReference ?? null,
+  };
+}
+
 export async function createOfframp(data: CreateOfframpData): Promise<OfframpRow> {
-  const row = await prisma.offramp.create({
-    data: {
-      requestId: data.requestId,
-      txnRef: data.txnRef,
-      providerRefs: data.providerRefs === undefined || data.providerRefs === null ? undefined : (data.providerRefs as object),
+  const row = await prisma.offramp.create({ data: offrampCreateData(data) });
+  const eventType = shouldEmitRampEvent(null, row.status, mapOfframpStatusToEvent);
+  if (eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
+  return row as OfframpRow;
+}
+
+/**
+ * Wallet-funded offramp: the balance reserve and the offramp row are written
+ * in one transaction, so there is never an offramp without its reserve or a
+ * reserve without its offramp. Throws InsufficientWalletBalanceError /
+ * WalletDebitsPausedError / WALLET_NOT_ENABLED (nothing written).
+ */
+export async function createWalletFundedOfframp(
+  data: CreateOfframpData,
+  funding: { asset: WalletAsset; amount: string }
+): Promise<OfframpRow> {
+  const row = await inWalletTx(async (tx) => {
+    await reserveForOfframp(tx, {
       userId: data.userId,
-      status: toPrismaStatus(data.status as OfframpStatus),
-      source: data.source as object,
-      destination: data.destination as object,
-      rateInformation: data.rateInformation as object,
-      depositInstructions: data.depositInstructions as object | undefined,
-      timeline: data.timeline as object | undefined,
-      fees: data.fees as object | undefined,
-      profit: data.profit === undefined || data.profit === null ? undefined : (data.profit as object),
-      receipt: data.receipt as object | undefined,
-      refundDetails: data.refundDetails as object | undefined,
-      failedReason: data.failedReason ?? null,
-      lpReference: data.lpReference ?? null,
-    },
+      asset: funding.asset,
+      amount: toDecimal(funding.amount),
+      txnRef: data.txnRef,
+    });
+    return tx.offramp.create({ data: offrampCreateData(data) });
   });
   const eventType = shouldEmitRampEvent(null, row.status, mapOfframpStatusToEvent);
   if (eventType) schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));
   return row as OfframpRow;
 }
+
+/** Wallet funding of an offramp row, or null when it was funded by deposit. */
+export function walletFundingOf(row: { userId: string; txnRef: string | null; source: unknown }): WalletFundingInfo | null {
+  const src = row.source != null && typeof row.source === 'object' && !Array.isArray(row.source) ? (row.source as Record<string, unknown>) : null;
+  if (!src || src.fundingSource !== 'wallet' || !row.txnRef) return null;
+  const asset = String(src.currency ?? '').toUpperCase();
+  if (asset !== 'USDT' && asset !== 'USDC') return null;
+  return { userId: row.userId, asset, amount: toDecimal(String(src.amount ?? '0')), txnRef: row.txnRef };
+}
+
+const WALLET_ENDINGS = new Set(['COMPLETED', 'CANCELLED', 'REFUNDED']);
 
 export async function findOfframpById(id: string): Promise<OfframpRow | null> {
   const row = await prisma.offramp.findUnique({
@@ -186,24 +231,36 @@ export async function updateOfframpStatus(
         } as object)
       : undefined;
 
-  const row = await prisma.offramp.update({
-    where: { id },
-    data: {
-      status: toPrismaStatus(effectiveStatus),
-      ...(updates?.depositInstructions !== undefined && {
-        depositInstructions: updates.depositInstructions as object | undefined,
-      }),
-      ...(updates?.timeline !== undefined && { timeline: updates.timeline as object | undefined }),
-      ...(updates?.fees !== undefined && { fees: updates.fees as object | undefined }),
-      ...(updates?.receipt !== undefined && { receipt: updates.receipt as object | undefined }),
-      ...(updates?.refundDetails !== undefined && {
-        refundDetails: updates.refundDetails as object | undefined,
-      }),
-      ...(!held && updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
-      ...(updates?.lpReference !== undefined && { lpReference: updates.lpReference }),
-      ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
-    },
-  });
+  const finalStatus = toPrismaStatus(effectiveStatus);
+  const data = {
+    status: finalStatus,
+    ...(updates?.depositInstructions !== undefined && {
+      depositInstructions: updates.depositInstructions as object | undefined,
+    }),
+    ...(updates?.timeline !== undefined && { timeline: updates.timeline as object | undefined }),
+    ...(updates?.fees !== undefined && { fees: updates.fees as object | undefined }),
+    ...(updates?.receipt !== undefined && { receipt: updates.receipt as object | undefined }),
+    ...(updates?.refundDetails !== undefined && {
+      refundDetails: updates.refundDetails as object | undefined,
+    }),
+    ...(!held && updates?.failedReason !== undefined && { failedReason: updates.failedReason }),
+    ...(updates?.lpReference !== undefined && { lpReference: updates.lpReference }),
+    ...(mergedProviderRefs !== undefined && { providerRefs: mergedProviderRefs }),
+  };
+
+  // Wallet-funded offramp reaching an ending: the status change and the
+  // ledger entry (settle on COMPLETED, release on CANCELLED/REFUNDED) commit
+  // together or not at all.
+  const funding = existing ? walletFundingOf(existing) : null;
+  const endsWallet = funding != null && WALLET_ENDINGS.has(finalStatus) && String(existing?.status) !== finalStatus;
+  const row =
+    endsWallet && funding
+      ? await inWalletTx(async (tx) => {
+          const updated = await tx.offramp.update({ where: { id }, data });
+          await finalizeWalletOfframp(tx, funding, finalStatus as 'COMPLETED' | 'CANCELLED' | 'REFUNDED');
+          return updated;
+        })
+      : await prisma.offramp.update({ where: { id }, data });
   const eventType = shouldEmitRampEvent(existing?.status ?? null, row.status, mapOfframpStatusToEvent);
   if (eventType && options?.emitPartnerWebhook !== false) {
     schedulePartnerWebhook(eventType, offrampWebhookData(row as OfframpRow));

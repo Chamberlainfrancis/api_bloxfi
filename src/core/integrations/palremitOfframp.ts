@@ -44,7 +44,7 @@ export function mapCryptoInstructionsToDepositInstructions(
 }
 
 /** Names for Palremit crypto provision `kyc_input.provider_extras`. */
-function namesForPalremitCryptoProvision(ctx: {
+export function namesForPalremitCryptoProvision(ctx: {
   businessInfo: unknown;
   legalRepresentative: unknown;
 }): { first_name: string; last_name: string } {
@@ -83,7 +83,7 @@ function namesForPalremitCryptoProvision(ctx: {
   return { first_name: 'Customer', last_name: 'User' };
 }
 
-async function pollProvisionedUntilActiveOrFailed(
+export async function pollProvisionedUntilActiveOrFailed(
   request: PalremitLiquidityRequestFn,
   accountId: string,
   opts: { maxAttempts: number; delayMs: number }

@@ -31,6 +31,7 @@ import { createWebhookInboundLog, truncateWebhookRawBody, type WebhookInboundOut
 import { tryClaimWebhookDedupe } from "@/db/repositories/webhookDedupe.repo";
 import { buildPalremitWebhookDedupeKey } from "@/core/webhooks/buildWebhookDedupeKey";
 import { env } from "@/config/env";
+import { walletWebhookHandlers } from "@/services/businessWallets";
 import { inboundWebhookPayloadSchema } from "@/api/v1/webhooks/schemas";
 import type { InboundWebhookPayload } from "@/types/webhook";
 
@@ -52,6 +53,7 @@ async function advanceOfframpPayout(offrampId: string): Promise<void> {
 }
 
 const webhookRepos = {
+  wallet: walletWebhookHandlers,
   user: {
     findUserById: userRepo.findUserById,
     updateUser: userRepo.updateUser,

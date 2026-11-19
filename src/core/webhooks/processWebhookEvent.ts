@@ -4,6 +4,8 @@
  * No Express/Prisma; receives repos via DI.
  */
 
+import { parseWalletClientReference } from '@/core/businessWallets/chains';
+import { isWalletWithdrawalRef } from '@/core/businessWallets/refs';
 import type { InboundWebhookPayload } from '@/types/webhook';
 import type { OnrampStatus } from '@/types/onramp';
 import type { OfframpStatus } from '@/types/offramp';
@@ -41,6 +43,16 @@ function isAccountUuidClientRef(ref: string): boolean {
 }
 
 export interface WebhookRepos {
+  /** Business wallets (client_reference WAL-… deposits, WALWD-… withdrawals). Optional for tests. */
+  wallet?: {
+    onDepositCredited(clientRef: string, deposit: Record<string, unknown>, raw: Record<string, unknown>): Promise<unknown>;
+    onWithdrawalEvent(
+      clientRef: string,
+      withdrawal: Record<string, unknown>,
+      outcome: 'successful' | 'failed',
+      reason?: string
+    ): Promise<unknown>;
+  };
   user: {
     findUserById(id: string): Promise<{ id: string; kybStatus?: string } | null>;
     updateUser(
@@ -406,6 +418,11 @@ export async function processWebhookEvent(
       const depNetwork =
         typeof dep.network === 'string' && dep.network.trim() !== '' ? dep.network.trim() : '';
 
+      if (parseWalletClientReference(clientRef)) {
+        if (repos.wallet) await repos.wallet.onDepositCredited(clientRef, dep, d);
+        break;
+      }
+
       if (isOnrampTxnRef(clientRef)) {
         const onramp = await repos.onramp.findOnrampByTxnRef(clientRef);
         if (!onramp) break;
@@ -552,6 +569,11 @@ export async function processWebhookEvent(
       if (!clientRef) break;
       if (wstate && wstate !== 'successful') break;
 
+      if (isWalletWithdrawalRef(clientRef)) {
+        if (repos.wallet) await repos.wallet.onWithdrawalEvent(clientRef, w, 'successful');
+        break;
+      }
+
       const feeParentTxnRef = parseOfframpFeeClientReference(clientRef);
       if (feeParentTxnRef && repos.offramp.applyPlatformFeeWithdrawalWebhook) {
         const wmodeFee = wmode || 'CRYPTO_WITHDRAWAL';
@@ -667,6 +689,11 @@ export async function processWebhookEvent(
         (fail as { message: string }).message.trim() !== ''
           ? (fail as { message: string }).message.trim()
           : 'PALREMIT_WITHDRAW_FAILED';
+
+      if (isWalletWithdrawalRef(clientRef)) {
+        if (repos.wallet) await repos.wallet.onWithdrawalEvent(clientRef, w, 'failed', reason);
+        break;
+      }
 
       const feeParentTxnRefFailed = parseOfframpFeeClientReference(clientRef);
       if (feeParentTxnRefFailed && repos.offramp.applyPlatformFeeWithdrawalWebhook) {

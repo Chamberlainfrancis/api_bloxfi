@@ -53,6 +53,9 @@ import * as rampQuoteRepo from '@/db/repositories/rampQuote.repo';
 import * as senderInfoRepo from '@/db/repositories/senderInfo.repo';
 import { resolveSenderInfoForTransfer } from '@/core/admin/senderInfo';
 import type { OfframpQuoteSnapshot } from '@/types/quote';
+import * as businessWalletRepo from '@/db/repositories/businessWallet.repo';
+import { advanceOfframpIfDepositReady } from '@/core/offramps/advanceOfframpPayout';
+import { logger } from '@/lib/logger';
 
 const REQUEST_ID_HEADER = 'requestid';
 
@@ -384,6 +387,7 @@ export async function createOfframp(
       source: {
         userId: parsed.data.source.userId!,
         externalWalletId: parsed.data.source.externalWalletId,
+        fundingSource: parsed.data.source.fundingSource,
       },
       destination: {
         userId: parsed.data.destination.userId!,
@@ -413,12 +417,46 @@ export async function createOfframp(
         validatePayoutDestination: (withdrawalBody) =>
           validatePalremitDestination(palremitLiquidity, withdrawalBody),
         resolveSenderInfo: (input) => resolveSenderInfoForTransfer(senderInfoRepo, input),
+        wallet: {
+          findBusinessWallet: (userId) => businessWalletRepo.findBusinessWallet(userId),
+          createWalletFundedOfframp: (data, funding) => offrampRepo.createWalletFundedOfframp(data, funding),
+        },
       }
     );
     sendSuccess(res, result, 201);
+    // Wallet-funded: the money is already reserved, so start the fiat payout
+    // now (what a deposit webhook does for deposit-funded offramps).
+    if (result.transferDetails.source?.fundingSource === 'wallet') {
+      void advanceOfframpIfDepositReady(
+        { findOfframpById: offrampRepo.findOfframpById, updateOfframpStatus: offrampRepo.updateOfframpStatus },
+        { findOfframpAccountByIdAndUser: accountRepo.findOfframpAccountByIdAndUser },
+        palremitLiquidity,
+        result.transferDetails.id
+      ).catch((err) => logger.error({ err, offrampId: result.transferDetails.id }, 'wallet offramp payout start failed'));
+    }
   } catch (e) {
     if (e instanceof PayoutDestinationInvalidError) {
       next(new AppError(e.message, 'INVALID_REQUEST', 400, { fieldErrors: e.errors }));
+      return;
+    }
+    if (e instanceof businessWalletRepo.InsufficientWalletBalanceError) {
+      next(new AppError('Wallet balance is too low for this offramp', 'INSUFFICIENT_WALLET_BALANCE', 422, { asset: e.asset, available: e.available, required: e.required }));
+      return;
+    }
+    if (e instanceof businessWalletRepo.WalletDebitsPausedError) {
+      next(new AppError('Wallet debits are paused for this business', 'WALLET_DEBITS_PAUSED', 423));
+      return;
+    }
+    if (e instanceof Error && e.message === 'WALLET_NOT_ENABLED') {
+      next(new AppError('Wallet is not enabled for this business', 'WALLET_NOT_ENABLED', 422));
+      return;
+    }
+    if (e instanceof Error && e.message === 'WALLET_ASSET_NOT_SUPPORTED') {
+      next(new AppError('Wallet offramps support USDT and USDC only', 'INVALID_REQUEST', 400));
+      return;
+    }
+    if (e instanceof Error && e.message === 'WALLET_ONLY') {
+      next(new AppError('This business offramps from its wallet only: set source.fundingSource to "wallet"', 'WALLET_ONLY', 422));
       return;
     }
     if (e instanceof Error && e.message === 'USER_NOT_FOUND') {
