@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { getRedis } from '@/services/redis';
 import { env } from '@/config';
@@ -10,12 +11,28 @@ const HEADER_REMAINING = 'X-RateLimit-Remaining';
 const HEADER_RESET = 'X-RateLimit-Reset';
 
 /**
+ * One bucket per caller: the API key when the request carries one (hashed;
+ * the raw key never reaches Redis), else the IP. Keying on the credential
+ * means a partner calling from several machines shares one limit, and two
+ * partners behind the same NAT don't eat each other's.
+ */
+export function rateLimitIdentifier(req: Request): string {
+  const headerName = env.API_KEY_HEADER.toLowerCase();
+  const raw = req.headers[headerName];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value === 'string' && value.trim()) {
+    return 'key:' + createHash('sha256').update(value.trim()).digest('hex').slice(0, 32);
+  }
+  return 'ip:' + (req.ip ?? 'anonymous');
+}
+
+/**
  * Redis-backed rate limit (fixed window, INCR + EXPIRE). No sorted sets (zset).
  * Sets X-RateLimit-* headers; returns standard error when exceeded.
- * Key: rateLimit:{identifier} where identifier = IP.
+ * Key: rateLimit:{identifier} where identifier = API key (hashed) or IP.
  */
 export function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const identifier = req.ip ?? 'anonymous';
+  const identifier = rateLimitIdentifier(req);
   const key = `rateLimit:${identifier}`;
   const now = Math.floor(Date.now() / 1000);
   const redis = getRedis();

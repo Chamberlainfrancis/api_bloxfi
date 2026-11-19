@@ -86,13 +86,22 @@ export interface OfframpRow {
   updatedAt: Date;
 }
 
-function offrampWebhookData(row: OfframpRow) {
+/** Exported for tests. */
+export function offrampWebhookData(row: OfframpRow) {
   const receipt = row.receipt != null && typeof row.receipt === 'object' && !Array.isArray(row.receipt)
     ? (row.receipt as Record<string, unknown>)
     : null;
   const hash = receipt && typeof receipt.transactionHash === 'string' ? receipt.transactionHash : undefined;
   const failedReason = row.failedReason
     ? redactProviderNamesFromClientMessage(row.failedReason)
+    : undefined;
+  // The partner's own metadata from POST /offramps (stored on destination),
+  // echoed on every webhook so they can reconcile without a lookup.
+  const dest = row.destination != null && typeof row.destination === 'object' && !Array.isArray(row.destination)
+    ? (row.destination as Record<string, unknown>)
+    : null;
+  const metadata = dest && dest.metadata != null && typeof dest.metadata === 'object' && !Array.isArray(dest.metadata)
+    ? (dest.metadata as Record<string, unknown>)
     : undefined;
   return {
     offrampId: row.id,
@@ -101,6 +110,7 @@ function offrampWebhookData(row: OfframpRow) {
     status: row.status,
     ...(failedReason ? { failedReason } : {}),
     ...(hash ? { transactionHash: hash } : {}),
+    ...(metadata ? { metadata } : {}),
     senderName: senderNameFromRow(row.providerRefs, receipt),
   };
 }

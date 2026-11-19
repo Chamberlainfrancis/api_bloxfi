@@ -1061,3 +1061,46 @@ describe('createOfframpQuote — saved markup required', () => {
     expect(options.getProviderWithdrawalFeeQuote).not.toHaveBeenCalled();
   });
 });
+
+describe('createOfframpQuote — wallet-funded rate lock', () => {
+  function optionsWithRateWindow(minutesFromNow: number) {
+    const options = makeOptions({ asset: 'NGN', country: 'NG' });
+    options.getRateFromPalremit = vi.fn(async () => ({
+      ...rateResponse('1450', 'ngn'),
+      rateValidUntil: new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString(),
+    }));
+    return options;
+  }
+  const input = {
+    fromCurrency: 'usdt',
+    toCurrency: 'ngn',
+    fromChain: 'TRC20',
+    amount: 1000,
+    corridor: { country: 'NG' },
+    accountId: ACC,
+    platformFee: { type: 'PERCENTAGE' as const, value: 0, walletAddress: '0xFee' },
+  };
+  function savedExpiry(): number {
+    const calls = vi.mocked(rampQuoteRepo.createRampQuote).mock.calls;
+    return (calls[calls.length - 1]![0] as { expiresAt: Date }).expiresAt.getTime();
+  }
+
+  it('locks a wallet-funded quote for 5 minutes, not the provider 30', async () => {
+    await createOfframpQuote({ ...input, fundingSource: 'wallet' }, optionsWithRateWindow(30) as never);
+    const minutes = (savedExpiry() - Date.now()) / 60000;
+    expect(minutes).toBeGreaterThan(4.5);
+    expect(minutes).toBeLessThanOrEqual(5);
+  });
+
+  it('never outlives the provider rate, even wallet-funded', async () => {
+    await createOfframpQuote({ ...input, fundingSource: 'wallet' }, optionsWithRateWindow(2) as never);
+    const minutes = (savedExpiry() - Date.now()) / 60000;
+    expect(minutes).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps the provider window for deposit-funded quotes', async () => {
+    await createOfframpQuote(input, optionsWithRateWindow(30) as never);
+    const minutes = (savedExpiry() - Date.now()) / 60000;
+    expect(minutes).toBeGreaterThan(25);
+  });
+});
