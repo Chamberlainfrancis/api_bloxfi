@@ -14,6 +14,7 @@ import type { CreateOfframpRequest } from '@/types/offramp';
 import type { DepositInstructions } from '@/types/offramp';
 import { normalizePalremitDestination } from '@/core/accounts/normalizePalremitDestination';
 import { parseProviderPayout } from '@/core/accounts/providerPayoutHelpers';
+import { sanitizeDestinationBeneficiaryName } from '@/core/offramps/beneficiaryName';
 import { usdPalremitTransferPurposeSchema } from '@/schemas/usdGlobalBank.zod';
 import {
   blockedPurposeError,
@@ -381,6 +382,7 @@ export function buildWithdrawalFromAccount(
   );
   ensureBeneficiaryEmail(destination, input.accountHolderEmail);
   ensureBeneficiaryDob(destination, input.beneficiaryDob);
+  sanitizeDestinationBeneficiaryName(destination);
   const sourceAmountCap = formatSourceAmountCap(input.sourceAmountCap);
   return {
     client_reference: input.txnRef.trim(),
