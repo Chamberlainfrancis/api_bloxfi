@@ -87,6 +87,22 @@ function parseQuoteExpiry(rateValidUntil: string): Date {
   return new Date(Date.now() + 30 * 60 * 1000);
 }
 
+/**
+ * Minimum deposit window per payout currency. USD wires need longer than the
+ * provider's 30-minute rate validity for the sender to get crypto in, so the
+ * quote (and the offramp's deposit deadline derived from it) is extended.
+ */
+const OFFRAMP_DEPOSIT_WINDOW_MINUTES: Record<string, number> = {
+  USD: 120,
+};
+
+function applyOfframpDepositWindowFloor(toCurrency: string, rateExpiry: Date): Date {
+  const minutes = OFFRAMP_DEPOSIT_WINDOW_MINUTES[toCurrency.trim().toUpperCase()];
+  if (!minutes) return rateExpiry;
+  const floor = new Date(Date.now() + minutes * 60 * 1000);
+  return floor.getTime() > rateExpiry.getTime() ? floor : rateExpiry;
+}
+
 function knownPayoutFeeQuote(
   amountUsdc: number,
   from: PalremitWithdrawalFeeQuote | null,
@@ -357,8 +373,8 @@ export async function createOfframpQuote(
   // locked rate and deposit address outlive the provider's 30 minute rate.
   const expiresAt = fiatToFiat
     ? new Date(Date.now() + FIAT_TO_FIAT_CONFIG.offrampWindowMinutes * 60 * 1000)
-    : parseQuoteExpiry(rateResponse.rateValidUntil);
-  const rateValidUntil = fiatToFiat ? expiresAt.toISOString() : rateResponse.rateValidUntil;
+    : applyOfframpDepositWindowFloor(toCurrency, parseQuoteExpiry(rateResponse.rateValidUntil));
+  const rateValidUntil = expiresAt.toISOString();
 
   const rateInformation: RateInformation = {
     rate: allInRate,
