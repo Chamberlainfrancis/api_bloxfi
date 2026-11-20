@@ -179,6 +179,8 @@ export const createOfframpQuoteBodySchema = z
     accountId: z.string().uuid(),
     /** "FIAT_TO_FIAT" when this quote is a leg of the onramp→offramp flow. */
     flow: z.literal('FIAT_TO_FIAT').optional(),
+    /** 'wallet': the offramp will be paid from the business wallet balance. Shorter rate lock (no deposit to wait for). */
+    fundingSource: z.enum(['wallet', 'deposit']).optional(),
     platformFee: platformFeeSchema.superRefine((pf, ctx) => {
       if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
         ctx.addIssue({
@@ -228,6 +230,7 @@ export const createOfframpQuoteBodySchema = z
     accountId: val.accountId,
     platformFee: val.platformFee,
     ...(val.flow ? { flow: val.flow } : {}),
+    ...(val.fundingSource ? { fundingSource: val.fundingSource } : {}),
   }));
 
 export const getOfframpRatesQuerySchema = z

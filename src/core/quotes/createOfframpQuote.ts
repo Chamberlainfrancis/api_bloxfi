@@ -55,6 +55,8 @@ export interface CreateOfframpQuoteInput {
   accountId: string;
   /** "FIAT_TO_FIAT": longer window and the flow's extra markup. */
   flow?: string;
+  /** 'wallet': paid from the business wallet balance, so the rate lock is short (no deposit to wait for). */
+  fundingSource?: 'wallet' | 'deposit';
 }
 
 export interface CreateOfframpQuoteOptions {
@@ -95,6 +97,13 @@ function parseQuoteExpiry(rateValidUntil: string): Date {
 const OFFRAMP_DEPOSIT_WINDOW_MINUTES: Record<string, number> = {
   USD: 120,
 };
+
+/**
+ * Wallet-funded quotes: the balance is debited the moment the offramp is
+ * created, so there is no deposit to wait for and no reason to hold a rate
+ * for 30+ minutes. Five minutes is enough to create the offramp.
+ */
+const WALLET_QUOTE_TTL_MINUTES = 5;
 
 function applyOfframpDepositWindowFloor(toCurrency: string, rateExpiry: Date): Date {
   const minutes = OFFRAMP_DEPOSIT_WINDOW_MINUTES[toCurrency.trim().toUpperCase()];
@@ -371,9 +380,12 @@ export async function createOfframpQuote(
   const fiatToFiat = isFiatToFiatFlow(input.flow);
   // Fiat-to-fiat: crypto only arrives after the client's bank transfer, so the
   // locked rate and deposit address outlive the provider's 30 minute rate.
+  const walletFunded = input.fundingSource === 'wallet';
   const expiresAt = fiatToFiat
     ? new Date(Date.now() + FIAT_TO_FIAT_CONFIG.offrampWindowMinutes * 60 * 1000)
-    : applyOfframpDepositWindowFloor(toCurrency, parseQuoteExpiry(rateResponse.rateValidUntil));
+    : walletFunded
+      ? new Date(Math.min(Date.now() + WALLET_QUOTE_TTL_MINUTES * 60 * 1000, parseQuoteExpiry(rateResponse.rateValidUntil).getTime()))
+      : applyOfframpDepositWindowFloor(toCurrency, parseQuoteExpiry(rateResponse.rateValidUntil));
   const rateValidUntil = expiresAt.toISOString();
 
   const rateInformation: RateInformation = {
