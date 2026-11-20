@@ -2453,7 +2453,7 @@ $("siResults").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && e.target && (e.target.id === "siName" || e.target.id === "siPasscode")) { e.preventDefault(); saveSenderInfo(); }
 });
 
-// --- rates: bloxfi FX spread per currency and side ---------------------------
+// --- rates: bloxfi FX spread per currency, side and coins ---------------------------
 
 var rmState = { items: [], loaded: false, editingId: null, msg: null, maxBps: 1000, pricingSource: null, pricingLoadedAt: null, paused: [], pausedDays: 90 };
 
@@ -2490,7 +2490,7 @@ function ratesFormHtml(editing) {
   var e = editing || {};
   var lock = editing ? " disabled" : "";
   return '<div class="payout-retry-form" style="margin-bottom:16px">' +
-    '<div class="notice">A row sets the BloxFi markup for one currency and direction. Changes apply to new quotes within about 30 seconds; quotes already issued keep their rate. Offramps need a row: with no offramp (sell) row for a currency, its offramp quotes and new offramps are refused. Removing an onramp (buy) row means onramps use the currency-api B2B rate.</div>' +
+    '<div class="notice">A row sets the BloxFi markup for one currency, direction and set of coins. To price coins differently, give each its own row (e.g. USD offramp: USDT 25 bps, USDC 20 bps); saving a row takes its coins out of any other row for the same currency and direction. Changes apply to new quotes within about 30 seconds; quotes already issued keep their rate. Offramps need a row: a coin with no offramp (sell) row for a currency is refused for that currency. Removing an onramp (buy) row means onramps use the currency-api B2B rate.</div>' +
     '<div class="payout-retry-fields">' +
     '<label for="rmFiat">Currency</label>' +
     '<input type="text" id="rmFiat" placeholder="e.g. EUR" style="min-width:80px;text-transform:uppercase" maxlength="3" value="' + esc(e.fiat || "") + '"' + lock + " />" +
@@ -2541,7 +2541,7 @@ function renderRates() {
     ? '<div class="muted" style="margin-bottom:8px">The server that answered last loaded these rows at ' + esc(new Date(rmState.pricingLoadedAt).toLocaleString()) + ". Other servers pick up changes within 30 seconds.</div>"
     : '<div class="notice" style="margin-bottom:8px">This server has not loaded the table yet, so it is refusing quotes. It retries every 30 seconds.</div>';
   var paused = rmState.paused && rmState.paused.length
-    ? '<div class="payout-retry-msg bad" style="display:block;margin-bottom:8px"><strong>Offramps paused, no markup saved:</strong> ' + rmState.paused.map(esc).join(", ") + ". These currencies had offramps in the last " + esc(String(rmState.pausedDays)) + " days. Add an offramp (sell) row to turn each back on.</div>"
+    ? '<div class="payout-retry-msg bad" style="display:block;margin-bottom:8px"><strong>Offramps paused, no markup saved:</strong> ' + rmState.paused.map(esc).join(", ") + ". These currencies had offramps in the last " + esc(String(rmState.pausedDays)) + " days. Add an offramp (sell) row covering the listed coins to turn each back on.</div>"
     : "";
   var table = rmState.items.length
     ? "<table><thead><tr><th>Currency</th><th>Direction</th><th>Applies to</th><th>Markup</th><th>Provider rate</th><th>Updated by</th><th>Updated</th><th></th></tr></thead><tbody>" +
@@ -2582,9 +2582,24 @@ async function saveRate() {
   if (!cryptos.length) { showRmMsg("Tick at least one of USD, USDT, USDC.", "bad"); return; }
   if (bpsRaw === "" || !isFinite(bps) || bps < 0 || bps > rmState.maxBps) { showRmMsg("Enter a markup between 0 and " + rmState.maxBps + " bps.", "bad"); return; }
   if (!secret) { showRmMsg("Enter the dashboard passcode, then save.", "bad"); return; }
-  var current = rmState.items.filter(function (r) { return r.fiat === fiat && r.side === side; })[0];
+  var editingId = rmState.editingId;
+  var sameKey = rmState.items.filter(function (r) { return r.fiat === fiat && r.side === side; });
+  var ordered = ["USD", "USDT", "USDC"].filter(function (c) { return cryptos.indexOf(c) >= 0; }).join(",");
+  var current = editingId
+    ? sameKey.filter(function (r) { return r.id === editingId; })[0]
+    : sameKey.filter(function (r) { return r.cryptos === ordered; })[0];
   var from = current ? current.markupBps + " bps" : "none";
-  if (!confirm("Set " + fiat + " " + rmSideLabel(side).toLowerCase() + " markup from " + from + " to " + bps + " bps (" + rmPct(bps) + ")? New quotes will use it.")) return;
+  var effects = sameKey.filter(function (r) { return !current || r.id !== current.id; }).map(function (r) {
+    var coins = String(r.cryptos).split(",");
+    var moved = coins.filter(function (c) { return cryptos.indexOf(c) >= 0; });
+    if (!moved.length) return null;
+    var left = coins.filter(function (c) { return cryptos.indexOf(c) < 0; });
+    return left.length
+      ? "Takes " + moved.join(", ") + " out of the " + r.markupBps + " bps row, which keeps " + left.join(", ") + "."
+      : "Replaces the " + r.markupBps + " bps row for " + coins.join(", ") + ".";
+  }).filter(Boolean);
+  var head = "Set " + fiat + " " + rmSideLabel(side).toLowerCase() + " markup for " + cryptos.join(", ") + " from " + from + " to " + bps + " bps (" + rmPct(bps) + ")?";
+  if (!confirm(head + (effects.length ? "\\n\\n" + effects.join("\\n") : "") + "\\n\\nNew quotes will use it.")) return;
   sessionStorage.setItem("dashSecret", secret);
   var btn = $("rmSave");
   setBtnLoading(btn, true, "Saving");
@@ -2593,10 +2608,10 @@ async function saveRate() {
     await api("/pair-markups", {
       method: "PUT",
       headers: { "content-type": "application/json", "x-dashboard-secret": secret },
-      body: JSON.stringify({ fiat: fiat, side: side, cryptos: cryptos, markupBps: bps, requireProviderRate: requireProviderRate, actor: actor || undefined, secret: secret })
+      body: JSON.stringify({ id: editingId || undefined, fiat: fiat, side: side, cryptos: cryptos, markupBps: bps, requireProviderRate: requireProviderRate, actor: actor || undefined, secret: secret })
     });
     rmState.editingId = null;
-    rmState.msg = { text: "Saved " + fiat + " " + rmSideLabel(side).toLowerCase() + " at " + bps + " bps (" + rmPct(bps) + ").", kind: "ok" };
+    rmState.msg = { text: "Saved " + fiat + " " + rmSideLabel(side).toLowerCase() + " for " + cryptos.join(", ") + " at " + bps + " bps (" + rmPct(bps) + ").", kind: "ok" };
     await loadRates();
   } catch (err) {
     setBtnLoading(btn, false);
@@ -2612,9 +2627,9 @@ async function saveRate() {
 async function deleteRate(id) {
   var row = rmState.items.filter(function (r) { return r.id === id; })[0];
   if (!row) return;
-  var label = row.fiat + " " + rmSideLabel(row.side).toLowerCase();
+  var label = row.fiat + " " + rmSideLabel(row.side).toLowerCase() + " (" + String(row.cryptos).split(",").join(", ") + ")";
   var effect = row.side === "sell"
-    ? "Offramps to " + row.fiat + " will be refused until a new markup is saved."
+    ? "Offramps from " + String(row.cryptos).split(",").join(", ") + " to " + row.fiat + " will be refused until a new markup is saved."
     : "New onramp quotes for this pair will use the currency-api B2B rate.";
   if (!confirm("Remove the " + label + " markup (" + row.markupBps + " bps)? " + effect)) return;
   var secret = ($("rmPasscode") ? $("rmPasscode").value : "").trim() || (sessionStorage.getItem("dashSecret") || "").trim();

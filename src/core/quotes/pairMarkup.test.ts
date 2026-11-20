@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyOnrampAccountMarkup } from '@/core/quotes/onrampAccountMarkup';
-import { findPairMarkup, applyPairMarkup } from '@/core/quotes/pairMarkup';
+import { findPairMarkup, applyPairMarkup, requireOfframpPairMarkup } from '@/core/quotes/pairMarkup';
+import { setPairMarkupRulesFromSettings } from '@/core/quotes/pairMarkupStore';
 
 describe('findPairMarkup', () => {
   it('returns 2.4% buy for EUR onramp (EUR → USDT)', () => {
@@ -144,5 +145,16 @@ describe('applyPairMarkup', () => {
       markup: 0.024,
     };
     expect(applyPairMarkup({ ...args, side: 'buy' })).toEqual(applyOnrampAccountMarkup(args));
+  });
+});
+
+describe('different sell markups per coin for one currency', () => {
+  it('USDT → USD at 25 bps and USDC → USD at 20 bps', () => {
+    setPairMarkupRulesFromSettings([
+      { fiat: 'USD', side: 'sell', cryptos: 'USDT', markupBps: 25 },
+      { fiat: 'USD', side: 'sell', cryptos: 'USDC', markupBps: 20 },
+    ]);
+    expect(requireOfframpPairMarkup('USDT', 'USD').markup).toBeCloseTo(0.0025, 10);
+    expect(requireOfframpPairMarkup('USDC', 'USD').markup).toBeCloseTo(0.002, 10);
   });
 });

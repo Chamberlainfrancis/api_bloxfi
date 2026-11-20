@@ -5,8 +5,10 @@ import {
   PairMarkupValidationError,
   pausedOfframpCurrencies,
   savePairMarkupSetting,
+  PairMarkupNotFoundError,
   type PairMarkupDeps,
   type PairMarkupSetting,
+  type PairMarkupWriteTx,
 } from '@/core/admin/pairMarkup';
 
 function setting(partial: Partial<PairMarkupSetting> = {}): PairMarkupSetting {
@@ -24,19 +26,41 @@ function setting(partial: Partial<PairMarkupSetting> = {}): PairMarkupSetting {
   };
 }
 
-function deps(existing: PairMarkupSetting | null): PairMarkupDeps {
-  return {
+/** In-memory table so saves can be checked end to end. */
+function deps(existing: PairMarkupSetting | PairMarkupSetting[] | null) {
+  let rows: PairMarkupSetting[] = existing == null ? [] : Array.isArray(existing) ? [...existing] : [existing];
+  let n = 100;
+  const tx: PairMarkupWriteTx = {
+    listPairMarkupSettingsForKey: vi.fn(async (key) => rows.filter((r) => r.fiat === key.fiat && r.side === key.side)),
+    findPairMarkupSettingById: vi.fn(async (id) => rows.find((r) => r.id === id) ?? null),
+    createPairMarkupSetting: vi.fn(async (key, data) => {
+      const row = setting({ id: `pm_${++n}`, ...key, ...data });
+      rows.push(row);
+      return row;
+    }),
+    updatePairMarkupSetting: vi.fn(async (id, data) => {
+      const i = rows.findIndex((r) => r.id === id);
+      rows[i] = { ...rows[i]!, ...data };
+      return rows[i]!;
+    }),
+    deletePairMarkupSettingById: vi.fn(async (id) => {
+      rows = rows.filter((r) => r.id !== id);
+    }),
+  };
+  const d: PairMarkupDeps = {
     repo: {
-      listPairMarkupSettings: vi.fn(),
-      findPairMarkupSettingById: vi.fn().mockResolvedValue(existing),
-      findPairMarkupSettingByKey: vi.fn().mockResolvedValue(existing),
-      upsertPairMarkupSetting: vi.fn().mockImplementation(async (key, data) => setting({ ...key, ...data })),
-      deletePairMarkupSettingById: vi.fn(),
+      listPairMarkupSettings: vi.fn(async () => rows),
+      findPairMarkupSettingById: vi.fn(async (id: string) => rows.find((r) => r.id === id) ?? null),
+      deletePairMarkupSettingById: vi.fn(async (id: string) => {
+        rows = rows.filter((r) => r.id !== id);
+      }),
+      withPairMarkupWriteLock: vi.fn(async (fn) => fn(tx)),
       listRecentOfframpCurrencies: vi.fn().mockResolvedValue([]),
     },
     audit: { createAdminAction: vi.fn() },
     reload: vi.fn().mockResolvedValue(true),
   };
+  return Object.assign(d, { tx, rows: () => rows });
 }
 
 describe('normalizePairMarkupInput', () => {
@@ -75,8 +99,8 @@ describe('savePairMarkupSetting', () => {
   it('updates, audits the old and new value, and reloads pricing', async () => {
     const d = deps(setting());
     await savePairMarkupSetting(d, { fiat: 'eur', side: 'sell', markupBps: 25, actor: ' Emmanuel ' });
-    expect(d.repo.upsertPairMarkupSetting).toHaveBeenCalledWith(
-      { fiat: 'EUR', side: 'sell' },
+    expect(d.tx.updatePairMarkupSetting).toHaveBeenCalledWith(
+      'pm_1',
       { cryptos: 'USD,USDT,USDC', markupBps: 25, requireProviderRate: true, updatedBy: 'Emmanuel' }
     );
     expect(d.audit.createAdminAction).toHaveBeenCalledWith({
@@ -101,9 +125,69 @@ describe('savePairMarkupSetting', () => {
   it('does nothing when the rule is unchanged', async () => {
     const d = deps(setting());
     await savePairMarkupSetting(d, { fiat: 'EUR', side: 'sell', cryptos: 'USDC,USDT,USD', markupBps: 20 });
-    expect(d.repo.upsertPairMarkupSetting).not.toHaveBeenCalled();
+    expect(d.tx.updatePairMarkupSetting).not.toHaveBeenCalled();
+    expect(d.tx.createPairMarkupSetting).not.toHaveBeenCalled();
     expect(d.audit.createAdminAction).not.toHaveBeenCalled();
     expect(d.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('savePairMarkupSetting: different markups per coin', () => {
+  const usdSell = (p: Partial<PairMarkupSetting> = {}) =>
+    setting({ id: 'pm_usd', fiat: 'USD', side: 'sell', cryptos: 'USDT,USDC', markupBps: 20, ...p });
+
+  it('adding USDT 25 bps splits USDT out of the shared USD row in one save', async () => {
+    const d = deps(usdSell());
+    await savePairMarkupSetting(d, { fiat: 'USD', side: 'sell', cryptos: ['USDT'], markupBps: 25, actor: 'Emmanuel' });
+    const rows = d.rows().map((r) => ({ cryptos: r.cryptos, markupBps: r.markupBps }));
+    expect(rows).toEqual([
+      { cryptos: 'USDC', markupBps: 20 },
+      { cryptos: 'USDT', markupBps: 25 },
+    ]);
+    expect(d.repo.withPairMarkupWriteLock).toHaveBeenCalledTimes(1);
+    expect(d.audit.createAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        txnId: 'USD:sell',
+        fromStatus: '20 bps (USDT,USDC), provider rate required',
+        toStatus: '20 bps (USDC), provider rate required',
+        note: 'Rate markup narrowed: USDT moved to its own row',
+      })
+    );
+    expect(d.audit.createAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({ fromStatus: '', toStatus: '25 bps (USDT), provider rate required', note: 'Rate markup added' })
+    );
+    expect(d.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a row that loses all its coins is removed', async () => {
+    const d = deps([usdSell({ id: 'a', cryptos: 'USDT', markupBps: 25 }), usdSell({ id: 'b', cryptos: 'USDC', markupBps: 20 })]);
+    await savePairMarkupSetting(d, { fiat: 'USD', side: 'sell', cryptos: ['USDT', 'USDC'], markupBps: 22 });
+    expect(d.rows().map((r) => [r.cryptos, r.markupBps])).toEqual([['USDT,USDC', 22]]);
+  });
+
+  it('editing a row by id changes only that row', async () => {
+    const d = deps([usdSell({ id: 'a', cryptos: 'USDT', markupBps: 25 }), usdSell({ id: 'b', cryptos: 'USDC', markupBps: 20 })]);
+    await savePairMarkupSetting(d, { id: 'a', fiat: 'USD', side: 'sell', cryptos: ['USDT'], markupBps: 30 });
+    expect(d.rows().map((r) => [r.id, r.cryptos, r.markupBps])).toEqual([
+      ['a', 'USDT', 30],
+      ['b', 'USDC', 20],
+    ]);
+  });
+
+  it('a different currency or direction is never touched', async () => {
+    const d = deps([usdSell(), setting({ id: 'eur', fiat: 'EUR', side: 'sell', cryptos: 'USD,USDT,USDC' })]);
+    await savePairMarkupSetting(d, { fiat: 'USD', side: 'sell', cryptos: ['USDT'], markupBps: 25 });
+    expect(d.rows().find((r) => r.id === 'eur')?.cryptos).toBe('USD,USDT,USDC');
+  });
+
+  it('refuses to move a row to another currency, and 404s an unknown id', async () => {
+    const d = deps(usdSell());
+    await expect(savePairMarkupSetting(d, { id: 'pm_usd', fiat: 'EUR', side: 'sell', markupBps: 25 })).rejects.toThrow(
+      PairMarkupValidationError
+    );
+    await expect(savePairMarkupSetting(d, { id: 'nope', fiat: 'USD', side: 'sell', markupBps: 25 })).rejects.toThrow(
+      PairMarkupNotFoundError
+    );
   });
 });
 
@@ -117,7 +201,7 @@ describe('requireProviderRate', () => {
   it('a change to it alone is saved and audited', async () => {
     const d = deps(setting());
     await savePairMarkupSetting(d, { fiat: 'EUR', side: 'sell', markupBps: 20, requireProviderRate: false });
-    expect(d.repo.upsertPairMarkupSetting).toHaveBeenCalledTimes(1);
+    expect(d.tx.updatePairMarkupSetting).toHaveBeenCalledTimes(1);
     expect(d.audit.createAdminAction).toHaveBeenCalledWith(
       expect.objectContaining({ toStatus: '20 bps (USD,USDT,USDC), provider rate optional' })
     );
@@ -135,6 +219,18 @@ describe('pausedOfframpCurrencies', () => {
         ['eur', 'GBP', 'NGN', 'NGN', 'usdt', '']
       )
     ).toEqual(['GBP', 'NGN']);
+  });
+
+  it('lists coins left without a sell row', () => {
+    expect(
+      pausedOfframpCurrencies(
+        [
+          { fiat: 'USD', side: 'sell', cryptos: 'USDT' },
+          { fiat: 'EUR', side: 'sell', cryptos: 'USD,USDT,USDC' },
+        ],
+        ['USD', 'EUR']
+      )
+    ).toEqual(['USD from USDC']);
   });
 });
 

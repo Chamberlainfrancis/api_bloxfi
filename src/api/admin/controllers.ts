@@ -808,9 +808,11 @@ export async function deleteSenderInfo(
   }
 }
 
-// --- Rates (bloxfi FX spread per fiat and side) ------------------------------
+// --- Rates (bloxfi FX spread per fiat, side and coins) ------------------------------
 
 const pairMarkupPutSchema = z.object({
+  // The row being edited. Without it, the row with the same fiat, side and coins is edited, or a new row is added.
+  id: z.string().trim().max(64).optional().nullable(),
   fiat: z.string().trim().min(3).max(3),
   side: z.enum(['buy', 'sell']),
   cryptos: z.union([z.array(z.string().trim().max(10)).max(5), z.string().trim().max(40)]).optional().nullable(),
@@ -871,6 +873,7 @@ export async function putPairMarkup(
       throw new AppError(zodMessage(parsed.error), 'INVALID_REQUEST', 400);
     }
     const setting = await pairMarkup.savePairMarkupSetting(await pairMarkupDeps(), {
+      id: parsed.data.id ?? null,
       fiat: parsed.data.fiat,
       side: parsed.data.side,
       cryptos: parsed.data.cryptos ?? null,
@@ -882,6 +885,10 @@ export async function putPairMarkup(
   } catch (e) {
     if (e instanceof pairMarkup.PairMarkupValidationError) {
       next(new AppError(e.message, 'INVALID_REQUEST', 400));
+      return;
+    }
+    if (e instanceof pairMarkup.PairMarkupNotFoundError) {
+      next(new AppError(e.message, 'NOT_FOUND', 404));
       return;
     }
     next(e);
