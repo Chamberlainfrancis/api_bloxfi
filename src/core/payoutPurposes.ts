@@ -5,7 +5,9 @@
  *   requirements, `true` is rejected, every withdrawal is sent with `false`, and
  *   `TRANSFER_TO_OWN_ACCOUNT` is not offered. Ops can allow self transfers for one
  *   business from the admin dashboard (User.metadata.allowSelfTransfer = true).
- * - `SALARY` is never offered (OwlPay rejects it).
+ * - `SALARY` and `DONATIONS` are never offered (OwlPay rejects both on every route).
+ * - `OTHER` / `OTHERS` are refused: they are not OwlPay codes, and an offramp sent
+ *   with "other" silently fell back to the account's saved purpose.
  * - Extra business purposes are offered under Bloxfi codes and translated to the
  *   closest OwlPay `transfer_purpose` code when the withdrawal is sent.
  *   OwlPay's enum is fixed (28 codes); it takes no free-text purpose.
@@ -15,7 +17,12 @@
 export const ALLOW_SELF_TRANSFER_FLAG = 'allowSelfTransfer';
 
 /** Purposes no Bloxfi client may use. */
-export const ALWAYS_BLOCKED_TRANSFER_PURPOSES: ReadonlySet<string> = new Set(['SALARY']);
+export const ALWAYS_BLOCKED_TRANSFER_PURPOSES: ReadonlySet<string> = new Set([
+  'SALARY',
+  'DONATIONS',
+  'OTHER',
+  'OTHERS',
+]);
 /** Purposes only businesses allowed to self-transfer may use. */
 export const SELF_TRANSFER_PURPOSES: ReadonlySet<string> = new Set(['TRANSFER_TO_OWN_ACCOUNT']);
 

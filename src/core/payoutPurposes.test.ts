@@ -30,12 +30,13 @@ const fields = [
 ];
 
 describe('payout purpose policy', () => {
-  it('hides is_self_transfer, TRANSFER_TO_OWN_ACCOUNT and SALARY from requirements', () => {
+  it('hides is_self_transfer, TRANSFER_TO_OWN_ACCOUNT SALARY and DONATIONS from requirements', () => {
     const out = applyPurposePolicyToFields(fields);
     expect(out.map((f) => f.path)).toEqual(['account_number', 'extras.transfer_purpose']);
     const values = out[1]!.enum!.map((c) => c.value);
     expect(values).not.toContain('TRANSFER_TO_OWN_ACCOUNT');
     expect(values).not.toContain('SALARY');
+    expect(values).not.toContain('DONATIONS');
   });
 
   it('offers the 7 business purposes with their labels', () => {
@@ -77,6 +78,13 @@ describe('payout purpose policy', () => {
     expect(blockedPurposeError('salary')).toMatch(/SALARY/);
     expect(blockedPurposeError('TRANSFER_TO_OWN_ACCOUNT')).not.toBeNull();
     expect(blockedPurposeError('ADVISOR_FEES')).toBeNull();
+    for (const p of ['DONATIONS', 'donations', 'other', 'Other', 'OTHERS']) {
+      expect(blockedPurposeError(p)).not.toBeNull();
+    }
+    expect(blockedPurposeError('other')).toBe("purpose 'OTHER' is not supported");
+    expect(destinationPurposeErrors({ extras: { transfer_purpose: 'DONATIONS' } }).map((e) => e.path)).toEqual([
+      'extras.transfer_purpose',
+    ]);
     expect(
       destinationPurposeErrors({ extras: { transfer_purpose: 'SALARY', is_self_transfer: true } }).map((e) => e.path)
     ).toEqual(['extras.is_self_transfer', 'extras.transfer_purpose']);
@@ -91,6 +99,7 @@ describe('payout purpose policy', () => {
     const values = out[1]!.enum!.map((c) => c.value);
     expect(values).toContain('TRANSFER_TO_OWN_ACCOUNT');
     expect(values).not.toContain('SALARY');
+    expect(blockedPurposeError('DONATIONS', policy)).not.toBeNull();
     expect(
       destinationPurposeErrors({ extras: { transfer_purpose: 'TRANSFER_TO_OWN_ACCOUNT', is_self_transfer: true } }, policy)
     ).toEqual([]);
