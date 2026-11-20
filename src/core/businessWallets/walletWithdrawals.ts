@@ -2,6 +2,9 @@
  * Withdrawals from a business wallet to a whitelisted address.
  *
  * request  → amount reserved, status pending_approval (one transaction).
+ *            To an admin-whitelisted address it is approved and sent at once
+ *            (actor "auto:whitelist"); to a wallet the business registered
+ *            itself it waits for an admin.
  * approve  → admin; status approved, then the orchestrator crypto withdrawal
  *            is created (idempotency key per withdrawal, so a retried
  *            approval never sends twice) → submitted.
@@ -18,6 +21,8 @@ import { normalizeWalletAddress } from './chains';
 
 export interface WalletWithdrawalDeps {
   findBusinessWallet(userId: string): Promise<BusinessWalletRow | null>;
+  /** Admin whitelist only (not business-registered external wallets). */
+  isWhitelisted(userId: string, chain: string, address: string): Promise<boolean>;
   listDepositAddresses(userId: string): Promise<WalletDepositAddressRow[]>;
   createWalletWithdrawal(input: {
     requestId: string;
@@ -97,8 +102,9 @@ export async function requestWalletWithdrawal(
   const address = normalizeWalletAddress(chain, input.address);
   if (!address) throw new WalletWithdrawalError('INVALID_ADDRESS', `address is not a valid ${chain} address`, 400);
 
+  let created: { row: WalletWithdrawalRow; created: boolean };
   try {
-    return await deps.createWalletWithdrawal({
+    created = await deps.createWalletWithdrawal({
       requestId: input.requestId,
       userId: input.userId,
       asset: asset as WalletAsset,
@@ -113,6 +119,25 @@ export async function requestWalletWithdrawal(
     if (m === 'INSUFFICIENT_WALLET_BALANCE') throw new WalletWithdrawalError(m, 'Wallet balance is too low', 422);
     if (m === 'WALLET_DEBITS_PAUSED') throw new WalletWithdrawalError(m, 'Wallet debits are paused', 423);
     throw e;
+  }
+  if (!created.created || created.row.status !== 'pending_approval') return created;
+  if (!(await deps.isWhitelisted(created.row.userId, created.row.chain, created.row.address))) return created;
+  return { row: await autoSendWhitelisted(deps, created.row), created: true };
+}
+
+export const AUTO_APPROVE_ACTOR = 'auto:whitelist';
+
+/**
+ * Send a withdrawal to an admin-whitelisted address without waiting for an
+ * admin. If the payout service doesn't accept it yet, it stays approved and an
+ * admin can approve again (same idempotency key, never sends twice).
+ */
+async function autoSendWhitelisted(deps: WalletWithdrawalDeps, row: WalletWithdrawalRow): Promise<WalletWithdrawalRow> {
+  try {
+    return await approveWalletWithdrawal(deps, row.id, AUTO_APPROVE_ACTOR);
+  } catch (e) {
+    logger.error({ err: e, id: row.id, txnRef: row.txnRef }, 'auto-send of whitelisted wallet withdrawal did not go through; left for an admin');
+    return (await deps.findWalletWithdrawalById(row.id)) ?? row;
   }
 }
 

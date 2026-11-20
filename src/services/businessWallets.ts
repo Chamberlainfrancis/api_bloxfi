@@ -52,6 +52,7 @@ export const provisionWalletDeps: ProvisionWalletDeps = {
 
 export const walletWithdrawalDeps: WalletWithdrawalDeps = {
   findBusinessWallet: (userId) => repo.findBusinessWallet(userId),
+  isWhitelisted: (userId, chain, address) => repo.isWhitelisted(userId, chain, address),
   listDepositAddresses: repo.listDepositAddresses,
   createWalletWithdrawal: repo.createWalletWithdrawal,
   findWalletWithdrawalById: repo.findWalletWithdrawalById,

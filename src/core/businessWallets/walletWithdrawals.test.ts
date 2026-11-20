@@ -26,6 +26,7 @@ function deps(over: Partial<WalletWithdrawalDeps> = {}, current: WalletWithdrawa
   let state = current;
   return {
     findBusinessWallet: vi.fn(async () => ({ enabled: true } as never)),
+    isWhitelisted: vi.fn(async () => false),
     listDepositAddresses: vi.fn(async () => [{ asset: 'USDT', chain: 'TRC20', status: 'active' } as never]),
     createWalletWithdrawal: vi.fn(async () => ({ row: state, created: true })),
     findWalletWithdrawalById: vi.fn(async () => state),
@@ -55,6 +56,40 @@ describe('requestWalletWithdrawal', () => {
     const call = (d.createWalletWithdrawal as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(call).toMatchObject({ asset: 'USDT', chain: 'TRC20', address: TRON });
     expect(call.amount.toString()).toBe('25');
+  });
+
+  it('waits for an admin when the address is a business-registered wallet', async () => {
+    const d = deps();
+    const r = await requestWalletWithdrawal(d, input);
+    expect(r.row.status).toBe('pending_approval');
+    expect(d.createOrchestratorWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it('sends at once to an admin-whitelisted address', async () => {
+    const d = deps({ isWhitelisted: vi.fn(async () => true) });
+    const r = await requestWalletWithdrawal(d, input);
+    expect(r.created).toBe(true);
+    expect(r.row).toMatchObject({ status: 'submitted', orchestratorWithdrawalId: 'orch-w1', approvedBy: 'auto:whitelist' });
+    expect(d.createOrchestratorWithdrawal).toHaveBeenCalledTimes(1);
+    expect(d.emitPartnerWebhook).toHaveBeenCalledWith('wallet.withdrawal.submitted', expect.objectContaining({ status: 'submitted' }));
+  });
+
+  it('leaves a whitelisted withdrawal approved when the payout service is down', async () => {
+    const d = deps({
+      isWhitelisted: vi.fn(async () => true),
+      createOrchestratorWithdrawal: vi.fn(async () => ({ ok: false, httpStatus: 503, message: 'down' } as never)),
+    });
+    const r = await requestWalletWithdrawal(d, input);
+    expect(r.row.status).toBe('approved');
+  });
+
+  it('does not send again when the same requestId comes back', async () => {
+    const d = deps({
+      isWhitelisted: vi.fn(async () => true),
+      createWalletWithdrawal: vi.fn(async () => ({ row: row({ status: 'submitted' }), created: false })),
+    });
+    await requestWalletWithdrawal(d, input);
+    expect(d.createOrchestratorWithdrawal).not.toHaveBeenCalled();
   });
 
   it('refuses a chain the wallet has no address on, a bad address, and too many decimals', async () => {
