@@ -17,6 +17,8 @@ import { getTotalRealizedProfitUsdc } from '@/core/admin/dashboard';
 
 const app = express();
 
+// Behind Railway's proxy: take the client IP from X-Forwarded-For (one hop).
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(
   cors({

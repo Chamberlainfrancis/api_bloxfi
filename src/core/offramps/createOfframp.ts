@@ -106,6 +106,7 @@ export interface OfframpRepoCreate {
     refundDetails?: object | null;
     failedReason?: string | null;
     lpReference?: string | null;
+    runReference?: string | null;
   }): Promise<{
     id: string;
     requestId: string;
@@ -122,6 +123,7 @@ export interface OfframpRepoCreate {
     refundDetails: unknown;
     failedReason: string | null;
     lpReference: string | null;
+    runReference?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -344,6 +346,7 @@ export async function createOfframp(
             rail: (destinationPayload.transferType ?? account.paymentRail ?? '').toLowerCase(),
           })
         : null,
+      runReference: body.runReference,
     });
   }
 
@@ -399,6 +402,7 @@ export async function createOfframp(
     refundDetails: null,
     failedReason: null,
     lpReference: txnRef,
+    runReference: body.runReference ?? null,
   });
 
   const ref = row.txnRef ?? txnRef;
@@ -420,6 +424,7 @@ export async function createOfframp(
     refundDetails: null,
     failedReason: row.failedReason ?? null,
     senderName: senderInfo?.senderName ?? null,
+    runReference: row.runReference ?? null,
   };
 
   return {
@@ -448,6 +453,7 @@ async function createFromWallet(
     profit: unknown;
     providerRefs: Record<string, unknown>;
     senderInfo: ResolvedSenderInfo | null;
+    runReference?: string;
   }
 ): Promise<CreateOfframpResponse> {
   const now = new Date().toISOString();
@@ -474,6 +480,7 @@ async function createFromWallet(
       refundDetails: null,
       failedReason: null,
       lpReference: p.txnRef,
+      runReference: p.runReference ?? null,
     },
     { asset: p.asset, amount }
   );
@@ -498,6 +505,7 @@ async function createFromWallet(
       refundDetails: null,
       failedReason: row.failedReason ?? null,
       senderName: p.senderInfo?.senderName ?? null,
+      runReference: row.runReference ?? null,
     },
   };
 }

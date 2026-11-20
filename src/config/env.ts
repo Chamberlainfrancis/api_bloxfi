@@ -18,7 +18,7 @@ const envSchema = z.object({
    */
   DASHBOARD_MARK_SECRET: z.string().min(1).default("pr2026"),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().min(1).default(60),
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().min(1).default(100),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().min(1).default(600),
   IDEMPOTENCY_TTL_SECONDS: z.coerce.number().min(1).default(86400),
   // S3-compatible object storage (e.g. Railway bucket)
   S3_ENDPOINT: z.string().url().optional(),

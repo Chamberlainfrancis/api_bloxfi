@@ -53,9 +53,12 @@ export const createOfframpBodySchema = z
     destination: createOfframpDestinationSchema,
     platformFee: platformFeeSchema.optional(),
     metadata: z.record(z.unknown()).optional(),
+    /** Partner's own run / batch reference, echoed on the offramp and its webhooks. */
+    runReference: z.string().trim().min(1).max(100).optional(),
   })
   .transform((val) => ({
     requestId: val.requestId ?? val.requestld,
+    runReference: val.runReference,
     quoteId: val.quoteId,
     source: {
       ...val.source,
@@ -179,6 +182,8 @@ export const createOfframpQuoteBodySchema = z
     accountId: z.string().uuid(),
     /** "FIAT_TO_FIAT" when this quote is a leg of the onramp→offramp flow. */
     flow: z.literal('FIAT_TO_FIAT').optional(),
+    /** "wallet": quote for an offramp paid from the business wallet (5 minute, single use). */
+    fundingSource: z.enum(['wallet', 'deposit']).optional(),
     platformFee: platformFeeSchema.superRefine((pf, ctx) => {
       if (pf.type === 'PERCENTAGE' && pf.value >= 1) {
         ctx.addIssue({
@@ -213,6 +218,13 @@ export const createOfframpQuoteBodySchema = z
         message: 'Send exactly one of amount (crypto send) or destinationAmount (fiat receive)',
       });
     }
+    if (val.fundingSource === 'wallet' && val.flow) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fundingSource'],
+        message: 'fundingSource "wallet" cannot be combined with flow',
+      });
+    }
   })
   .transform((val) => ({
     fromCurrency: val.fromCurrency.trim().toLowerCase(),
@@ -228,6 +240,7 @@ export const createOfframpQuoteBodySchema = z
     accountId: val.accountId,
     platformFee: val.platformFee,
     ...(val.flow ? { flow: val.flow } : {}),
+    ...(val.fundingSource ? { fundingSource: val.fundingSource } : {}),
   }));
 
 export const getOfframpRatesQuerySchema = z
@@ -285,6 +298,7 @@ export const listOfframpsQuerySchema = z.object({
     .default(50),
   createdBefore: z.string().datetime().optional(),
   createdAfter: z.string().datetime().optional(),
+  runReference: z.string().trim().min(1).max(100).optional(),
 });
 
 export type CreateOfframpBody = z.infer<typeof createOfframpBodySchema>;

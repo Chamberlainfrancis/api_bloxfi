@@ -46,6 +46,7 @@ export function hydrateOfframpCreateFromQuote(
       'userId' | 'accountId' | 'purposeOfPayment' | 'transferType' | 'bankTransferMethod' | 'reference'
     >;
     metadata?: Record<string, unknown>;
+    runReference?: string;
   }
 ): Omit<CreateOfframpRequest, 'requestId'> {
   return {
@@ -71,6 +72,7 @@ export function hydrateOfframpCreateFromQuote(
     },
     platformFee: snapshot.platformFee,
     ...(execution.metadata !== undefined ? { metadata: execution.metadata } : {}),
+    ...(execution.runReference ? { runReference: execution.runReference } : {}),
   };
 }
 

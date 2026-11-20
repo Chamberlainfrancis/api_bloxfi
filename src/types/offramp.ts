@@ -171,6 +171,8 @@ export interface OfframpTransferDetails {
   failedReason?: string | null;
   /** Name the beneficiary sees as the payout sender, when known. Informational only. */
   senderName?: string | null;
+  /** Partner's run / batch reference, when given on create. */
+  runReference?: string | null;
 }
 
 export interface RefundDetails {
@@ -298,6 +300,8 @@ export interface CreateOfframpRequest {
   destination: CreateOfframpDestinationInput;
   platformFee?: PlatformFee;
   metadata?: Record<string, unknown>;
+  /** Partner's run / batch reference. */
+  runReference?: string;
 }
 
 export type CreateOfframpResponse = OfframpResponse;
@@ -315,6 +319,7 @@ export interface ListOfframpsQuery {
   limit?: number;
   createdBefore?: string;
   createdAfter?: string;
+  runReference?: string;
 }
 
 export interface ListOfframpItem {
@@ -325,6 +330,7 @@ export interface ListOfframpItem {
   destination: { currency: string; amount: number };
   /** Name the beneficiary sees as the payout sender, when known. Informational only. */
   senderName: string | null;
+  runReference: string | null;
 }
 
 export interface ListOfframpsResponse {

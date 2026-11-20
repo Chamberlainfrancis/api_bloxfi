@@ -63,6 +63,7 @@ export interface CreateOfframpData {
   refundDetails?: object | null;
   failedReason?: string | null;
   lpReference?: string | null;
+  runReference?: string | null;
 }
 
 export interface OfframpRow {
@@ -82,6 +83,7 @@ export interface OfframpRow {
   refundDetails: unknown;
   failedReason: string | null;
   lpReference: string | null;
+  runReference?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -102,11 +104,13 @@ function offrampWebhookData(row: OfframpRow) {
     ...(failedReason ? { failedReason } : {}),
     ...(hash ? { transactionHash: hash } : {}),
     senderName: senderNameFromRow(row.providerRefs, receipt),
+    ...(row.runReference ? { runReference: row.runReference } : {}),
   };
 }
 
 function offrampCreateData(data: CreateOfframpData) {
   return {
+    ...(data.runReference ? { runReference: data.runReference } : {}),
     requestId: data.requestId,
     txnRef: data.txnRef,
     providerRefs: data.providerRefs === undefined || data.providerRefs === null ? undefined : (data.providerRefs as object),
@@ -322,6 +326,7 @@ export interface ListOfframpsParams {
   limit: number;
   createdBefore?: Date;
   createdAfter?: Date;
+  runReference?: string;
 }
 
 export async function listOfframpsAwaitingDeposit(): Promise<OfframpRow[]> {
@@ -335,15 +340,17 @@ export async function listOfframps(params: ListOfframpsParams): Promise<{
   offramps: OfframpRow[];
   nextCursor: Date | null;
 }> {
-  const { userId, status, excludeStatuses, currency, limit, createdBefore, createdAfter } = params;
+  const { userId, status, excludeStatuses, currency, limit, createdBefore, createdAfter, runReference } = params;
   const take = Math.min(Math.max(1, limit), 100);
   const where: {
     userId?: string;
+    runReference?: string;
     status?: (typeof STATUS_VALUES)[number] | { notIn: (typeof STATUS_VALUES)[number][] };
     createdAt?: { lt?: Date; gt?: Date };
   } = {};
 
   if (userId) where.userId = userId;
+  if (runReference) where.runReference = runReference;
   if (status) {
     where.status = toPrismaStatus(status);
   } else if (excludeStatuses?.length) {

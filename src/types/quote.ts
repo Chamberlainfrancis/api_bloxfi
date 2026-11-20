@@ -42,6 +42,8 @@ export interface OfframpQuoteSnapshot {
   rateInformation: RateInformation;
   /** Set to "FIAT_TO_FIAT" when quoted for the onramp→offramp flow. */
   flow?: string;
+  /** "wallet" when quoted for an offramp paid from the business wallet (short-lived). */
+  fundingSource?: 'wallet';
   /** Payout funding cap when it differs from quote.sendNet (fee already inside the provider rate). */
   sourceAmountCap?: string;
 }

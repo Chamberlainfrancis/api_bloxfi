@@ -60,6 +60,7 @@ function rowToTransferDetails(row: {
   refundDetails: unknown;
   failedReason: string | null;
   providerRefs?: unknown;
+  runReference?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): OfframpTransferDetails {
@@ -86,6 +87,7 @@ function rowToTransferDetails(row: {
     refundDetails: (row.refundDetails as RefundDetails) ?? null,
     failedReason: row.failedReason ?? null,
     senderName: senderNameFromRow(row.providerRefs, receipt),
+    runReference: row.runReference ?? null,
   };
 }
 

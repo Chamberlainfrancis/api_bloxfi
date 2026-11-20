@@ -63,7 +63,7 @@ Optional / recommended:
 | `NODE_ENV`                | `development` \| `test` \| `production`        |
 | `CORS_ORIGINS`            | Comma-separated origins (empty = permissive)    |
 | `RATE_LIMIT_WINDOW_SECONDS` | Rate limit window (default 60)                |
-| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window per key (default 100)   |
+| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window per API key, or per IP without a valid key (default 600) |
 | `IDEMPOTENCY_TTL_SECONDS` | TTL for idempotency keys in Redis (default 86400) |
 | `S3_*`                    | S3-compatible storage for file uploads          |
 | `PALREMIT_LIQUIDITY_URL` | Palremit Liquidity Orchestrator base URL (optional; defaults to `https://liquidity.palremit.com`) |
@@ -182,6 +182,10 @@ The following fields must be **omitted** — they are fixed by the quote and wil
 `source.amount`, `source.currency`, `source.chain`, `destination.currency`, `destination.amount`, `platformFee`
 
 **Platform fee currency:** The offramp platform fee is denominated in the **source crypto** (`fees.platformFee.currency = fromCurrency`, e.g. `usdt`). Settlement of the platform fee remains USDC and runs automatically after the offramp reaches `COMPLETED`.
+
+**Paying from the wallet balance:** send `fundingSource: "wallet"` on the quote and `source.fundingSource: "wallet"` on the create. A wallet quote lasts 5 minutes (or less if the provider rate ends sooner) and can be used once; quotes without it keep their usual lifetime. A wallet quote used on a create without `source.fundingSource: "wallet"` is refused with **400**. A too-low balance returns **422 `INSUFFICIENT_WALLET_BALANCE`**. The quote is used up even when the create fails, so take a new quote before trying again.
+
+**Run reference:** `runReference` (optional, up to 100 characters) on the create is stored on the offramp, returned on `GET /offramps/:id` and in the list, and sent in every offramp webhook. Filter with `GET /offramps?runReference=…`.
 
 **Migration:** Any client that called `POST /offramps` with direct amounts or `platformFee` must be updated to call `POST /offramps/quotes` first and pass the returned `quoteId`. See `postman/RAMP_E2E_POSTMAN_FLOW.md` for the updated flow.
 

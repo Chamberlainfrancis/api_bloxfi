@@ -372,6 +372,16 @@ export async function createOfframp(
       next(new AppError('Quote not found, expired, or already used', 'INVALID_REQUEST', 400));
       return;
     }
+    if (snapshot.fundingSource === 'wallet' && parsed.data.source.fundingSource !== 'wallet') {
+      next(
+        new AppError(
+          'This quote is for an offramp paid from the wallet: set source.fundingSource to "wallet"',
+          'INVALID_REQUEST',
+          400
+        )
+      );
+      return;
+    }
     const offrampUser = await userRepo.findUserById(parsed.data.destination.userId!);
     const usdErr = validateUsdOfframpMetadata(
       snapshot.toCurrency,
@@ -398,6 +408,7 @@ export async function createOfframp(
         reference: parsed.data.destination.reference,
       },
       metadata: parsed.data.metadata,
+      runReference: parsed.data.runReference,
     });
 
     const result = await offrampCore.createOfframp(
