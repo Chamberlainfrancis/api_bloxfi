@@ -19,6 +19,7 @@ export interface OfframpRepoList {
     limit: number;
     createdBefore?: Date;
     createdAfter?: Date;
+    runReference?: string;
   }): Promise<{
     offramps: Array<{
       id: string;
@@ -28,6 +29,7 @@ export interface OfframpRepoList {
       destination: unknown;
       providerRefs?: unknown;
       receipt?: unknown;
+      runReference?: string | null;
     }>;
     nextCursor: Date | null;
   }>;
@@ -54,6 +56,7 @@ function toListItem(row: {
   destination: unknown;
   providerRefs?: unknown;
   receipt?: unknown;
+  runReference?: string | null;
 }): ListOfframpItem {
   const source = row.source as { currency?: string; amount?: number; chain?: string };
   const destination = row.destination as { currency?: string; amount?: number };
@@ -75,6 +78,7 @@ function toListItem(row: {
       amount: Number(destination?.amount) ?? 0,
     },
     senderName: senderNameFromRow(row.providerRefs, receipt),
+    runReference: row.runReference ?? null,
   };
 }
 
@@ -101,6 +105,7 @@ export async function listOfframps(
     limit,
     createdBefore,
     createdAfter,
+    ...(query.runReference ? { runReference: query.runReference } : {}),
   });
 
   return {

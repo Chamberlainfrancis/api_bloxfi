@@ -379,12 +379,14 @@ model Offramp {
   refundDetails       Json? // RefundDetails when cancelled
   failedReason        String?
   lpReference         String? // Legacy Palremit reference (mirror of txnRef for fiat withdrawal when applicable)
+  runReference        String? // Partner's run / batch reference; echoed on the offramp and its webhooks
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 
   @@index([userId])
   @@index([userId, status])
   @@index([userId, createdAt])
+  @@index([runReference])
 }
 
 // --- Ramp quotes (POST /offramps/quotes, POST /onramps/quotes) ---

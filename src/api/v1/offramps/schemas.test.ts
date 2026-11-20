@@ -55,6 +55,12 @@ describe('createOfframpBodySchema', () => {
     ).toBe(true);
   });
 
+  it('keeps runReference (trimmed) and refuses an over-long one', () => {
+    const r = createOfframpBodySchema.safeParse({ ...baseBody, runReference: '  RUN-2026-11-20-001 ' });
+    expect(r.success && r.data.runReference).toBe('RUN-2026-11-20-001');
+    expect(createOfframpBodySchema.safeParse({ ...baseBody, runReference: 'x'.repeat(101) }).success).toBe(false);
+  });
+
   it('accepts quote-first create without metadata', () => {
     const r = createOfframpBodySchema.safeParse(baseBody);
     expect(r.success).toBe(true);

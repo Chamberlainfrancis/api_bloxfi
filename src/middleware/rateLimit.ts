@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { getRedis } from '@/services/redis';
 import { env } from '@/config';
@@ -10,13 +11,26 @@ const HEADER_REMAINING = 'X-RateLimit-Remaining';
 const HEADER_RESET = 'X-RateLimit-Reset';
 
 /**
+ * Who a request counts against: the API key when one is sent (so a partner's
+ * servers share one budget whatever IP they call from), otherwise the IP.
+ * The key is hashed so it never lands in Redis.
+ */
+export function rateLimitIdentifier(req: Pick<Request, 'headers' | 'ip'>): string {
+  const raw = req.headers[env.API_KEY_HEADER.toLowerCase()];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const token = typeof value === 'string' && value.startsWith('Bearer ') ? value.slice(7).trim() : '';
+  // Only the real key gets its own budget; random tokens fall back to the IP.
+  if (token && token === env.API_KEY) return `key:${createHash('sha256').update(token).digest('hex').slice(0, 32)}`;
+  return `ip:${req.ip ?? 'anonymous'}`;
+}
+
+/**
  * Redis-backed rate limit (fixed window, INCR + EXPIRE). No sorted sets (zset).
  * Sets X-RateLimit-* headers; returns standard error when exceeded.
- * Key: rateLimit:{identifier} where identifier = IP.
+ * Key: rateLimit:{identifier}, see rateLimitIdentifier.
  */
 export function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const identifier = req.ip ?? 'anonymous';
-  const key = `rateLimit:${identifier}`;
+  const key = `rateLimit:${rateLimitIdentifier(req)}`;
   const now = Math.floor(Date.now() / 1000);
   const redis = getRedis();
 

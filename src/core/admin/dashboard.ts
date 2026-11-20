@@ -466,6 +466,19 @@ export async function markTransaction(params: MarkParams): Promise<unknown> {
       : await offrampRepo.findOfframpById(id);
   if (!existing) throw new AppError('Transaction not found', 'NOT_FOUND', 404);
 
+  // Paid from the business wallet: "failed" means the business gets its money
+  // back, so it goes through mark-refunded (same paid/in-flight checks, releases
+  // the held balance, sends offramp.refunded). FAILED alone would leave it held.
+  if (type === 'offramp' && outcome === 'failed' && offrampRepo.walletFundingOf(existing)) {
+    const { markOfframpRefunded } = await import('@/core/admin/offrampRefund');
+    await markOfframpRefunded({
+      id,
+      actor: actor && actor.trim().length >= 2 ? actor : 'dashboard',
+      note: note && note.trim().length >= 3 ? note : 'Marked failed by operator; amount returned to the wallet balance',
+    });
+    return getTransactionDetail(type, id);
+  }
+
   const fromStatus = existing.status;
   const toStatus = resolveMarkStatus(type, outcome);
 

@@ -55,7 +55,12 @@ export interface CreateOfframpQuoteInput {
   accountId: string;
   /** "FIAT_TO_FIAT": longer window and the flow's extra markup. */
   flow?: string;
+  /** "wallet": paid from the business wallet, so no deposit window is needed. */
+  fundingSource?: 'wallet' | 'deposit';
 }
+
+/** Lifetime of a wallet-funded quote: no deposit to wait for, so the rate is held briefly. */
+export const WALLET_QUOTE_TTL_MINUTES = 5;
 
 export interface CreateOfframpQuoteOptions {
   getRateFromPalremit: (
@@ -95,6 +100,12 @@ function parseQuoteExpiry(rateValidUntil: string): Date {
 const OFFRAMP_DEPOSIT_WINDOW_MINUTES: Record<string, number> = {
   USD: 120,
 };
+
+/** Wallet quotes last WALLET_QUOTE_TTL_MINUTES, or less if the provider rate ends sooner. */
+export function walletQuoteExpiry(rateExpiry: Date, now = Date.now()): Date {
+  const cap = now + WALLET_QUOTE_TTL_MINUTES * 60 * 1000;
+  return new Date(Math.min(cap, rateExpiry.getTime()));
+}
 
 function applyOfframpDepositWindowFloor(toCurrency: string, rateExpiry: Date): Date {
   const minutes = OFFRAMP_DEPOSIT_WINDOW_MINUTES[toCurrency.trim().toUpperCase()];
@@ -371,9 +382,12 @@ export async function createOfframpQuote(
   const fiatToFiat = isFiatToFiatFlow(input.flow);
   // Fiat-to-fiat: crypto only arrives after the client's bank transfer, so the
   // locked rate and deposit address outlive the provider's 30 minute rate.
+  const walletFunded = input.fundingSource === 'wallet' && !fiatToFiat;
   const expiresAt = fiatToFiat
     ? new Date(Date.now() + FIAT_TO_FIAT_CONFIG.offrampWindowMinutes * 60 * 1000)
-    : applyOfframpDepositWindowFloor(toCurrency, parseQuoteExpiry(rateResponse.rateValidUntil));
+    : walletFunded
+      ? walletQuoteExpiry(parseQuoteExpiry(rateResponse.rateValidUntil))
+      : applyOfframpDepositWindowFloor(toCurrency, parseQuoteExpiry(rateResponse.rateValidUntil));
   const rateValidUntil = expiresAt.toISOString();
 
   const rateInformation: RateInformation = {
@@ -419,6 +433,7 @@ export async function createOfframpQuote(
     inverseRate: rateInformation.inverseRate,
     rateValidUntil,
     ...(fiatToFiat ? { flow: input.flow } : {}),
+    ...(walletFunded ? { fundingSource: 'wallet' as const } : {}),
     destinationAmount: receiveNet,
     quote,
     fees,
