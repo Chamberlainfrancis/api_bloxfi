@@ -498,7 +498,10 @@ model PairMarkupSetting {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  @@unique([fiat, side])
+  // Several rows per (fiat, side) are allowed, one per group of coins, e.g.
+  // USD sell: USDT 25 bps and USDC 20 bps. No coin may be in two rows for the
+  // same (fiat, side); core/admin/pairMarkup.ts enforces that under a lock.
+  @@index([fiat, side])
 }
 
 // --- Business wallets (19 Nov 2026) ---

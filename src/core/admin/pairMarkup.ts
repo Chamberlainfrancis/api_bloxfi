@@ -1,6 +1,8 @@
 /**
- * Ops-editable bloxfi FX spread per (fiat, side), shown and edited on the
- * dashboard Rates tab. buy = onramp (fiat → crypto), sell = offramp
+ * Ops-editable bloxfi FX spread per (fiat, side, source coins), shown and
+ * edited on the dashboard Rates tab. A fiat and side can have several rows
+ * as long as no coin is in two of them, e.g. USD offramps: USDT at 25 bps and
+ * USDC at 20 bps. buy = onramp (fiat → crypto), sell = offramp
  * (crypto → fiat). Only bloxfi's own markup lives here; currency-api rates
  * are not touched. There are no rates in code: an offramp currency with no
  * sell row cannot be quoted or created.
@@ -35,15 +37,28 @@ export interface PairMarkupSetting extends PairMarkupKey {
   updatedAt: Date;
 }
 
+export interface PairMarkupWriteData {
+  cryptos: string;
+  markupBps: number;
+  requireProviderRate: boolean;
+  updatedBy: string | null;
+}
+
+/** Reads and writes inside one transaction that holds the table's write lock. */
+export interface PairMarkupWriteTx {
+  listPairMarkupSettingsForKey(key: PairMarkupKey): Promise<PairMarkupSetting[]>;
+  findPairMarkupSettingById(id: string): Promise<PairMarkupSetting | null>;
+  createPairMarkupSetting(key: PairMarkupKey, data: PairMarkupWriteData): Promise<PairMarkupSetting>;
+  updatePairMarkupSetting(id: string, data: Partial<PairMarkupWriteData>): Promise<PairMarkupSetting>;
+  deletePairMarkupSettingById(id: string): Promise<void>;
+}
+
 export interface PairMarkupRepo {
   listPairMarkupSettings(): Promise<PairMarkupSetting[]>;
   findPairMarkupSettingById(id: string): Promise<PairMarkupSetting | null>;
-  findPairMarkupSettingByKey(key: PairMarkupKey): Promise<PairMarkupSetting | null>;
-  upsertPairMarkupSetting(
-    key: PairMarkupKey,
-    data: { cryptos: string; markupBps: number; requireProviderRate: boolean; updatedBy: string | null }
-  ): Promise<PairMarkupSetting>;
   deletePairMarkupSettingById(id: string): Promise<void>;
+  /** Runs fn in one transaction; concurrent saves wait, so two rows can never claim the same coin. */
+  withPairMarkupWriteLock<T>(fn: (tx: PairMarkupWriteTx) => Promise<T>): Promise<T>;
   /** Upper-case payout currencies of offramps created since `since`. */
   listRecentOfframpCurrencies(since: Date): Promise<string[]>;
 }
@@ -52,20 +67,52 @@ export interface PairMarkupRepo {
 export const PAUSED_OFFRAMP_LOOKBACK_DAYS = 90;
 
 /**
- * Currencies recently paid out by offramps that have no sell row: offramps to
- * them are refused until a markup is saved. Sorted, upper-case.
+ * Recent offramp currencies that have a coin with no sell row: offramps from
+ * that coin to that currency are refused until a markup is saved. A currency
+ * with no sell row at all is listed alone ("NGN"); one with some coins priced
+ * lists the missing ones ("USD from USDC"). Sorted, upper-case.
  */
 export function pausedOfframpCurrencies(
-  settings: ReadonlyArray<Pick<PairMarkupSetting, 'fiat' | 'side'>>,
+  settings: ReadonlyArray<Pick<PairMarkupSetting, 'fiat' | 'side'> & { cryptos?: string }>,
   recentCurrencies: ReadonlyArray<string>
 ): string[] {
-  const priced = new Set(settings.filter((s) => s.side === 'sell').map((s) => s.fiat.toUpperCase()));
+  const covered = new Map<string, Set<string>>();
+  for (const s of settings) {
+    if (s.side !== 'sell') continue;
+    const fiat = s.fiat.toUpperCase();
+    const set = covered.get(fiat) ?? new Set<string>();
+    const coins = s.cryptos == null ? defaultCryptosFor(fiat) : splitCodes(s.cryptos);
+    for (const c of coins) set.add(c);
+    covered.set(fiat, set);
+  }
   const out = new Set<string>();
   for (const c of recentCurrencies) {
     const fiat = c.trim().toUpperCase();
-    if (/^[A-Z]{3}$/.test(fiat) && !priced.has(fiat)) out.add(fiat);
+    if (!/^[A-Z]{3}$/.test(fiat)) continue;
+    const have = covered.get(fiat);
+    if (!have) {
+      out.add(fiat);
+      continue;
+    }
+    const missing = defaultCryptosFor(fiat).filter((x) => !have.has(x));
+    if (missing.length) out.add(`${fiat} from ${missing.join(', ')}`);
   }
   return [...out].sort();
+}
+
+function splitCodes(cryptos: string): string[] {
+  return cryptos.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+}
+
+/** USD, USDT, USDC without the fiat itself (a USD row can't price USD). */
+function defaultCryptosFor(fiat: string): string[] {
+  return PAIR_MARKUP_CRYPTOS.filter((c) => c !== fiat);
+}
+
+/** Same coins in the canonical USD, USDT, USDC order. */
+function orderCryptos(cryptos: Iterable<string>): string {
+  const set = new Set(cryptos);
+  return PAIR_MARKUP_CRYPTOS.filter((c) => set.has(c)).join(',');
 }
 
 export interface PairMarkupAuditRepo {
@@ -90,6 +137,13 @@ export class PairMarkupValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PairMarkupValidationError';
+  }
+}
+
+export class PairMarkupNotFoundError extends Error {
+  constructor(message = 'Rate markup not found') {
+    super(message);
+    this.name = 'PairMarkupNotFoundError';
   }
 }
 
@@ -132,7 +186,7 @@ export function normalizePairMarkupInput(input: {
     throw new PairMarkupValidationError(`cryptos must be from USD, USDT, USDC and not the fiat itself (got ${bad.join(', ')})`);
   }
   // Keep a stable order so "USDC,USD" and "USD,USDC" are the same setting.
-  const ordered = PAIR_MARKUP_CRYPTOS.filter((c) => cryptos.includes(c));
+  const ordered = orderCryptos(cryptos);
 
   const rawBps = Number(input.markupBps);
   if (!Number.isFinite(rawBps) || rawBps < 0 || rawBps > PAIR_MARKUP_MAX_BPS) {
@@ -148,17 +202,35 @@ export function normalizePairMarkupInput(input: {
   // Only offramps floor at the provider rate; buy rows always store true.
   const requireProviderRate = input.side === 'sell' ? input.requireProviderRate !== false : true;
 
-  return { key: { fiat, side: input.side }, cryptos: ordered.join(','), markupBps, requireProviderRate };
+  return { key: { fiat, side: input.side }, cryptos: ordered, markupBps, requireProviderRate };
 }
 
 export async function listPairMarkupSettings(deps: Pick<PairMarkupDeps, 'repo'>): Promise<PairMarkupSetting[]> {
   return deps.repo.listPairMarkupSettings();
 }
 
-/** Create or replace the rule for (fiat, side). An unchanged rule is not rewritten or audited. */
+interface AuditEntry {
+  key: PairMarkupKey;
+  from: string;
+  to: string;
+  note: string;
+}
+
+/**
+ * Create or edit one row. With `id`, that row is edited (its currency and
+ * direction can't change). Without `id`, the row for the same currency,
+ * direction and coins is edited, or a new row is added.
+ *
+ * Coins the saved row claims are taken out of the other rows for the same
+ * currency and direction in the same transaction, so a coin is always priced
+ * by exactly one row and there is no gap: saving USD sell USDT at 25 bps
+ * while "USDT,USDC 20 bps" exists leaves "USDC 20 bps" and "USDT 25 bps".
+ * A row left with no coins is removed. An unchanged save writes nothing.
+ */
 export async function savePairMarkupSetting(
   deps: PairMarkupDeps,
   input: {
+    id?: string | null;
     fiat: string;
     side: PairMarkupSide;
     cryptos?: ReadonlyArray<string> | string | null;
@@ -169,32 +241,79 @@ export async function savePairMarkupSetting(
 ): Promise<PairMarkupSetting> {
   const { key, cryptos, markupBps, requireProviderRate } = normalizePairMarkupInput(input);
   const actor = input.actor?.trim() || null;
-  const previous = await deps.repo.findPairMarkupSettingByKey(key);
-  if (
-    previous &&
-    previous.markupBps === markupBps &&
-    previous.cryptos === cryptos &&
-    previous.requireProviderRate === requireProviderRate
-  ) {
-    return previous;
-  }
+  const id = input.id?.trim() || null;
 
-  const saved = await deps.repo.upsertPairMarkupSetting(key, { cryptos, markupBps, requireProviderRate, updatedBy: actor });
-  await deps.audit.createAdminAction({
-    txnType: 'pair_markup',
-    txnId: pairMarkupKeyLabel(key),
-    fromStatus: previous ? describe(previous) : '',
-    toStatus: describe(saved),
-    note: previous ? 'Rate markup updated' : 'Rate markup added',
-    actor,
+  const { saved, entries } = await deps.repo.withPairMarkupWriteLock(async (tx) => {
+    const rows = await tx.listPairMarkupSettingsForKey(key);
+    let target: PairMarkupSetting | null;
+    if (id) {
+      target = rows.find((r) => r.id === id) ?? null;
+      if (!target) {
+        const other = await tx.findPairMarkupSettingById(id);
+        if (!other) throw new PairMarkupNotFoundError();
+        throw new PairMarkupValidationError(
+          `this row is ${other.fiat} ${other.side}; its currency and direction can't be changed. Add a new row instead.`
+        );
+      }
+    } else {
+      target = rows.find((r) => r.cryptos === cryptos) ?? null;
+    }
+
+    if (
+      target &&
+      target.cryptos === cryptos &&
+      target.markupBps === markupBps &&
+      target.requireProviderRate === requireProviderRate
+    ) {
+      return { saved: target, entries: [] as AuditEntry[] };
+    }
+
+    const claimed = new Set(cryptos.split(','));
+    const out: AuditEntry[] = [];
+    for (const other of rows) {
+      if (target && other.id === target.id) continue;
+      const otherCoins = splitCodes(other.cryptos);
+      if (!otherCoins.some((c) => claimed.has(c))) continue;
+      const remaining = orderCryptos(otherCoins.filter((c) => !claimed.has(c)));
+      if (!remaining) {
+        await tx.deletePairMarkupSettingById(other.id);
+        out.push({ key, from: describe(other), to: '', note: `Rate markup removed: ${other.cryptos} now priced by the new row` });
+      } else {
+        const narrowed = await tx.updatePairMarkupSetting(other.id, { cryptos: remaining, updatedBy: actor });
+        const moved = otherCoins.filter((c) => claimed.has(c)).join(',');
+        out.push({ key, from: describe(other), to: describe(narrowed), note: `Rate markup narrowed: ${moved} moved to its own row` });
+      }
+    }
+
+    const data = { cryptos, markupBps, requireProviderRate, updatedBy: actor };
+    const row = target ? await tx.updatePairMarkupSetting(target.id, data) : await tx.createPairMarkupSetting(key, data);
+    out.push({
+      key,
+      from: target ? describe(target) : '',
+      to: describe(row),
+      note: target ? 'Rate markup updated' : 'Rate markup added',
+    });
+    return { saved: row, entries: out };
   });
+
+  if (entries.length === 0) return saved;
+  for (const e of entries) {
+    await deps.audit.createAdminAction({
+      txnType: 'pair_markup',
+      txnId: pairMarkupKeyLabel(e.key),
+      fromStatus: e.from,
+      toStatus: e.to,
+      note: e.note,
+      actor,
+    });
+  }
   await deps.reload();
   return saved;
 }
 
 /**
- * Removing a sell row pauses offramps to that currency (quotes and creates are
- * refused). Removing a buy row means onramps use the currency-api B2B rate.
+ * Removing a sell row pauses offramps from its coins to that currency (quotes
+ * and creates are refused). Removing a buy row means onramps use the currency-api B2B rate.
  */
 export async function deletePairMarkupSetting(
   deps: PairMarkupDeps,

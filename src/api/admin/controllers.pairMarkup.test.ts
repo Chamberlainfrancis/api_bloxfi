@@ -10,12 +10,18 @@ vi.mock('@/config', () => ({
 }));
 vi.mock('@/services/palremitAdapters', () => ({ createPalremitLiquidityAdapter: vi.fn(() => vi.fn()) }));
 vi.mock('@/db/repositories/user.repo', () => ({ listUsers: vi.fn(), searchUsers: vi.fn(), mergeUserMetadata: vi.fn() }));
+const tx = vi.hoisted(() => ({
+  listPairMarkupSettingsForKey: vi.fn(),
+  findPairMarkupSettingById: vi.fn(),
+  createPairMarkupSetting: vi.fn(),
+  updatePairMarkupSetting: vi.fn(),
+  deletePairMarkupSettingById: vi.fn(),
+}));
 vi.mock('@/db/repositories/pairMarkup.repo', () => ({
   listPairMarkupSettings: vi.fn(),
   findPairMarkupSettingById: vi.fn(),
-  findPairMarkupSettingByKey: vi.fn(),
-  upsertPairMarkupSetting: vi.fn(),
   deletePairMarkupSettingById: vi.fn(),
+  withPairMarkupWriteLock: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   listRecentOfframpCurrencies: vi.fn(),
 }));
 vi.mock('@/db/repositories/adminAction.repo', () => ({ createAdminAction: vi.fn(), listAdminActionsForTxn: vi.fn() }));
@@ -68,7 +74,7 @@ describe('putPairMarkup', () => {
     const next = vi.fn() as unknown as NextFunction;
     await putPairMarkup(req({ body: { fiat: 'EUR', side: 'sell', markupBps: 25 } }), buildResponse(), next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'Incorrect passcode', statusCode: 401 }));
-    expect(pairMarkupRepo.upsertPairMarkupSetting).not.toHaveBeenCalled();
+    expect(pairMarkupRepo.withPairMarkupWriteLock).not.toHaveBeenCalled();
   });
 
   it('rejects an out-of-range markup with 400', async () => {
@@ -79,7 +85,7 @@ describe('putPairMarkup', () => {
       next
     );
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
-    expect(pairMarkupRepo.upsertPairMarkupSetting).not.toHaveBeenCalled();
+    expect(pairMarkupRepo.withPairMarkupWriteLock).not.toHaveBeenCalled();
   });
 
   it.each(['', null])('rejects a blank markup (%o) with 400 instead of saving 0', async (markupBps) => {
@@ -90,12 +96,12 @@ describe('putPairMarkup', () => {
       next
     );
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
-    expect(pairMarkupRepo.upsertPairMarkupSetting).not.toHaveBeenCalled();
+    expect(pairMarkupRepo.withPairMarkupWriteLock).not.toHaveBeenCalled();
   });
 
   it('saves, audits and reloads pricing with the right passcode', async () => {
-    vi.mocked(pairMarkupRepo.findPairMarkupSettingByKey).mockResolvedValue(ROW);
-    vi.mocked(pairMarkupRepo.upsertPairMarkupSetting).mockResolvedValue({ ...ROW, markupBps: 25 });
+    tx.listPairMarkupSettingsForKey.mockResolvedValue([ROW]);
+    tx.updatePairMarkupSetting.mockResolvedValue({ ...ROW, markupBps: 25 });
     const res = buildResponse();
     const next = vi.fn() as unknown as NextFunction;
     await putPairMarkup(
@@ -104,13 +110,27 @@ describe('putPairMarkup', () => {
       next
     );
     expect(next).not.toHaveBeenCalled();
-    expect(pairMarkupRepo.upsertPairMarkupSetting).toHaveBeenCalledWith(
-      { fiat: 'EUR', side: 'sell' },
+    expect(tx.updatePairMarkupSetting).toHaveBeenCalledWith(
+      'pm_1',
       { cryptos: 'USD,USDT,USDC', markupBps: 25, requireProviderRate: true, updatedBy: 'Emmanuel' }
     );
     expect(adminActionRepo.createAdminAction).toHaveBeenCalledWith(expect.objectContaining({ txnType: 'pair_markup', txnId: 'EUR:sell' }));
     expect(refresh.reloadPairMarkupRules).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('putPairMarkup with id', () => {
+  it('404s an unknown row id', async () => {
+    tx.listPairMarkupSettingsForKey.mockResolvedValue([ROW]);
+    tx.findPairMarkupSettingById.mockResolvedValue(null);
+    const next = vi.fn() as unknown as NextFunction;
+    await putPairMarkup(
+      req({ body: { id: 'nope', fiat: 'EUR', side: 'sell', markupBps: 25 }, headers: { 'x-dashboard-secret': 'pr2026' } }),
+      buildResponse(),
+      next
+    );
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
   });
 });
 
