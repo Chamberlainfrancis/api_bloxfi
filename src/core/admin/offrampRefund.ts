@@ -152,13 +152,32 @@ export function attemptIds(row: { providerRefs?: unknown; timeline?: unknown; lp
   return out;
 }
 
+/** Stored withdrawalStatus values that can only have been written after a failure webhook. */
+const LATER_THAN_FAILED: ReadonlySet<string> = new Set(['successful', 'pending', 'processing', 'funded']);
+
+/**
+ * When an operator marked the offramp paid on the dashboard (Mark as success),
+ * that time; otherwise null. A manual mark is how a payout retried or paid
+ * outside the current orchestrator withdrawal is recorded, so the provider's
+ * earlier rejection of that withdrawal no longer needs action.
+ */
+export function operatorPaidAt(row: { providerRefs?: unknown; timeline?: unknown }): string | null {
+  const orch = orchRefs(row.providerRefs);
+  if (orch.markedManually !== true || str(orch.withdrawalStatus).toLowerCase() !== 'successful') return null;
+  return iso(orch.completedAt) ?? iso(rec(row.timeline).completedAt);
+}
+
 /** What we know about an attempt from webhooks already saved on the row (no network). */
 export function storedAttempt(row: { providerRefs?: unknown }, withdrawalId: string): PayoutAttempt | null {
   const orch = orchRefs(row.providerRefs);
   const failed = classifyWithdrawal(rec(orch.rawWithdrawalFailedPayload).withdrawal);
   const fundedId = str(rec(rec(orch.rawWithdrawalFundedPayload).withdrawal).id);
   const isCurrent = str(orch.palremitWithdrawalId) === withdrawalId;
-  if (failed && failed.withdrawalId === withdrawalId) {
+  // A webhook after the failure (same withdrawal retried at the orchestrator)
+  // moves withdrawalStatus on; then the saved failure is history.
+  const movedOn =
+    isCurrent && orch.markedManually !== true && LATER_THAN_FAILED.has(str(orch.withdrawalStatus).toLowerCase());
+  if (failed && failed.withdrawalId === withdrawalId && !movedOn) {
     const funded =
       failed.funded ?? (fundedId === withdrawalId || (isCurrent && str(orch.withdrawalStatus) === 'failed_after_funding') ? true : null);
     return { ...failed, funded, current: isCurrent, source: 'stored' };
@@ -215,12 +234,18 @@ function signalDetail(outcome: ProviderRefundSignal['outcome'], funded: boolean 
 /**
  * The signal shown to ops. Only raised when the CURRENT attempt ended without
  * paying: an earlier expired attempt that was reissued and is now in flight or
- * paid is history, not something to refund.
+ * paid is history, not something to refund. Nor when an operator marked the
+ * offramp paid after the current attempt ended (retried or paid by hand).
  */
-export function refundSignalFrom(attempts: PayoutAttempt[]): ProviderRefundSignal | null {
+export function refundSignalFrom(
+  attempts: PayoutAttempt[],
+  opts: { operatorPaidAt?: string | null } = {}
+): ProviderRefundSignal | null {
   const current = attempts.find((a) => a.current) ?? attempts[0];
   if (!current || current.source === 'unavailable') return null;
   if (!GAVE_UP.has(current.outcome)) return null;
+  // Marked paid by an operator after this attempt ended: resolved, not a refund case.
+  if (opts.operatorPaidAt && (!current.endedAt || opts.operatorPaidAt >= current.endedAt)) return null;
   const outcome = current.outcome as ProviderRefundSignal['outcome'];
   const fundedAttempts = attempts.filter((a) => a.funded === true).length;
   return {
@@ -241,7 +266,7 @@ export function storedProviderSignal(row: { providerRefs?: unknown; timeline?: u
   const attempts = ids
     .map((id) => storedAttempt(row, id))
     .filter((a): a is PayoutAttempt => a != null);
-  return refundSignalFrom(attempts);
+  return refundSignalFrom(attempts, { operatorPaidAt: operatorPaidAt(row) });
 }
 
 const NOTHING_RECEIVED_STATUSES: ReadonlySet<string> = new Set(['CREATED', 'AWAITING_CRYPTO', 'EXPIRED']);

@@ -26,6 +26,7 @@ import {
 import {
   loadPayoutAttempts,
   refundBlockReason,
+  operatorPaidAt,
   refundSignalFrom,
   storedProviderSignal,
 } from '@/core/admin/offrampRefund';
@@ -418,7 +419,8 @@ export async function getTransactionDetail(type: TxnType, id: string): Promise<u
     type,
     adminActions,
     payoutAttempts,
-    providerRefundSignal: type === 'offramp' ? refundSignalFrom(payoutAttempts) : null,
+    providerRefundSignal:
+      type === 'offramp' ? refundSignalFrom(payoutAttempts, { operatorPaidAt: operatorPaidAt(row) }) : null,
     canMarkRefunded: type === 'offramp' && refundBlocked == null,
     refundBlockedReason: refundBlocked,
     refundNeedsAcknowledge:
