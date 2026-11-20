@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   attemptIds,
   classifyWithdrawal,
+  operatorPaidAt,
   refundAuditNote,
   refundBlockReason,
   refundSignalFrom,
@@ -121,6 +122,15 @@ describe('refundSignalFrom', () => {
   });
 });
 
+describe('refundSignalFrom with an operator paid mark', () => {
+  it('drops the signal when the mark is after the attempt ended, keeps it otherwise', () => {
+    const a = [attempt({ outcome: 'rejected', failureCode: 'provider_rejected', funded: false })];
+    expect(refundSignalFrom(a, { operatorPaidAt: '2026-11-13T11:00:00.000Z' })).toBeNull();
+    expect(refundSignalFrom(a, { operatorPaidAt: '2026-11-13T09:00:00.000Z' })).toMatchObject({ outcome: 'rejected' });
+    expect(refundSignalFrom(a)).toMatchObject({ outcome: 'rejected' });
+  });
+});
+
 describe('storedProviderSignal', () => {
   const fundedThenExpired = {
     status: 'COMPLETED',
@@ -158,6 +168,60 @@ describe('storedProviderSignal', () => {
 
   it('is null once the offramp is REFUNDED', () => {
     expect(storedProviderSignal({ ...fundedThenExpired, status: 'REFUNDED' })).toBeNull();
+  });
+
+  // OFF-81f27dd0 on 20 Nov: OwlPay rejected the withdrawal, the payout was
+  // retried outside it, and ops marked the offramp paid. The chip stuck.
+  const rejectedThenMarkedPaid = {
+    status: 'COMPLETED',
+    timeline: { completedAt: '2026-11-20T05:59:29.543Z', fiatWithdrawalCompleted: true },
+    providerRefs: {
+      palremitOrchestrator: {
+        palremitWithdrawalId: 'wd-9',
+        withdrawalStatus: 'successful',
+        markedManually: true,
+        completedAt: '2026-11-20T05:59:29.543Z',
+        rawWithdrawalFailedPayload: {
+          withdrawal: {
+            id: 'wd-9',
+            state: 'failed',
+            failure_reason: { code: 'provider_rejected', message: 'x' },
+            last_state_transition_at: '2026-11-19T22:30:03.336Z',
+          },
+        },
+      },
+    },
+  };
+
+  it('is null when an operator marked the offramp paid after the rejection', () => {
+    expect(operatorPaidAt(rejectedThenMarkedPaid)).toBe('2026-11-20T05:59:29.543Z');
+    expect(storedProviderSignal(rejectedThenMarkedPaid)).toBeNull();
+  });
+
+  it('still shows a failure that came after the manual mark', () => {
+    const failedLater = JSON.parse(JSON.stringify(rejectedThenMarkedPaid));
+    failedLater.providerRefs.palremitOrchestrator.rawWithdrawalFailedPayload.withdrawal.last_state_transition_at =
+      '2026-11-20T07:00:00.000Z';
+    expect(storedProviderSignal(failedLater)).toMatchObject({ outcome: 'rejected' });
+  });
+
+  it('keeps a COMPLETED offramp flagged when nobody marked it paid (funded, then expired)', () => {
+    expect(operatorPaidAt(fundedThenExpired)).toBeNull();
+    expect(storedProviderSignal(fundedThenExpired)).toMatchObject({ outcome: 'expired' });
+  });
+
+  it('is null when a later webhook moved the same withdrawal on (retried at the orchestrator)', () => {
+    const retried = {
+      status: 'COMPLETED',
+      providerRefs: {
+        palremitOrchestrator: {
+          ...rejectedThenMarkedPaid.providerRefs.palremitOrchestrator,
+          markedManually: false,
+          rawWithdrawalSuccessfulPayload: { withdrawal: { id: 'wd-9', state: 'successful' } },
+        },
+      },
+    };
+    expect(storedProviderSignal(retried)).toBeNull();
   });
 });
 
